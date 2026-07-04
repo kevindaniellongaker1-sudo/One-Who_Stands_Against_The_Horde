@@ -58,7 +58,10 @@ Race is chosen at character creation (`SelectRace` → calls `SelectCharacterTyp
 | Hobgoblin | Wave 11 | Tougher |
 | Orc | Wave 21 | |
 | OrcBarbarian | Wave 41+ (roll) | Double-tap |
-| Troll | Wave 31 | Regenerates 2-4 HP/turn; flees at HP≤4, returns healed with companions |
+| Troll | Wave 31 | Regenerates 2-4 HP/turn; flees at HP≤4, returns healed with companions. `Troll.RandType` rolls variants: 20% Warrior, 10% Priest, 10% Musician |
+| TrollWarrior | Wave 31+ (roll) | Beefier troll (34 HP, harder hits, 4 spare axes) |
+| TrollPriest | Wave 31+ (roll) | Dark prayers (pool-limited): heals wounded allies 3d4 (30ft) or dark smite 2d4 (25ft) |
+| TrollMusician | Wave 31+ (roll) | Songs (pool-limited): Silence (1d4 turns, only if player has magic) then war rhythm (+1 atk/dodge all enemies, once) |
 | SpellGoblin | Wave 51+ (roll) | Magic attacks |
 | Ogre | Wave 41 | Club sweep, companions per roll |
 | NecromancerTroll | Wave 71+ (roll) | Raises dead, negative touch 2d4, flees + returns with undead army |
@@ -81,6 +84,10 @@ Race is chosen at character creation (`SelectRace` → calls `SelectCharacterTyp
 - Song of the Redeemer — instant: heal all allies max(1, L/3)d4
 
 SaveGame subtracts ALL received buff deltas (wind/war/bless/stone/redemption) so mid-combat autosaves stay clean.
+
+Enemy casters have pools too (set in BuildGroup from waveNum with the player formulas):
+`Enemy.SpellUsesLeft` (SpellGoblin, NecromancerTroll raise/heal/touch), `PrayerUsesLeft`
+(GoblinShaman, TrollPriest), `SongUsesLeft` (TrollMusician). When spent they claw/cower.
 
 ## Key systems
 

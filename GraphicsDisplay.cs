@@ -188,6 +188,9 @@ class GraphicsDisplay
                 "OrcPriestess"     => "OP",
                 "OrcRanger"        => "OR",
                 "Troll"            => "T",
+                "TrollWarrior"     => "TW",
+                "TrollPriest"      => "TP",
+                "TrollMusician"    => "TM",
                 "NecromancerTroll" => "NT",
                 "Ogre"             => "Og",
                 _                  => "?"
@@ -229,7 +232,7 @@ class GraphicsDisplay
         Raylib.DrawText($"Enemies: {snap.Enemies.Count}", px, 130, 13, Color.Orange);
 
         // Legend
-        int ly = WinH - 306;
+        int ly = WinH - 354;
         Raylib.DrawText("Legend", px, ly, 13, Color.Gray);
         DrawLegend(px, ly +  16, "G",  "Goblin",       new Color(144, 238, 144, 255));
         DrawLegend(px, ly +  32, "GW", "Goblin War",   new Color(100, 200, 100, 255));
@@ -246,8 +249,11 @@ class GraphicsDisplay
         DrawLegend(px, ly + 208, "OP", "Orc Priest",   new Color(180, 180, 220, 255));
         DrawLegend(px, ly + 224, "OR", "Orc Ranger",   new Color(100, 160,  60, 255));
         DrawLegend(px, ly + 240, "T",  "Troll",        new Color( 80, 130,  80, 255));
-        DrawLegend(px, ly + 256, "NT", "Necro Troll",  new Color( 80,  60, 120, 255));
-        DrawLegend(px, ly + 272, "Og", "Ogre",         new Color(180,  80,  80, 255));
+        DrawLegend(px, ly + 256, "TW", "Troll War",    new Color(110, 130,  60, 255));
+        DrawLegend(px, ly + 272, "TP", "Troll Priest", new Color( 90, 110, 140, 255));
+        DrawLegend(px, ly + 288, "TM", "Troll Music",  new Color(140, 110,  60, 255));
+        DrawLegend(px, ly + 304, "NT", "Necro Troll",  new Color( 80,  60, 120, 255));
+        DrawLegend(px, ly + 320, "Og", "Ogre",         new Color(180,  80,  80, 255));
     }
 
     void DrawLegend(int x, int y, string abbr, string label, Color col)
@@ -276,6 +282,9 @@ class GraphicsDisplay
         "OrcPriestess"     => new Color(180, 180, 220, 255),
         "OrcRanger"        => new Color(100, 160,  60, 255),
         "Troll"            => new Color( 80, 130,  80, 255),
+        "TrollWarrior"     => new Color(110, 130,  60, 255),
+        "TrollPriest"      => new Color( 90, 110, 140, 255),
+        "TrollMusician"    => new Color(140, 110,  60, 255),
         "NecromancerTroll" => new Color( 80,  60, 120, 255),
         "Ogre"             => new Color(180,  80,  80, 255),
         _                  => Color.Gray

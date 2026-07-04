@@ -325,8 +325,8 @@ List<Enemy> BuildGroup(int waveNum, Random r)
                 case 4: g.Add(Hobgoblin.RandType(r, $"Hobgoblin {hn++}")); g.Add(Hobgoblin.RandType(r, $"Hobgoblin {hn++}")); break;
                 case 5: g.Add(Orc.RandType(r, $"Orc {on++}")); break;
                 case 6: g.Add(Orc.RandType(r, $"Orc {on++}")); g.Add(Orc.RandType(r, $"Orc {on++}")); break;
-                case 7: g.Add(new Troll(r, $"Troll {tn++}")); break;
-                case 8: g.Add(new Troll(r, $"Troll {tn++}")); break;
+                case 7: g.Add(Troll.RandType(r, $"Troll {tn++}")); break;
+                case 8: g.Add(Troll.RandType(r, $"Troll {tn++}")); break;
                 case 9: g.Add(new RogueGoblin(r, $"Rogue Goblin {dgn++}")); break;
                 case 10: g.Add(new RogueGoblin(r, $"Rogue Goblin {dgn++}")); g.Add(new RogueGoblin(r, $"Rogue Goblin {dgn++}")); break;
                 case 11: g.Add(new GoblinWarrior(r, $"Goblin Warrior {gwn++}")); break;
@@ -341,7 +341,7 @@ List<Enemy> BuildGroup(int waveNum, Random r)
         // Wave 41+: each slot rolls to determine what spawns (ogre is one result, not guaranteed)
         int slots = Math.Min(waveNum - 40, 10);
         int trolls = Math.Max(0, 10 - slots);
-        for (int i = 0; i < trolls; i++) g.Add(new Troll(r, $"Troll {i + 1}"));
+        for (int i = 0; i < trolls; i++) g.Add(Troll.RandType(r, $"Troll {i + 1}"));
         for (int i = 0; i < slots && i < 12; i++)
         {
             int crMax = waveNum >= 71 ? 13 : 11;
@@ -350,18 +350,27 @@ List<Enemy> BuildGroup(int waveNum, Random r)
             {
                 case 1: case 2: g.Add(new Ogre(r, $"Ogre {i + 1}")); break;
                 case 3: for (int j = 0; j < 3; j++) g.Add(Orc.RandType(r, $"Orc {i * 3 + j + 1}")); break;
-                case 4: g.Add(new Troll(r, $"Troll {i * 2 + 1}")); g.Add(new Troll(r, $"Troll {i * 2 + 2}")); break;
+                case 4: g.Add(Troll.RandType(r, $"Troll {i * 2 + 1}")); g.Add(Troll.RandType(r, $"Troll {i * 2 + 2}")); break;
                 case 5: for (int j = 0; j < 4; j++) g.Add(Hobgoblin.RandType(r, $"Hobgoblin {i * 4 + j + 1}")); break;
                 case 6: g.Add(new GoblinShaman(r, $"Goblin Shaman {i+1}")); g.Add(new GoblinWarrior(r, $"Goblin Warrior {i*2+1}")); g.Add(new GoblinWarrior(r, $"Goblin Warrior {i*2+2}")); for (int j = 0; j < 2; j++) g.Add(Goblin.RandType(r, $"Goblin {i * 2 + j + 1}")); break;
                 case 7: if (waveNum >= 51) g.Add(new SpellGoblin(r, $"Spell Goblin {i + 1}")); else for (int j = 0; j < 3; j++) g.Add(Orc.RandType(r, $"Orc {i * 3 + j + 1}")); break;
                 case 8: if (waveNum >= 51) { g.Add(new SpellGoblin(r, $"Spell Goblin {i*2 + 1}")); g.Add(new SpellGoblin(r, $"Spell Goblin {i*2 + 2}")); } else for (int j = 0; j < 4; j++) g.Add(Hobgoblin.RandType(r, $"Hobgoblin {i * 4 + j + 1}")); break;
-                case 9: if (waveNum >= 61) g.Add(new OrcBarbarian(r, $"Orc Barbarian {i + 1}")); else g.Add(new Troll(r, $"Troll {i + 1}")); break;
+                case 9: if (waveNum >= 61) g.Add(new OrcBarbarian(r, $"Orc Barbarian {i + 1}")); else g.Add(Troll.RandType(r, $"Troll {i + 1}")); break;
                 case 10: g.Add(new RogueGoblin(r, $"Rogue Goblin {i*2+1}")); g.Add(new RogueGoblin(r, $"Rogue Goblin {i*2+2}")); break;
                 case 11: g.Add(new NecromancerTroll(r, $"Necromancer Troll {i + 1}")); break;
                 case 12: g.Add(new NecromancerTroll(r, $"Necromancer Troll {i + 1}")); g.Add(new Troll(r, $"Troll Thrall {i + 1}")); break;
-                default: if (waveNum >= 61) { g.Add(new OrcBarbarian(r, $"Orc Barbarian {i*2 + 1}")); g.Add(new OrcBarbarian(r, $"Orc Barbarian {i*2 + 2}")); } else { g.Add(new Troll(r, $"Troll {i*2 + 1}")); g.Add(new Troll(r, $"Troll {i*2 + 2}")); } break;
+                default: if (waveNum >= 61) { g.Add(new OrcBarbarian(r, $"Orc Barbarian {i*2 + 1}")); g.Add(new OrcBarbarian(r, $"Orc Barbarian {i*2 + 2}")); } else { g.Add(Troll.RandType(r, $"Troll {i*2 + 1}")); g.Add(Troll.RandType(r, $"Troll {i*2 + 2}")); } break;
             }
         }
+    }
+
+    // Enemy casters get use pools scaled to the wave (player formulas)
+    foreach (var e in g)
+    {
+        e.Level = waveNum;
+        e.SpellUsesLeft  = 6 + (waveNum / 2) * 2;
+        e.PrayerUsesLeft = 5 + (waveNum / 2) * 2;
+        e.SongUsesLeft   = 5 + waveNum / 2;
     }
     return g;
 }
@@ -1500,6 +1509,11 @@ abstract class Enemy
     public int SprintPenalty = 0;
     public bool IsPlayerAlly = false;
     public int AllyTurnsLeft = 0;
+    // Caster resource pools — scaled to wave level at spawn (same formulas as players)
+    public int Level = 1;
+    public int SpellUsesLeft = 6;
+    public int PrayerUsesLeft = 5;
+    public int SongUsesLeft = 5;
     public bool FrostBurned = false;
     public bool HalfMovement = false; public int HalfMovementTurns = 0; public bool HalfMovementBlock = false;
     public int WeaponDistance = 0;
@@ -1786,6 +1800,54 @@ class Troll : Enemy
         MagicResistant = true;
         XPValue = 45;
         Race = "Troll";
+    }
+
+    // When a troll is rolled, it may spawn as a variant (like goblin/hobgoblin/orc types)
+    public static Troll RandType(Random r, string name) => r.Next(1, 11) switch
+    {
+        7 or 8 => new TrollWarrior(r, name.Replace("Troll", "Troll Warrior")),
+        9      => new TrollPriest(r, name.Replace("Troll", "Troll Priest")),
+        10     => new TrollMusician(r, name.Replace("Troll", "Troll Musician")),
+        _      => new Troll(r, name)
+    };
+}
+
+class TrollWarrior : Troll
+{
+    public TrollWarrior(Random rng, string name) : base(rng, name)
+    {
+        TypeName = "Troll Warrior";
+        MaxHP = 34; HP = MaxHP;
+        MinAttack = 3; MaxAttack = 14;
+        MinDamage = 4; MaxDamage = 13;
+        MinGrapple = 3; MaxGrapple = 13;
+        BlockMin = 3; BlockMax = 13;
+        SpareAxes = 4;                    // carries extra throwing axes
+        XPValue = 58;
+    }
+}
+
+class TrollPriest : Troll
+{
+    public TrollPriest(Random rng, string name) : base(rng, name)
+    {
+        TypeName = "Troll Priest";
+        EquippedAxes = 0; SpareAxes = 0;  // carries a war mace, chants dark prayers
+        MinDamage = 2; MaxDamage = 10;
+        XPValue = 58;
+    }
+}
+
+class TrollMusician : Troll
+{
+    public bool PlayedSilence = false;
+    public bool WarSongActive = false;
+    public TrollMusician(Random rng, string name) : base(rng, name)
+    {
+        TypeName = "Troll Musician";
+        EquippedAxes = 0; SpareAxes = 0;  // hands full of war drums
+        MinDamage = 2; MaxDamage = 9;
+        XPValue = 58;
     }
 }
 
@@ -5197,20 +5259,38 @@ class CombatSession
 
                 for (int i = 0; i < actions && P.HP > 0; i++)
                 {
-                    // 1. Raise a nearby corpse (within 20ft) as undead
-                    var corpse = Active.FirstOrDefault(c =>
-                        c != e && !c.IsUndead && c.HP <= 0 &&
-                        c.Position.Feet(e.Position) <= 20f);
-                    if (corpse != null) { RaiseDead(corpse, e); continue; }
+                    if (e.SpellUsesLeft > 0)
+                    {
+                        // 1. Raise a nearby corpse (within 20ft) as undead
+                        var corpse = Active.FirstOrDefault(c =>
+                            c != e && !c.IsUndead && c.HP <= 0 &&
+                            c.Position.Feet(e.Position) <= 20f);
+                        if (corpse != null) { e.SpellUsesLeft--; RaiseDead(corpse, e); continue; }
 
-                    // 2. Heal an adjacent injured undead with negative energy
-                    var woundedUndead = Active.FirstOrDefault(u =>
-                        u != e && u.IsUndead && u.HP < u.MaxHP &&
-                        u.Position.IsCardinalAdjacent(e.Position));
-                    if (woundedUndead != null) { NecromancerHealUndead(e, woundedUndead); continue; }
+                        // 2. Heal an adjacent injured undead with negative energy
+                        var woundedUndead = Active.FirstOrDefault(u =>
+                            u != e && u.IsUndead && u.HP < u.MaxHP &&
+                            u.Position.IsCardinalAdjacent(e.Position));
+                        if (woundedUndead != null) { e.SpellUsesLeft--; NecromancerHealUndead(e, woundedUndead); continue; }
 
-                    // 3. Negative touch the player if adjacent
-                    if (e.Position.IsCardinalAdjacent(PlayerPos)) { NecromancerTouchPlayer(e); continue; }
+                        // 3. Negative touch the player if adjacent
+                        if (e.Position.IsCardinalAdjacent(PlayerPos)) { e.SpellUsesLeft--; NecromancerTouchPlayer(e); continue; }
+                    }
+                    else if (e.Position.IsCardinalAdjacent(PlayerPos))
+                    {
+                        // Dark power spent — reduced to clawing
+                        int ncAtk = Rng.Next(1, 7), ncDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1);
+                        Console.WriteLine($"  {e.Name}'s dark power is spent — it claws! Roll {ncAtk} vs dodge {ncDdg}.");
+                        if (ncAtk >= ncDdg)
+                        {
+                            int ncDmg = Rng.Next(1, 5);
+                            if (P.ArmorDamageReduction > 0) ncDmg = Math.Max(1, ncDmg - P.ArmorDamageReduction);
+                            P.HP -= ncDmg;
+                            Console.WriteLine($"  Clawed for {ncDmg}! HP:{P.HP}/{P.MaxHP}");
+                        }
+                        else Console.WriteLine("  You dodge!");
+                        continue;
+                    }
 
                     // 4. Otherwise close in
                     MoveTowardPlayer(e, ref actions, suppressCost: true);
@@ -5286,6 +5366,62 @@ class CombatSession
                         }
                     }
                     continue;
+                }
+
+                // Troll Priest: dark prayers — heal wounded allies or smite at range
+                if (e is TrollPriest tpri && tpri.PrayerUsesLeft > 0 && SilenceTurns <= 0 && actions > 0)
+                {
+                    var wounded = Active.Where(a => a.Alive && !a.IsPlayerAlly && a != e &&
+                                                    a.HP < a.MaxHP && a.Position.Feet(e.Position) <= 30f)
+                                        .OrderBy(a => (float)a.HP / a.MaxHP).FirstOrDefault();
+                    if (wounded != null)
+                    {
+                        tpri.PrayerUsesLeft--;
+                        int tpHeal = Rng.Next(1, 5) + Rng.Next(1, 5) + Rng.Next(1, 5);
+                        wounded.HP = Math.Min(wounded.HP + tpHeal, wounded.MaxHP);
+                        Console.WriteLine($"  {e.Name} chants a dark prayer — {wounded.Name} heals {tpHeal}! (HP:{wounded.HP}/{wounded.MaxHP})  [{tpri.PrayerUsesLeft} prayers left]");
+                        actions--;
+                    }
+                    else if (e.Position.Feet(PlayerPos) <= 25f && !e.Position.IsCardinalAdjacent(PlayerPos))
+                    {
+                        tpri.PrayerUsesLeft--;
+                        int smAtk = Rng.Next(2, 11);
+                        int smDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1);
+                        Console.WriteLine($"  {e.Name} calls down a dark smite! Roll {smAtk} vs your dodge {smDdg}.");
+                        if (smAtk >= smDdg)
+                        {
+                            int smDmg = Rng.Next(1, 5) + Rng.Next(1, 5);
+                            if (P.ArmorDamageReduction > 0) smDmg = Math.Max(1, smDmg - P.ArmorDamageReduction);
+                            P.HP -= smDmg;
+                            Console.WriteLine($"  Dark energy sears you for {smDmg}! HP:{P.HP}/{P.MaxHP}");
+                        }
+                        else Console.WriteLine("  You dodge the dark bolt!");
+                        actions--;
+                    }
+                }
+
+                // Troll Musician: silences the party's magic, then drums the horde into a frenzy
+                if (e is TrollMusician tmus && tmus.SongUsesLeft > 0 && SilenceTurns <= 0 && actions > 0)
+                {
+                    bool playerHasMagic = P.KnownSpells.Any() || P.CanPray || P.CanSing;
+                    if (!tmus.PlayedSilence && playerHasMagic)
+                    {
+                        tmus.SongUsesLeft--;
+                        tmus.PlayedSilence = true;
+                        SilenceTurns = Rng.Next(1, 5);
+                        Console.WriteLine($"  {e.Name} pounds a crushing rhythm — SILENCE falls for {SilenceTurns} turn(s)!");
+                        Console.WriteLine("  No spells, prayers or songs can be used by anyone!");
+                        actions--;
+                    }
+                    else if (!tmus.WarSongActive)
+                    {
+                        tmus.SongUsesLeft--;
+                        tmus.WarSongActive = true;
+                        foreach (var al in Active.Where(a => a.Alive && !a.IsPlayerAlly))
+                        { al.MinAttack += 1; al.MinDodge += 1; }
+                        Console.WriteLine($"  {e.Name} beats a war rhythm — the horde fights harder! (+1 attack, +1 dodge to all enemies)");
+                        actions--;
+                    }
                 }
 
                 // HP >= 5: grapple if triggered, then attack/throw/move
@@ -6040,6 +6176,25 @@ class CombatSession
     void DoEnemySpell(SpellGoblin sg)
     {
         if (SilenceTurns > 0) { Console.WriteLine($"  {sg.Name} mouths a spell — but the silence smothers it!"); return; }
+        if (sg.SpellUsesLeft <= 0)
+        {
+            Console.WriteLine($"  {sg.Name} is out of magic!");
+            if (sg.Position.IsCardinalAdjacent(PlayerPos))
+            {
+                int cAtk = Rng.Next(1, 7), cDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1);
+                Console.WriteLine($"  {sg.Name} claws at you! Roll {cAtk} vs dodge {cDdg}.");
+                if (cAtk >= cDdg)
+                {
+                    int cDmg = Rng.Next(1, 5);
+                    if (P.ArmorDamageReduction > 0) cDmg = Math.Max(1, cDmg - P.ArmorDamageReduction);
+                    P.HP -= cDmg;
+                    Console.WriteLine($"  Clawed for {cDmg}! HP:{P.HP}/{P.MaxHP}");
+                }
+                else Console.WriteLine("  You dodge!");
+            }
+            return;
+        }
+        sg.SpellUsesLeft--;
         int sgRaw = Rng.Next(1, 7); // d6 concentration roll
         bool sgCrit = sgRaw == 6;
         bool sgFumble = sgRaw == 1;
@@ -6188,6 +6343,8 @@ class CombatSession
     void DoGoblinShamanPray(GoblinShaman gs, List<Enemy> allAlive)
     {
         if (SilenceTurns > 0) { Console.WriteLine($"  {gs.Name} tries to chant — but the silence smothers the prayer!"); return; }
+        if (gs.PrayerUsesLeft <= 0) { Console.WriteLine($"  {gs.Name} has no prayers left — it cowers!"); return; }
+        gs.PrayerUsesLeft--;
         float feet = gs.Position.Feet(PlayerPos);
 
         // Lord's Prayer: player within 6ft — 1d6 holy damage
