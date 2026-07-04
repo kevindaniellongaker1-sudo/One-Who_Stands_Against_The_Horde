@@ -884,7 +884,7 @@ void SelectCharacterType(Player p)
         p.MusicInstrument = inst;
         Console.WriteLine($"  Instrument: {inst}!  Starting: Short Sword + unarmed 1d4");
         Console.WriteLine("  Songs (1 token each, effects last while playing + 1d4 turns after stopping):");
-        Console.WriteLine("    Slayer         — +2 attack, +1 damage");
+        Console.WriteLine("    Slayer         — +2 attack, +1 damage (melee, ranged, spells, grapple)");
         Console.WriteLine("    Wind Song      — +2 dodge, block and parry");
         Console.WriteLine("    Hardstone Song — take 2 less damage");
         Console.WriteLine("    DeathTone      — each turn, enemies with HP ≤ 2d6 roll flee in fear");
@@ -2546,7 +2546,7 @@ class CombatSession
                     if (P.SongTokens <= 0) { Console.WriteLine("  No song tokens left this wave."); continue; }
                     int sb = P.SongBonusAmount(), sd = P.SlayerDmgBonus(), fd = P.FearDiceCount();
                     Console.WriteLine($"  Songs (tokens: {P.SongTokens}):");
-                    Console.WriteLine($"  [1] Slayer         — +{sb} attack, +{sd} damage");
+                    Console.WriteLine($"  [1] Slayer         — +{sb} attack, +{sd} damage (melee, ranged, spells, grapple)");
                     Console.WriteLine($"  [2] Wind Song      — +{sb} dodge, block and parry");
                     Console.WriteLine($"  [3] Hardstone Song — take {sb} less damage");
                     Console.WriteLine($"  [4] DeathTone      — each turn, enemies with HP ≤ {fd}d6 roll flee");
@@ -2786,6 +2786,7 @@ class CombatSession
                         else if (throwFeet <= 10f) { thrDmgMin = 1; thrDmgMax = 6; }
                         else { thrDmgMin = 1; thrDmgMax = 2; }
                     }
+                    thrAtk += SlayerAtk();
                     int thrDdg = Rng.Next(throwTarget.MinDodge, throwTarget.MaxDodge + 1) - throwTarget.DodgePenalty;
                     Console.WriteLine($"  Throw {P.HeldWeapon}! ({throwFeet:F0}ft) Roll {thrAtk} vs {throwTarget.Name}'s dodge {thrDdg}.");
                     string thrWeap = P.HeldWeapon!;
@@ -2793,7 +2794,7 @@ class CombatSession
                     GridPos thrLand;
                     if (thrAtk >= thrDdg && !EnemyBlocks(throwTarget, thrAtk, isRanged: true))
                     {
-                        int thrDmg = Rng.Next(thrDmgMin, thrDmgMax + 1);
+                        int thrDmg = Rng.Next(thrDmgMin, thrDmgMax + 1) + SlayerDmg();
                         thrDmg = ReduceByToughHide(throwTarget, thrDmg);
                         Console.WriteLine($"  HIT! {thrDmg} dmg → {throwTarget.Name} HP:{throwTarget.HP - thrDmg}/{throwTarget.MaxHP}");
                         throwTarget.HP -= thrDmg;
@@ -2821,14 +2822,14 @@ class CombatSession
                         Console.WriteLine("  Too far! Max 20ft for thrown dagger.");
                         continue;
                     }
-                    int tdAtk = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 1);
+                    int tdAtk = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 1) + SlayerAtk();
                     int tdDdg = Rng.Next(throwTarget.MinDodge, throwTarget.MaxDodge + 1) - throwTarget.DodgePenalty;
                     Console.WriteLine($"  Throw dagger! ({thrDaggerFeet:F0}ft) Roll {tdAtk} vs {throwTarget.Name}'s dodge {tdDdg}. ({P.DaggerCount - 1} daggers left)");
                     P.DaggerCount--;
                     GridPos tdLand;
                     if (tdAtk >= tdDdg && !EnemyBlocks(throwTarget, tdAtk, isRanged: true))
                     {
-                        int tdDmg = Rng.Next(1, 7);
+                        int tdDmg = Rng.Next(1, 7) + SlayerDmg();
                         tdDmg = ReduceByToughHide(throwTarget, tdDmg);
                         Console.WriteLine($"  HIT! {tdDmg} dmg → {throwTarget.Name} HP:{throwTarget.HP - tdDmg}/{throwTarget.MaxHP}");
                         throwTarget.HP -= tdDmg;
@@ -2846,14 +2847,14 @@ class CombatSession
                     if (P.HasFeat("Double Tap") && P.DaggerCount > 0 && throwTarget.Alive)
                     {
                         Console.WriteLine("  [Double Tap] Second dagger throw!");
-                        int tdAtk2 = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 1);
+                        int tdAtk2 = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 1) + SlayerAtk();
                         int tdDdg2 = Rng.Next(throwTarget.MinDodge, throwTarget.MaxDodge + 1) - throwTarget.DodgePenalty;
                         Console.WriteLine($"  Throw dagger! ({thrDaggerFeet:F0}ft) Roll {tdAtk2} vs dodge {tdDdg2}. ({P.DaggerCount - 1} daggers left)");
                         P.DaggerCount--;
                         GridPos tdLand2;
                         if (tdAtk2 >= tdDdg2 && !EnemyBlocks(throwTarget, tdAtk2, isRanged: true))
                         {
-                            int tdDmg2 = Rng.Next(1, 7);
+                            int tdDmg2 = Rng.Next(1, 7) + SlayerDmg();
                             tdDmg2 = ReduceByToughHide(throwTarget, tdDmg2);
                             Console.WriteLine($"  HIT! {tdDmg2} dmg → {throwTarget.Name} HP:{throwTarget.HP - tdDmg2}/{throwTarget.MaxHP}");
                             throwTarget.HP -= tdDmg2;
@@ -2882,14 +2883,14 @@ class CombatSession
                         Console.WriteLine("  Too far! Max 20ft for thrown axe.");
                         continue;
                     }
-                    int taAtk = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 2);
+                    int taAtk = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 2) + SlayerAtk();
                     int taDdg = Rng.Next(throwTarget.MinDodge, throwTarget.MaxDodge + 1) - throwTarget.DodgePenalty;
                     Console.WriteLine($"  Throw axe! ({thrAxeFeet:F0}ft) Roll {taAtk} vs {throwTarget.Name}'s dodge {taDdg}. ({P.AxeCount - 1} axes left)");
                     P.AxeCount--;
                     GridPos taLand;
                     if (taAtk >= taDdg && !EnemyBlocks(throwTarget, taAtk, isRanged: true))
                     {
-                        int taDmg = Rng.Next(2, 9);
+                        int taDmg = Rng.Next(2, 9) + SlayerDmg();
                         taDmg = ReduceByToughHide(throwTarget, taDmg);
                         Console.WriteLine($"  HIT! {taDmg} dmg → {throwTarget.Name} HP:{throwTarget.HP - taDmg}/{throwTarget.MaxHP}");
                         throwTarget.HP -= taDmg;
@@ -2907,14 +2908,14 @@ class CombatSession
                     if (P.HasFeat("Double Tap") && P.AxeCount > 0 && throwTarget.Alive)
                     {
                         Console.WriteLine("  [Double Tap] Second axe throw!");
-                        int taAtk2 = Rng.Next(1, 9);
+                        int taAtk2 = Rng.Next(1, 9) + SlayerAtk();
                         int taDdg2 = Rng.Next(throwTarget.MinDodge, throwTarget.MaxDodge + 1) - throwTarget.DodgePenalty;
                         Console.WriteLine($"  Throw axe! ({thrAxeFeet:F0}ft) Roll {taAtk2} vs dodge {taDdg2}. ({P.AxeCount - 1} axes left)");
                         P.AxeCount--;
                         GridPos taLand2;
                         if (taAtk2 >= taDdg2 && !EnemyBlocks(throwTarget, taAtk2, isRanged: true))
                         {
-                            int taDmg2 = Rng.Next(2, 9);
+                            int taDmg2 = Rng.Next(2, 9) + SlayerDmg();
                             taDmg2 = ReduceByToughHide(throwTarget, taDmg2);
                             Console.WriteLine($"  HIT! {taDmg2} dmg → {throwTarget.Name} HP:{throwTarget.HP - taDmg2}/{throwTarget.MaxHP}");
                             throwTarget.HP -= taDmg2;
@@ -3187,6 +3188,10 @@ class CombatSession
     }
 
     // ── MUSICIAN SONGS ────────────────────────────────────────────────────
+
+    // Slayer song boosts melee, ranged, thrown, spell and grapple rolls
+    int SlayerAtk() => P.SongActive("Slayer") ? P.SongBonusAmount() : 0;
+    int SlayerDmg() => P.SongActive("Slayer") ? P.SlayerDmgBonus() : 0;
 
     void DeathTonePulse()
     {
@@ -3767,14 +3772,14 @@ class CombatSession
         else if (feet <= 45f) { dmgMin = 2; dmgMax = 10; }
         else { dmgMin = 1; dmgMax = 5; }
         dmgMin += P.MinRangedDmgBonus; dmgMax += P.MinRangedDmgBonus + P.MaxRangedDmgBonus;
-        int atkRoll = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 1);
+        int atkRoll = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 1) + SlayerAtk();
         int ddg = Rng.Next(target.MinDodge, target.MaxDodge + 1) - target.DodgePenalty;
         Console.WriteLine($"  BOW ({feet:F0}ft, dmg {dmgMin}-{dmgMax})! Roll {atkRoll} vs {target.Name}'s dodge {ddg}.");
         P.ArrowCount--;
         Console.WriteLine($"  Arrows remaining: {P.ArrowCount}");
         if (atkRoll >= ddg && !EnemyBlocks(target, atkRoll, isRanged: true))
         {
-            int dmg = Rng.Next(dmgMin, dmgMax + 1);
+            int dmg = Rng.Next(dmgMin, dmgMax + 1) + SlayerDmg();
             dmg = ReduceByToughHide(target, dmg);
             Console.WriteLine($"  Arrow HIT! {dmg} dmg → {target.Name} HP:{target.HP - dmg}/{target.MaxHP}");
             target.HP -= dmg;
@@ -3789,7 +3794,7 @@ class CombatSession
             Console.WriteLine("  [Double Tap] Second arrow!");
             P.ArrowCount--;
             Console.WriteLine($"  Arrows remaining: {P.ArrowCount}");
-            int atk2 = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 1);
+            int atk2 = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 1) + SlayerAtk();
             int ddg2 = Rng.Next(target.MinDodge, target.MaxDodge + 1) - target.DodgePenalty;
             int d2Min, d2Max;
             if (feet <= 14f) { d2Min = 4; d2Max = 12; }
@@ -3799,7 +3804,7 @@ class CombatSession
             Console.WriteLine($"  BOW ({feet:F0}ft)! Roll {atk2} vs dodge {ddg2}.");
             if (atk2 >= ddg2)
             {
-                int dmg2 = Rng.Next(d2Min, d2Max + 1);
+                int dmg2 = Rng.Next(d2Min, d2Max + 1) + SlayerDmg();
                 dmg2 = ReduceByToughHide(target, dmg2);
                 Console.WriteLine($"  Arrow HIT! {dmg2} dmg → {target.Name} HP:{target.HP - dmg2}/{target.MaxHP}");
                 target.HP -= dmg2;
@@ -3815,12 +3820,12 @@ class CombatSession
         float feet = PlayerPos.Feet(target.Position);
         if (feet < 20f) { Console.WriteLine($"  Too close for wand! ({feet:F1}ft, min 20ft)"); return; }
         if (feet > 50f) { Console.WriteLine($"  Too far for wand! ({feet:F1}ft, max 50ft)"); return; }
-        int atkRoll = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 1) + P.SpellAttackBonus;
+        int atkRoll = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 1) + SlayerAtk() + P.SpellAttackBonus;
         int ddg = Rng.Next(target.MinDodge, target.MaxDodge + 1) - target.DodgePenalty;
         Console.WriteLine($"  WAND ({feet:F0}ft, dmg 3-4)! Roll {atkRoll} vs {target.Name}'s dodge {ddg}.");
         if (atkRoll >= ddg && !EnemyBlocks(target, atkRoll, isRanged: true))
         {
-            int dmg = Rng.Next(3, 5);
+            int dmg = Rng.Next(3, 5) + SlayerDmg();
             dmg = ReduceByToughHide(target, dmg);
             Console.WriteLine($"  Wand HIT! {dmg} dmg → {target.Name} HP:{target.HP - dmg}/{target.MaxHP}");
             target.HP -= dmg;
@@ -3831,12 +3836,12 @@ class CombatSession
 
     void DoMaceAttack(Enemy target)
     {
-        int atkRoll = Rng.Next(P.MinAttack, P.MaxAttack + 1);
+        int atkRoll = Rng.Next(P.MinAttack, P.MaxAttack + 1) + SlayerAtk();
         int ddg = Rng.Next(target.MinDodge, target.MaxDodge + 1) - target.DodgePenalty;
         Console.WriteLine($"  MACE (non-lethal 2d4)! Roll {atkRoll} vs {target.Name}'s dodge {ddg}.");
         if (atkRoll >= ddg && !EnemyBlocks(target, atkRoll))
         {
-            int dmg = Rng.Next(1, 5) + Rng.Next(1, 5);
+            int dmg = Rng.Next(1, 5) + Rng.Next(1, 5) + SlayerDmg();
             dmg = ReduceByToughHide(target, dmg);
             if (dmg >= target.HP)
             {
@@ -3872,7 +3877,7 @@ class CombatSession
         int gst2 = GrappleStyleTier();
         int minG = P.MinGrapple + P.GetFeatStacks("Closeliner") + (gst2 >= 2 ? 1 : 0);
         int maxG = P.MaxGrapple + (gst2 >= 3 ? 2 : 0);
-        int gRoll = Rng.Next(minG, maxG + 1) - P.SprintPenalty;
+        int gRoll = Rng.Next(minG, maxG + 1) - P.SprintPenalty + SlayerAtk();
         P.SprintPenalty = 0;
         if (P.EnlargeActive) gRoll *= 2;
         int dRoll = Rng.Next(target.MinDodge, target.MaxDodge + 1);
@@ -3903,7 +3908,7 @@ class CombatSession
         else
         {
             int minGD = P.MinGrappleDmg + P.GetFeatStacks("Closeliner");
-            int gDmg = Rng.Next(minGD, P.MaxGrappleDmg + 1);
+            int gDmg = Rng.Next(minGD, P.MaxGrappleDmg + 1) + SlayerDmg();
             // Martial Artist: +1d4 grapple damage every 4 levels from L2
             if (P.CharacterType == "Martial Artist" && P.Level >= 2)
             {
@@ -3977,8 +3982,8 @@ class CombatSession
 
         int SpellAtk(string element) => P.SpellAttackBonus + (P.HasFeat("Spell Focus") ? 2 : 0) + (P.HasFeat("Elemental") && P.ElementalFocus == element ? 2 : 0);
         bool lastSpellCrit = false, lastSpellFumble = false;
-        int SpellAtkRoll() { int raw = Rng.Next(P.MinSpellAtk, P.MaxSpellAtk + 1); lastSpellCrit = raw == P.MaxSpellAtk; lastSpellFumble = raw == P.MinSpellAtk; return raw; }
-        int SpellDmg(int dmg, string element) { if (P.HasFeat("Magical Overflow")) dmg *= 2; if (P.HasFeat("Elemental") && P.ElementalFocus == element) dmg += 2; dmg += P.MinSpellDmgBonus + P.MaxSpellDmgBonus; return dmg; }
+        int SpellAtkRoll() { int raw = Rng.Next(P.MinSpellAtk, P.MaxSpellAtk + 1); lastSpellCrit = raw == P.MaxSpellAtk; lastSpellFumble = raw == P.MinSpellAtk; return raw + SlayerAtk(); }
+        int SpellDmg(int dmg, string element) { if (P.HasFeat("Magical Overflow")) dmg *= 2; if (P.HasFeat("Elemental") && P.ElementalFocus == element) dmg += 2; dmg += P.MinSpellDmgBonus + P.MaxSpellDmgBonus + SlayerDmg(); return dmg; }
         int ExtDur(int turns) => P.HasFeat("Extended Magi") ? turns * 2 : turns;
         float SpellRange(float range) => P.HasFeat("OverReach Magic") ? range * 2f : range;
 
