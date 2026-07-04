@@ -138,10 +138,12 @@ while (true)
     bool survived = session.Run();
 
     // Songs, blessings, sanctuary and redemption end with the battle;
-    // remove all temporary stat bonuses before anything saves
-    foreach (var pl in allPlayers.Where(pl => pl.CanSing))
-        pl.EndSong(allPlayers);
-    foreach (var pl in allPlayers)
+    // remove all temporary stat bonuses before anything saves.
+    // Players who fled were removed from allPlayers mid-combat — include them.
+    var everyone = allPlayers.Concat(session.FledPlayers).Distinct().ToList();
+    foreach (var pl in everyone.Where(pl => pl.CanSing))
+        pl.EndSong(everyone);
+    foreach (var pl in everyone)
     {
         pl.SanctuaryTurns = 0;
         pl.ExpireBlessing();
@@ -150,7 +152,7 @@ while (true)
 
     if (session.ExitRequested)
     {
-        foreach (var pl in allPlayers) SaveGame(pl, groupsDefeated);
+        foreach (var pl in everyone) SaveGame(pl, groupsDefeated);
         Console.WriteLine("  Game saved. Goodbye!");
         break;
     }
@@ -171,9 +173,9 @@ while (true)
     while (player.PendingFeats > 0) SelectFeats(player);
     foreach (var ep in allPlayers.Skip(1).Where(p => p.PendingFeats > 0)) SelectFeats(ep);
 
-    if (session.PlayerFled)
+    if (session.PlayerFled || session.FledPlayers.Any())
     {
-        foreach (var pl in allPlayers) SaveGame(pl, groupsDefeated);
+        foreach (var pl in everyone) SaveGame(pl, groupsDefeated);
         Console.WriteLine("  (Auto-saved after fleeing.)");
     }
 
@@ -1046,6 +1048,7 @@ void SaveGame(Player p, int groups)
         $"SongTokens={p.SongTokens}",
         $"PrayerUses={p.PrayerUses}",
         $"SpellUses={p.SpellUses}",
+        $"HeldWeapon={p.HeldWeapon ?? ""}",
         $"SecondaryWeapon={p.SecondaryWeapon ?? ""}",
         $"Race={p.Race}",
         $"ElementalFocus={p.ElementalFocus}",
@@ -1123,6 +1126,21 @@ bool TryLoadGame(Player p, string filePath)
         // Older saves lack use pools — grant full pools to classes that had the ability
         p.PrayerUses = dict.ContainsKey("PrayerUses") ? I("PrayerUses") : (p.CharacterType == "Priest" ? p.MaxPrayerUses() : 0);
         p.SpellUses  = dict.ContainsKey("SpellUses")  ? I("SpellUses")  : (p.KnownSpells.Any() ? p.MaxSpellUses() : 0);
+        if (dict.ContainsKey("HeldWeapon"))
+            p.HeldWeapon = G("HeldWeapon") is { Length: > 0 } hw ? hw : null;
+        else
+            // Older saves never stored the held weapon — restore the class default
+            p.HeldWeapon = p.CharacterType switch
+            {
+                "Mage"      => "Wand",
+                "Warrior"   => "Hand Axe",
+                "Duelist"   => "Rapier Sword",
+                "Archer"    => "Bow",
+                "Priest"    => "Mace",
+                "Berserker" => "Great Axe",
+                "Musician"  => "Short Sword",
+                _           => null   // Martial Artist fights unarmed
+            };
         p.SecondaryWeapon = G("SecondaryWeapon") is { Length: > 0 } sw2 ? sw2 : null;
         p.Race = G("Race") is { Length: > 0 } rc ? rc : "Human";
         p.SpellDamageBonus = I("SpellDamageBonus");
