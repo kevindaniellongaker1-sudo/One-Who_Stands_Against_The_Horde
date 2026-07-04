@@ -1842,6 +1842,7 @@ class TrollMusician : Troll
 {
     public bool PlayedSilence = false;
     public bool WarSongActive = false;
+    public List<Enemy> WarSongTargets = new();   // buffed allies — buff dies with the drummer
     public TrollMusician(Random rng, string name) : base(rng, name)
     {
         TypeName = "Troll Musician";
@@ -2335,6 +2336,9 @@ class CombatSession
                 SilenceTurns--;
                 if (SilenceTurns <= 0) Console.WriteLine("\n  The silence lifts — voices and magic return.");
             }
+
+            // Catch drummer deaths from any source (charm, allies, bleed, flee)
+            SweepWarRhythm();
 
             foreach (var e in Active.Where(e => e.Alive)) e.EndOfRound();
 
@@ -3610,6 +3614,20 @@ class CombatSession
     int SlayerAtk() => AllPlayers.Where(pl => pl.SongActive("Slayer")).Sum(pl => pl.SongBonusAmount());
     int SlayerDmg() => AllPlayers.Where(pl => pl.SongActive("Slayer")).Sum(pl => pl.SlayerDmgBonus());
 
+    // When a Troll Musician dies, flees or is knocked out, its war rhythm dies with it
+    // (a woken drummer may spend another song use to start it up again)
+    void SweepWarRhythm()
+    {
+        foreach (var tm in Active.OfType<TrollMusician>().Where(t => t.WarSongActive && (!t.Alive || t.KnockedOut)).ToList())
+        {
+            tm.WarSongActive = false;
+            foreach (var al in tm.WarSongTargets)
+            { al.MinAttack -= 1; al.MinDodge -= 1; }
+            tm.WarSongTargets.Clear();
+            Console.WriteLine($"  The war rhythm dies with {tm.Name} — the horde falters!");
+        }
+    }
+
     void DeathTonePulse()
     {
         int dice = P.FearDiceCount();
@@ -4000,6 +4018,7 @@ class CombatSession
     {
         Console.WriteLine($"  {e.Name} is defeated!");
         if (!e.XpAwarded) { e.XpAwarded = true; GainXP(e.XPValue); }
+        SweepWarRhythm();
         if (P.IsGrappled && P.GrappledBy == e) { P.IsGrappled = false; P.GrappledBy = null; Console.WriteLine("  You are no longer grappled."); }
         var others = Active.Where(x => x.Alive && x != e).ToList();
         if (P.HasFeat("Thin the Herd") && others.Any())
@@ -5418,8 +5437,11 @@ class CombatSession
                         tmus.SongUsesLeft--;
                         tmus.WarSongActive = true;
                         foreach (var al in Active.Where(a => a.Alive && !a.IsPlayerAlly))
-                        { al.MinAttack += 1; al.MinDodge += 1; }
-                        Console.WriteLine($"  {e.Name} beats a war rhythm — the horde fights harder! (+1 attack, +1 dodge to all enemies)");
+                        {
+                            al.MinAttack += 1; al.MinDodge += 1;
+                            tmus.WarSongTargets.Add(al);
+                        }
+                        Console.WriteLine($"  {e.Name} beats a war rhythm — the horde fights harder! (+1 attack, +1 dodge while the drummer lives)");
                         actions--;
                     }
                 }
