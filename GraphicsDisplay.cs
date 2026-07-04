@@ -20,9 +20,15 @@ class SharedGameState
     private readonly object _lock = new();
     private RenderSnapshot _snap = new();
     public volatile bool GameOver = false;
+    private readonly System.Threading.ManualResetEventSlim _assetsReady = new(false);
 
     public void Push(RenderSnapshot snap)  { lock (_lock) _snap = snap; }
     public RenderSnapshot Pull()           { lock (_lock) return _snap; }
+
+    // Game thread holds its first console prompt until the render thread has
+    // finished loading assets, so raylib's log spam doesn't bury the prompt.
+    public void SignalAssetsReady()        => _assetsReady.Set();
+    public void WaitAssetsReady(int ms)    => _assetsReady.Wait(ms);
 }
 
 // ── Raylib-based display window (runs on main thread) ─────────────────────
@@ -49,6 +55,7 @@ class GraphicsDisplay
         Raylib.SetTargetFPS(30);
 
         LoadTextures();
+        _state.SignalAssetsReady();
 
         while (!Raylib.WindowShouldClose() && !_state.GameOver)
         {

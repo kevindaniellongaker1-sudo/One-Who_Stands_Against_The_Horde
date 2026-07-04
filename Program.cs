@@ -21,7 +21,7 @@ try
     var gfx = new GraphicsDisplay(sharedState);
     gfx.Run();
 }
-catch { /* no display available — game continues in console-only mode */ }
+catch { sharedState.SignalAssetsReady(); /* no display available — game continues in console-only mode */ }
 
 gameThread.Join();
 return;
@@ -33,6 +33,10 @@ void RunGameLogic(SharedGameState state)
 var rng = new Random();
 var allPlayers = new List<Player>();
 int groupsDefeated = 0;
+
+// Let the graphics window finish loading assets first so its log output
+// doesn't bury the banner and the "How many players?" prompt.
+state.WaitAssetsReady(10000);
 
 Console.WriteLine("═══════════════════════════════════════════════════════");
 Console.WriteLine("   One Who Stands Against The Horde  (OWSATH)       ");
