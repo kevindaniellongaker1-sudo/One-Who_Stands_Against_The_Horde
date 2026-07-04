@@ -63,6 +63,25 @@ Race is chosen at character creation (`SelectRace` → calls `SelectCharacterTyp
 | Ogre | Wave 41 | Club sweep, companions per roll |
 | NecromancerTroll | Wave 71+ (roll) | Raises dead, negative touch 2d4, flees + returns with undead army |
 
+## Ability use pools (reset on REST, not per wave)
+
+- Prayers: 5 + 2 per 2 levels (`PrayerUses`/`MaxPrayerUses()`)
+- Spells: 6 + 2 per 2 levels (`SpellUses`/`MaxSpellUses()`) — gates "cast spell" (Twin Caster costs 2)
+- Songs: 5 + 1 per 2 levels (`SongTokens`/`MaxSongTokens()`)
+- Ability feats grant the pool + kit: prayer feats → Mace; spell feats (Cantrips etc.) → Wand; song feats → pick an instrument. `Player.PrayerFeats/SongFeats/SpellFeats`, `CanPray`/`CanSing`.
+
+## Ability feats
+
+- Prayer of Sanctuary — ward a player 1d4 turns: can't be attacked (enemies skip turn) nor attack (action block)
+- Prayer of the Most High — max(1, L/3)d4 holy dmg to all enemies within 50ft
+- Prayer of Redemption — full heal + double MaxHP 1d4 turns (`RedemptionExtraHP`, `ExpireRedemption()`)
+- Prayer of Mass Blessings — +1d4 to all roll stats of all allies 1d4 turns (`ApplyBlessing`/`ExpireBlessing`)
+- War Song — party: +1 dodge/attacks/grapple, +2 healing while playing (persistent song, `WarBonusReceived`)
+- Silence Song — `CombatSession.SilenceTurns` = 1d4: hides cast/pray/song options, smothers DoEnemySpell / DoGoblinShamanPray / RaiseDead, ends all active songs
+- Song of the Redeemer — instant: heal all allies max(1, L/3)d4
+
+SaveGame subtracts ALL received buff deltas (wind/war/bless/stone/redemption) so mid-combat autosaves stay clean.
+
 ## Key systems
 
 ### Non-lethal damage

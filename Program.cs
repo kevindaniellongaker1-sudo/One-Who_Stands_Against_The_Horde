@@ -123,12 +123,10 @@ while (true)
         pl.RagePointsSpent = 0;
     }
 
-    // Refresh Musician song tokens at the start of each wave
-    foreach (var pl in allPlayers.Where(pl => pl.CharacterType == "Musician"))
-    {
+    // Make sure no song is still marked active at the start of a wave
+    // (tokens no longer refresh per wave — they reset when you rest)
+    foreach (var pl in allPlayers.Where(pl => pl.CanSing))
         pl.EndSong(allPlayers);
-        pl.SongTokens = pl.MaxSongTokens();
-    }
 
     Console.WriteLine($"\n──────────────────────────────────");
     Console.WriteLine($" GROUP {waveNum}: {DescribeGroup(group)}");
@@ -139,9 +137,16 @@ while (true)
         state, waveNum);
     bool survived = session.Run();
 
-    // Songs end with the battle; remove any lingering stat bonuses before saving
-    foreach (var pl in allPlayers.Where(pl => pl.CharacterType == "Musician"))
+    // Songs, blessings, sanctuary and redemption end with the battle;
+    // remove all temporary stat bonuses before anything saves
+    foreach (var pl in allPlayers.Where(pl => pl.CanSing))
         pl.EndSong(allPlayers);
+    foreach (var pl in allPlayers)
+    {
+        pl.SanctuaryTurns = 0;
+        pl.ExpireBlessing();
+        pl.ExpireRedemption();
+    }
 
     if (session.ExitRequested)
     {
@@ -219,6 +224,9 @@ while (true)
                 pl.DuelistPoints = maxPts;
                 Console.WriteLine($"  Duelist Points restored to {maxPts}.");
             }
+            if (pl.CanPray)     { pl.PrayerUses = pl.MaxPrayerUses(); Console.WriteLine($"  Prayers restored to {pl.PrayerUses}."); }
+            if (pl.KnownSpells.Any()) { pl.SpellUses = pl.MaxSpellUses(); Console.WriteLine($"  Spell casts restored to {pl.SpellUses}."); }
+            if (pl.CanSing)     { pl.SongTokens = pl.MaxSongTokens(); Console.WriteLine($"  Song tokens restored to {pl.SongTokens}."); }
         }
         else if (next is "4" or "craft" or "arrows")
         {
@@ -420,13 +428,23 @@ void GainXP(int xp)
                 int maxRage = 1 + (pl.Level >= 2 ? (pl.Level - 2) / 4 + 1 : 0);
                 if (pl.RagePoints < maxRage) pl.RagePoints = maxRage;
             }
-            if (pl.CharacterType == "Musician")
+            if (pl.CanSing)
             {
                 if (pl.Level % 2 == 0)
                     Console.WriteLine($"  Bardic song token earned! (Max tokens: {pl.MaxSongTokens()})");
                 if (pl.SongTokens < pl.MaxSongTokens()) pl.SongTokens = pl.MaxSongTokens();
-                if (pl.Level % 3 == 0)
+                if (pl.CharacterType == "Musician" && pl.Level % 3 == 0)
                     Console.WriteLine($"  Songs grow stronger! Bonuses +{pl.SongBonusAmount()}, DeathTone fear {pl.FearDiceCount()}d6.");
+            }
+            if (pl.CanPray && pl.PrayerUses < pl.MaxPrayerUses())
+            {
+                pl.PrayerUses = pl.MaxPrayerUses();
+                if (pl.Level % 2 == 0) Console.WriteLine($"  Prayer uses increased! (Max: {pl.MaxPrayerUses()})");
+            }
+            if (pl.KnownSpells.Any() && pl.SpellUses < pl.MaxSpellUses())
+            {
+                pl.SpellUses = pl.MaxSpellUses();
+                if (pl.Level % 2 == 0) Console.WriteLine($"  Spell casts increased! (Max: {pl.MaxSpellUses()})");
             }
         }
     }
@@ -487,6 +505,43 @@ void SelectFeats(Player p)
                     _ => Array.Empty<string>()
                 };
                 foreach (var s in newSpells) if (!p.KnownSpells.Contains(s)) { p.KnownSpells.Add(s); Console.WriteLine($"  Learned spell: {s}"); }
+            }
+
+            // Ability feats grant the matching resource pool and starting kit
+            if (Player.PrayerFeats.Contains(f.Name))
+            {
+                if (p.PrayerUses <= 0) { p.PrayerUses = p.MaxPrayerUses(); Console.WriteLine($"  You can now pray! ({p.PrayerUses} prayers, reset on rest)"); }
+                if (p.HeldWeapon != "Mace" && p.SecondaryWeapon != "Mace")
+                {
+                    if (p.HeldWeapon == null) { p.HeldWeapon = "Mace"; Console.WriteLine("  You receive a Mace (2d4 non-lethal)."); }
+                    else if (p.SecondaryWeapon == null) { p.SecondaryWeapon = "Mace"; Console.WriteLine("  You receive a Mace (2d4 non-lethal, stowed)."); }
+                }
+            }
+            if (Player.SongFeats.Contains(f.Name))
+            {
+                if (p.SongTokens <= 0 && p.CharacterType != "Musician") { p.SongTokens = p.MaxSongTokens(); Console.WriteLine($"  You can now play songs! ({p.SongTokens} tokens, reset on rest)"); }
+                if (p.MusicInstrument == "")
+                {
+                    var insts = new[] { "Guitar", "Flute", "Violin", "Drum", "Cello", "Trumpet",
+                                        "Saxophone", "Bagpipes", "Accordion", "Tambourine", "Harmonica", "Bells" };
+                    Console.WriteLine("  Pick your instrument: " + string.Join(", ", insts.Select((s2, i2) => $"[{i2 + 1}]{s2}")));
+                    Console.Write("  Choice (1-12 or name): ");
+                    string ir = (Console.ReadLine() ?? "").Trim();
+                    string pick = "Guitar";
+                    if (int.TryParse(ir, out int ii2) && ii2 >= 1 && ii2 <= insts.Length) pick = insts[ii2 - 1];
+                    else { var m2 = insts.FirstOrDefault(x => x.StartsWith(ir, StringComparison.OrdinalIgnoreCase)); if (m2 != null) pick = m2; }
+                    p.MusicInstrument = pick;
+                    Console.WriteLine($"  Instrument: {pick}!");
+                }
+            }
+            if (Player.SpellFeats.Contains(f.Name))
+            {
+                if (p.SpellUses <= 0) { p.SpellUses = p.MaxSpellUses(); Console.WriteLine($"  You can now cast spells! ({p.SpellUses} casts, reset on rest)"); }
+                if (p.HeldWeapon != "Wand" && p.SecondaryWeapon != "Wand")
+                {
+                    if (p.HeldWeapon == null) { p.HeldWeapon = "Wand"; Console.WriteLine("  You receive a Wand (3-4 dmg, 20-50ft)."); }
+                    else if (p.SecondaryWeapon == null) { p.SecondaryWeapon = "Wand"; Console.WriteLine("  You receive a Wand (3-4 dmg, 20-50ft, stowed)."); }
+                }
             }
         }
         else Console.WriteLine("Invalid. Try again.");
@@ -801,8 +856,10 @@ void SelectCharacterType(Player p)
         p.SecondaryWeapon = "Staff";
         p.KnownSpells.Add("Air Blade");
         p.KnownSpells.Add("Air Wave");
+        p.SpellUses = 6;
         Console.WriteLine("  Starting weapons: Wand (3-4 dmg, 20-50ft range) + Staff (2-6 dmg melee)");
         Console.WriteLine("  Starting spells: Air Blade, Air Wave  Unarmed: 1-4");
+        Console.WriteLine("  Spell casts: 6 (+2 every 2 levels), reset on rest");
     }
     else if (chosen == "Warrior")
     {
@@ -834,7 +891,9 @@ void SelectCharacterType(Player p)
     {
         p.MinDamage = 1; p.MaxDamage = 4; // 1d4 unarmed
         p.HeldWeapon = "Mace";
+        p.PrayerUses = 5;
         Console.WriteLine("  Starting: Mace (2d4 non-lethal) + unarmed 1d4");
+        Console.WriteLine("  Prayer uses: 5 (+2 every 2 levels), reset on rest");
         Console.WriteLine("  Prayers: Prayer of Healing (25ft heal), Forgiveness (30ft convert), Lord's Prayer (6ft AoE dmg)");
         Console.WriteLine("  All prayers scale every 3 levels from L2; Forgiveness also gains AoE/threshold every 4 levels from L2");
     }
@@ -870,7 +929,7 @@ void SelectCharacterType(Player p)
     {
         p.MinDamage = 1; p.MaxDamage = 4; // 1d4 unarmed
         p.HeldWeapon = "Short Sword";
-        p.SongTokens = 4;
+        p.SongTokens = 5;
         var instruments = new[] { "Guitar", "Flute", "Violin", "Drum", "Cello", "Trumpet",
                                   "Saxophone", "Bagpipes", "Accordion", "Tambourine", "Harmonica", "Bells" };
         Console.WriteLine("\n  Pick your instrument:");
@@ -889,7 +948,7 @@ void SelectCharacterType(Player p)
         Console.WriteLine("    Hardstone Song — take 2 less damage");
         Console.WriteLine("    DeathTone      — each turn, enemies with HP ≤ 2d6 roll flee in fear");
         Console.WriteLine("  Every 3rd level: song bonuses +2, fear +1d6. Every 2 levels: +1 song token.");
-        Console.WriteLine("  Tokens start at 4 and refresh after each wave.");
+        Console.WriteLine("  Tokens start at 5 and reset when you rest.");
     }
 
     // Set starting HP by class
@@ -934,26 +993,29 @@ string SaveFilePath(string name)
 void SaveGame(Player p, int groups)
 {
     string path = SaveFilePath(p.Name);
-    // Strip temporary song stat bonuses so a mid-combat save (e.g. on level-up)
-    // doesn't bake Wind Song / Hardstone into the character permanently.
+    // Strip temporary buff stat deltas so a mid-combat save (e.g. on level-up)
+    // doesn't bake songs/blessings/redemption into the character permanently.
     int windAdj  = p.WindBonusReceived;
     int stoneAdj = p.StoneBonusReceived;
+    int warAdj   = p.WarBonusReceived;
+    int blessAdj = p.BlessBonusReceived;
+    int redAdj   = p.RedemptionExtraHP;
     var lines = new List<string>
     {
         $"Name={p.Name}",
         $"CharacterType={p.CharacterType}",
-        $"HP={p.HP}", $"MaxHP={p.MaxHP}",
-        $"MinAttack={p.MinAttack}", $"MaxAttack={p.MaxAttack}",
+        $"HP={Math.Min(p.HP, p.MaxHP - redAdj)}", $"MaxHP={p.MaxHP - redAdj}",
+        $"MinAttack={p.MinAttack - warAdj - blessAdj}", $"MaxAttack={p.MaxAttack - warAdj - blessAdj}",
         $"MinDamage={p.MinDamage}", $"MaxDamage={p.MaxDamage}",
-        $"MinDodge={p.MinDodge - windAdj}", $"MaxDodge={p.MaxDodge - windAdj}",
-        $"MinGrapple={p.MinGrapple}", $"MaxGrapple={p.MaxGrapple}",
+        $"MinDodge={p.MinDodge - windAdj - warAdj - blessAdj}", $"MaxDodge={p.MaxDodge - windAdj - warAdj - blessAdj}",
+        $"MinGrapple={p.MinGrapple - warAdj - blessAdj}", $"MaxGrapple={p.MaxGrapple - warAdj - blessAdj}",
         $"MinGrappleDmg={p.MinGrappleDmg}", $"MaxGrappleDmg={p.MaxGrappleDmg}",
-        $"MinBlock={p.MinBlock - windAdj}", $"MaxBlock={p.MaxBlock - windAdj}",
-        $"MinParry={p.MinParry - windAdj}", $"MaxParry={p.MaxParry - windAdj}",
+        $"MinBlock={p.MinBlock - windAdj - blessAdj}", $"MaxBlock={p.MaxBlock - windAdj - blessAdj}",
+        $"MinParry={p.MinParry - windAdj - blessAdj}", $"MaxParry={p.MaxParry - windAdj - blessAdj}",
         $"MinBardSong={p.MinBardSong}", $"MaxBardSong={p.MaxBardSong}",
         $"MinPowerAtk={p.MinPowerAtk}", $"MaxPowerAtk={p.MaxPowerAtk}",
         $"MinLimbBreak={p.MinLimbBreak}", $"MaxLimbBreak={p.MaxLimbBreak}",
-        $"MinPotionHeal={p.MinPotionHeal}", $"MaxPotionHeal={p.MaxPotionHeal}",
+        $"MinPotionHeal={p.MinPotionHeal - 2 * warAdj}", $"MaxPotionHeal={p.MaxPotionHeal - 2 * warAdj}",
         $"SavedStatPoints={p.SavedStatPoints}",
         $"GearPointsAvailable={p.GearPointsAvailable}",
         $"AdditionalActions={p.AdditionalActions}",
@@ -973,18 +1035,20 @@ void SaveGame(Player p, int groups)
         $"RagePoints={p.RagePoints}",
         $"MusicInstrument={p.MusicInstrument}",
         $"SongTokens={p.SongTokens}",
+        $"PrayerUses={p.PrayerUses}",
+        $"SpellUses={p.SpellUses}",
         $"SecondaryWeapon={p.SecondaryWeapon ?? ""}",
         $"Race={p.Race}",
         $"ElementalFocus={p.ElementalFocus}",
         $"SpellDamageBonus={p.SpellDamageBonus}",
         $"SpellAttackBonus={p.SpellAttackBonus}",
-        $"PrayerHealBonus={p.PrayerHealBonus}",
+        $"PrayerHealBonus={p.PrayerHealBonus - 2 * warAdj}",
         $"RegenPerTurn={p.RegenPerTurn}",
         $"MovementBonus={p.MovementBonus}",
         $"MinMovement={p.MinMovement}", $"MaxMovement={p.MaxMovement}",
-        $"MinSpellAtk={p.MinSpellAtk}", $"MaxSpellAtk={p.MaxSpellAtk}",
+        $"MinSpellAtk={p.MinSpellAtk - warAdj - blessAdj}", $"MaxSpellAtk={p.MaxSpellAtk - warAdj - blessAdj}",
         $"MinSpellDmgBonus={p.MinSpellDmgBonus}", $"MaxSpellDmgBonus={p.MaxSpellDmgBonus}",
-        $"MinRangedAtk={p.MinRangedAtk}", $"MaxRangedAtk={p.MaxRangedAtk}",
+        $"MinRangedAtk={p.MinRangedAtk - warAdj - blessAdj}", $"MaxRangedAtk={p.MaxRangedAtk - warAdj - blessAdj}",
         $"MinRangedDmgBonus={p.MinRangedDmgBonus}", $"MaxRangedDmgBonus={p.MaxRangedDmgBonus}",
         $"GroupsDefeated={groups}",
     };
@@ -1047,6 +1111,9 @@ bool TryLoadGame(Player p, string filePath)
         p.RagePoints = I("RagePoints");
         p.MusicInstrument = G("MusicInstrument");
         p.SongTokens = I("SongTokens");
+        // Older saves lack use pools — grant full pools to classes that had the ability
+        p.PrayerUses = dict.ContainsKey("PrayerUses") ? I("PrayerUses") : (p.CharacterType == "Priest" ? p.MaxPrayerUses() : 0);
+        p.SpellUses  = dict.ContainsKey("SpellUses")  ? I("SpellUses")  : (p.KnownSpells.Any() ? p.MaxSpellUses() : 0);
         p.SecondaryWeapon = G("SecondaryWeapon") is { Length: > 0 } sw2 ? sw2 : null;
         p.Race = G("Race") is { Length: > 0 } rc ? rc : "Human";
         p.SpellDamageBonus = I("SpellDamageBonus");
@@ -1240,6 +1307,14 @@ class Player
     public int SongEffectApplied = 0;
     public int WindBonusReceived = 0;   // song stat deltas currently on this player
     public int StoneBonusReceived = 0;  // (from any party musician's song)
+    public int WarBonusReceived = 0;    // War Song deltas on this player
+    public int BlessBonusReceived = 0;  // Prayer of Mass Blessings deltas
+    public int BlessTurns = 0;
+    public int PrayerUses = 0;          // prayers left until next rest
+    public int SpellUses = 0;           // spell casts left until next rest
+    public int SanctuaryTurns = 0;      // can't attack or be attacked
+    public int RedemptionTurns = 0;     // doubled max HP countdown
+    public int RedemptionExtraHP = 0;
     public int GroupsDefeated = 0;
 
     public Player(Random rng)
@@ -1260,10 +1335,19 @@ class Player
 
     public void ClearRoundEffects() { Defending = false; ChainLightningUses = 0; }
 
+    // ── Ability feat groups: taking one grants the matching resource pool ──
+    public static readonly string[] PrayerFeats = { "Prayer of Sanctuary", "Prayer of the Most High", "Prayer of Redemption", "Prayer of Mass Blessings" };
+    public static readonly string[] SongFeats   = { "War Song", "Silence Song", "Song of the Redeemer" };
+    public static readonly string[] SpellFeats  = { "Cantrips", "Necromancer", "Lich Bound", "Divination", "Advanced Cantrips" };
+    public bool CanPray => CharacterType == "Priest" || PrayerFeats.Any(HasFeat);
+    public bool CanSing => CharacterType == "Musician" || SongFeats.Any(HasFeat);
+    public int MaxPrayerUses() => 5 + (Level / 2) * 2;          // 5 uses, +2 every 2 levels
+    public int MaxSpellUses()  => 6 + (Level / 2) * 2;          // 6 uses, +2 every 2 levels
+
     // ── Musician songs ──
     // Tier: +2 to song bonuses (and +1d6 fear dice) every 3rd level.
     public int SongTier() => Level >= 3 ? Level / 3 : 0;
-    public int MaxSongTokens() => 4 + Level / 2;                // +1 token every 2 levels, starts at 4
+    public int MaxSongTokens() => 5 + Level / 2;                // 5 plays, +1 every 2 levels
     public int SongBonusAmount() => 2 + 2 * SongTier();          // Slayer atk / Wind / Hardstone
     public int SlayerDmgBonus() => 1 + 2 * SongTier();
     public int FearDiceCount() => 2 + SongTier();                // DeathTone (2+tier)d6
@@ -1295,6 +1379,20 @@ class Player
                 m.StoneBonusReceived += b;
             }
         }
+        else if (ActiveSong == "War Song")
+        {
+            SongEffectApplied = 1;
+            foreach (var m in party)
+            {
+                m.MinDodge += 1; m.MaxDodge += 1;
+                m.MinAttack += 1; m.MaxAttack += 1;
+                m.MinRangedAtk += 1; m.MaxRangedAtk += 1;
+                m.MinSpellAtk += 1; m.MaxSpellAtk += 1;
+                m.MinGrapple += 1; m.MaxGrapple += 1;
+                m.PrayerHealBonus += 2; m.MinPotionHeal += 2; m.MaxPotionHeal += 2;
+                m.WarBonusReceived += 1;
+            }
+        }
     }
 
     public void EndSong(List<Player> party)
@@ -1316,7 +1414,55 @@ class Player
                 m.StoneBonusReceived -= SongEffectApplied;
             }
         }
+        else if (ActiveSong == "War Song" && SongEffectApplied > 0)
+        {
+            foreach (var m in party)
+            {
+                m.MinDodge -= 1; m.MaxDodge -= 1;
+                m.MinAttack -= 1; m.MaxAttack -= 1;
+                m.MinRangedAtk -= 1; m.MaxRangedAtk -= 1;
+                m.MinSpellAtk -= 1; m.MaxSpellAtk -= 1;
+                m.MinGrapple -= 1; m.MaxGrapple -= 1;
+                m.PrayerHealBonus -= 2; m.MinPotionHeal -= 2; m.MaxPotionHeal -= 2;
+                m.WarBonusReceived -= 1;
+            }
+        }
         SongEffectApplied = 0; ActiveSong = ""; SongPlaying = false; SongLingerTurns = 0;
+    }
+
+    // ── Prayer of Mass Blessings: +b to every roll stat, reversible ──
+    public void ApplyBlessing(int b, int turns)
+    {
+        MinAttack += b; MaxAttack += b; MinDodge += b; MaxDodge += b;
+        MinGrapple += b; MaxGrapple += b; MinBlock += b; MaxBlock += b;
+        MinParry += b; MaxParry += b; MinRangedAtk += b; MaxRangedAtk += b;
+        MinSpellAtk += b; MaxSpellAtk += b;
+        BlessBonusReceived += b;
+        BlessTurns = Math.Max(BlessTurns, turns);
+    }
+
+    public void ExpireBlessing()
+    {
+        int b = BlessBonusReceived;
+        if (b != 0)
+        {
+            MinAttack -= b; MaxAttack -= b; MinDodge -= b; MaxDodge -= b;
+            MinGrapple -= b; MaxGrapple -= b; MinBlock -= b; MaxBlock -= b;
+            MinParry -= b; MaxParry -= b; MinRangedAtk -= b; MaxRangedAtk -= b;
+            MinSpellAtk -= b; MaxSpellAtk -= b;
+        }
+        BlessBonusReceived = 0; BlessTurns = 0;
+    }
+
+    // ── Prayer of Redemption: doubled max HP for a few turns ──
+    public void ExpireRedemption()
+    {
+        if (RedemptionExtraHP > 0)
+        {
+            MaxHP -= RedemptionExtraHP;
+            HP = Math.Min(HP, MaxHP);
+        }
+        RedemptionExtraHP = 0; RedemptionTurns = 0;
     }
 }
 
@@ -1812,6 +1958,13 @@ class FeatDef
         new("Chidia Black Belt", "Break weapons/hands with blocks/parries.", "Chidia"),
         new("MMA", "Double min/max damage; +2 attacks and +2 grapples per action.", null),
         new("Bard Song", "Roll 1d6 + stacks vs enemy 2d4; on success, enemies attack each other.", null, true),
+        new("Prayer of Sanctuary", "Ward an ally for 1d4 turns: they can't be attacked, nor attack (range 50ft). Grants prayers + a Mace."),
+        new("Prayer of the Most High", "Holy wrath: 1d4 dmg per 3 levels to ALL enemies within 50ft. Grants prayers + a Mace."),
+        new("Prayer of Redemption", "Fully heal an ally and double their max HP for 1d4 turns. Grants prayers + a Mace."),
+        new("Prayer of Mass Blessings", "+1d4 to all allies' rolls for 1d4 turns. Grants prayers + a Mace."),
+        new("War Song", "Party song: +1 dodge, +1 all attacks, +1 grapple, +2 healing while playing. Grants songs + an instrument."),
+        new("Silence Song", "No spells, prayers or songs can be used by ANYONE for 1d4 turns. Grants songs + an instrument."),
+        new("Song of the Redeemer", "Heals all allies 1d4 per 3 levels. Grants songs + an instrument."),
         new("Giant's Strength", "Can pick up and wield Ogre Club (club sweep 2 squares). +2 min damage, +1 max damage on all non-club weapons."),
         new("Giant's Grip", "Wield two-handed weapons as though they are one-handed, allowing dual-wielding of two-handed weapons."),
         new("Spell Focus", "Spells gain +2 to hit (min and max spell attack rolls)."),
@@ -2115,6 +2268,12 @@ class CombatSession
             EnemyTurn();
             foreach (var ap in ActivePlayers) ap.ClearRoundEffects();
 
+            if (SilenceTurns > 0)
+            {
+                SilenceTurns--;
+                if (SilenceTurns <= 0) Console.WriteLine("\n  The silence lifts — voices and magic return.");
+            }
+
             foreach (var e in Active.Where(e => e.Alive)) e.EndOfRound();
 
             // Check again after enemy turn (e.g. charmed enemies KO each other)
@@ -2142,8 +2301,43 @@ class CombatSession
             }
         }
 
+        if (SilenceTurns > 0)
+            Console.WriteLine($"  [SILENCE — no spells, prayers or songs for {SilenceTurns} more turn(s)]");
+
+        // Sanctuary ward countdown
+        if (P.SanctuaryTurns > 0)
+        {
+            Console.WriteLine($"  [SANCTUARY — {P.SanctuaryTurns} turn(s): you can't be attacked, nor attack]");
+            P.SanctuaryTurns--;
+            if (P.SanctuaryTurns <= 0) Console.WriteLine("  [The sanctuary ward fades]");
+        }
+
+        // Redemption countdown
+        if (P.RedemptionTurns > 0)
+        {
+            Console.WriteLine($"  [REDEEMED — doubled max HP, {P.RedemptionTurns} turn(s) left]");
+            P.RedemptionTurns--;
+            if (P.RedemptionTurns <= 0)
+            {
+                P.ExpireRedemption();
+                Console.WriteLine($"  [Redemption fades — HP {P.HP}/{P.MaxHP}]");
+            }
+        }
+
+        // Mass Blessings countdown
+        if (P.BlessTurns > 0)
+        {
+            Console.WriteLine($"  [BLESSED — +{P.BlessBonusReceived} to rolls, {P.BlessTurns} turn(s) left]");
+            P.BlessTurns--;
+            if (P.BlessTurns <= 0)
+            {
+                P.ExpireBlessing();
+                Console.WriteLine("  [The blessing fades]");
+            }
+        }
+
         // Musician song upkeep: pulse DeathTone, count down lingering echoes
-        if (P.CharacterType == "Musician" && P.ActiveSong != "")
+        if (P.CanSing && P.ActiveSong != "")
         {
             if (P.SongPlaying)
             {
@@ -2249,6 +2443,14 @@ class CombatSession
             string chosen;
             if (int.TryParse(raw, out int n) && n >= 1 && n <= opts.Count) chosen = opts[n - 1];
             else chosen = opts.FirstOrDefault(o => o.StartsWith(raw)) ?? raw;
+
+            // Sanctuary: the warded player may not attack
+            if (P.SanctuaryTurns > 0 && chosen is "attack" or "grapple" or "whirlwind" or "club sweep"
+                or "throw dagger" or "throw axe" or "throw weapon" or "charge" or "duelist action" or "bard song")
+            {
+                Console.WriteLine("  The sanctuary's peace stays your hand — you cannot attack while warded.");
+                continue;
+            }
 
             Enemy? target = null;
             if (chosen is "attack" or "grapple" or "block" or "parry" or "sap" or "sunder" or "disarm")
@@ -2485,22 +2687,28 @@ class CombatSession
                 case "cast spell":
                 {
                     if (!P.KnownSpells.Any()) break;
-                    Console.WriteLine("  Known spells:");
+                    if (P.SpellUses <= 0) { Console.WriteLine("  You have no spell casts left. Rest to recover."); continue; }
+                    Console.WriteLine($"  Known spells (casts left: {P.SpellUses}):");
                     for (int si = 0; si < P.KnownSpells.Count; si++) Console.WriteLine($"  [{si+1}] {P.KnownSpells[si]}");
                     Console.Write("  Cast which: ");
                     if (int.TryParse(Console.ReadLine()?.Trim(), out int si2) && si2 >= 1 && si2 <= P.KnownSpells.Count)
                     {
+                        if (P.SpellUses <= 0) { Console.WriteLine("  You have no spell casts left. Rest to recover."); continue; }
+                        P.SpellUses--;
                         DoSpell(P.KnownSpells[si2 - 1], alive);
-                        if (P.HasFeat("Twin Caster"))
+                        if (P.HasFeat("Twin Caster") && P.SpellUses > 0)
                         {
                             Console.Write("  [Twin Caster] Cast a second spell? [y/n]: ");
                             if ((Console.ReadLine() ?? "").Trim().ToLower().StartsWith("y"))
                             {
-                                Console.WriteLine("  Known spells:");
+                                Console.WriteLine($"  Known spells (casts left: {P.SpellUses}):");
                                 for (int tsi = 0; tsi < P.KnownSpells.Count; tsi++) Console.WriteLine($"  [{tsi+1}] {P.KnownSpells[tsi]}");
                                 Console.Write("  Cast which: ");
                                 if (int.TryParse(Console.ReadLine()?.Trim(), out int tsi2) && tsi2 >= 1 && tsi2 <= P.KnownSpells.Count)
+                                {
+                                    P.SpellUses--;
                                     DoSpell(P.KnownSpells[tsi2 - 1], alive);
+                                }
                             }
                         }
                     }
@@ -2565,29 +2773,62 @@ class CombatSession
 
                 case "play song":
                 {
-                    if (P.SongTokens <= 0) { Console.WriteLine("  No song tokens left this wave."); continue; }
+                    if (P.SongTokens <= 0) { Console.WriteLine("  No song tokens left. Rest to recover."); continue; }
                     int sb = P.SongBonusAmount(), sd = P.SlayerDmgBonus(), fd = P.FearDiceCount();
+                    int redeemDice = Math.Max(1, P.Level / 3);
+                    var songList = new List<(string Name, string Desc)>();
+                    if (P.CharacterType == "Musician")
+                    {
+                        songList.Add(("Slayer",         $"+{sb} attack, +{sd} damage (melee, ranged, spells, grapple)"));
+                        songList.Add(("Wind Song",      $"+{sb} dodge, block and parry"));
+                        songList.Add(("Hardstone Song", $"take {sb} less damage"));
+                        songList.Add(("DeathTone",      $"each turn, enemies with HP ≤ {fd}d6 roll flee"));
+                    }
+                    if (P.HasFeat("War Song"))            songList.Add(("War Song",            "+1 dodge, +1 all attacks, +1 grapple, +2 healing"));
+                    if (P.HasFeat("Silence Song"))        songList.Add(("Silence Song",        "no spells, prayers or songs for ANYONE, 1d4 turns"));
+                    if (P.HasFeat("Song of the Redeemer")) songList.Add(("Song of the Redeemer", $"heal all allies {redeemDice}d4"));
                     Console.WriteLine($"  Songs (tokens: {P.SongTokens}):");
-                    Console.WriteLine($"  [1] Slayer         — +{sb} attack, +{sd} damage (melee, ranged, spells, grapple)");
-                    Console.WriteLine($"  [2] Wind Song      — +{sb} dodge, block and parry");
-                    Console.WriteLine($"  [3] Hardstone Song — take {sb} less damage");
-                    Console.WriteLine($"  [4] DeathTone      — each turn, enemies with HP ≤ {fd}d6 roll flee");
+                    for (int sli = 0; sli < songList.Count; sli++)
+                        Console.WriteLine($"  [{sli + 1}] {songList[sli].Name,-20} — {songList[sli].Desc}");
                     Console.Write("  Song # (or [C]ancel): ");
                     string sraw = (Console.ReadLine() ?? "").Trim().ToLower();
-                    var songNames = new[] { "Slayer", "Wind Song", "Hardstone Song", "DeathTone" };
                     string? song = null;
-                    if (int.TryParse(sraw, out int si) && si >= 1 && si <= 4) song = songNames[si - 1];
-                    else song = songNames.FirstOrDefault(s => s.ToLower().StartsWith(sraw));
+                    if (int.TryParse(sraw, out int si) && si >= 1 && si <= songList.Count) song = songList[si - 1].Name;
+                    else song = songList.Select(s => s.Name).FirstOrDefault(s => s.ToLower().StartsWith(sraw));
                     if (song == null) { Console.WriteLine("  You lower your instrument."); continue; }
-                    if (P.ActiveSong != "") P.EndSong(AllPlayers);   // switching songs cuts the old one off
+
                     P.SongTokens--;
-                    P.ActiveSong = song;
-                    P.SongPlaying = true;
-                    P.SongLingerTurns = 0;
-                    P.ApplySongStats(AllPlayers);
-                    Console.WriteLine($"  ♪ You strike up {song} on your {P.MusicInstrument}! (Tokens left: {P.SongTokens})" +
-                        (AllPlayers.Count > 1 ? "  The whole party is emboldened!" : ""));
-                    if (song == "DeathTone") DeathTonePulse();
+                    if (song == "Silence Song")
+                    {
+                        // One thunderous chord, then nothing — ends every active song too
+                        foreach (var pl in AllPlayers) pl.EndSong(AllPlayers);
+                        SilenceTurns = Rng.Next(1, 5);
+                        Console.WriteLine($"  ♪♪ SILENCE! A crushing chord swallows all sound for {SilenceTurns} turn(s).");
+                        Console.WriteLine("  No spells, prayers or songs can be used by anyone!");
+                    }
+                    else if (song == "Song of the Redeemer")
+                    {
+                        Console.WriteLine($"  ♪ The Song of the Redeemer washes over the party! ({redeemDice}d4 healing each)");
+                        foreach (var pl in AllPlayers.Where(pl => pl.HP > 0))
+                        {
+                            int heal = 0;
+                            for (int d = 0; d < redeemDice; d++) heal += Rng.Next(1, 5);
+                            heal = Math.Min(heal, pl.MaxHP - pl.HP);
+                            pl.HP += heal;
+                            Console.WriteLine($"    {pl.Name} heals {heal}. ({pl.HP}/{pl.MaxHP})");
+                        }
+                    }
+                    else
+                    {
+                        if (P.ActiveSong != "") P.EndSong(AllPlayers);   // switching songs cuts the old one off
+                        P.ActiveSong = song;
+                        P.SongPlaying = true;
+                        P.SongLingerTurns = 0;
+                        P.ApplySongStats(AllPlayers);
+                        Console.WriteLine($"  ♪ You strike up {song} on your {P.MusicInstrument}! (Tokens left: {P.SongTokens})" +
+                            (AllPlayers.Count > 1 ? "  The whole party is emboldened!" : ""));
+                        if (song == "DeathTone") DeathTonePulse();
+                    }
                     justBlocked = false;
                     break;
                 }
@@ -2617,21 +2858,108 @@ class CombatSession
 
                 case "pray":
                 {
+                    if (P.PrayerUses <= 0) { Console.WriteLine("  You have no prayers left. Rest to recover."); continue; }
                     int L = P.Level;
+                    bool isPriest  = P.CharacterType == "Priest";
                     int healDice   = 1 + (L >= 2 ? (L-2)/3+1 : 0);
                     int forgDice   = 2 + (L >= 2 ? (L-2)/3+1 : 0);
                     int forgThresh = 10 + 5 * (L >= 2 ? (L-2)/4+1 : 0); // % of max HP
                     int forgAoe    = 6  * (L >= 2 ? (L-2)/4+1 : 0);     // feet (0 = single target)
                     int lordMult   = Math.Max(1, L/4);
                     int lordD4s    = L >= 2 ? (L-2)/3+1 : 0;
+                    int mostHighDice = Math.Max(1, L / 3);
 
-                    Console.WriteLine($"  Prayers available:");
-                    Console.WriteLine($"  [1] Prayer of Healing  — heal {healDice}d6 (range 25ft, self or ally)");
-                    Console.WriteLine($"  [2] Forgiveness        — convert enemy ≤{forgThresh}% HP; roll {forgDice}d4 vs HP{(forgAoe > 0 ? $"; AoE {forgAoe}ft" : "")} (range 30ft)");
-                    Console.WriteLine($"  [3] Lord's Prayer      — {lordMult}d6{(lordD4s > 0 ? $"+{lordD4s}d4" : "")} dmg to all enemies within 6ft");
-                    if (L >= 20) Console.WriteLine($"  [4] Last Rites         — revive a fallen party member (1d6 HP)");
+                    Console.WriteLine($"  Prayers available (uses left: {P.PrayerUses}):");
+                    if (isPriest)
+                    {
+                        Console.WriteLine($"  [1] Prayer of Healing  — heal {healDice}d6 (range 25ft, self or ally)");
+                        Console.WriteLine($"  [2] Forgiveness        — convert enemy ≤{forgThresh}% HP; roll {forgDice}d4 vs HP{(forgAoe > 0 ? $"; AoE {forgAoe}ft" : "")} (range 30ft)");
+                        Console.WriteLine($"  [3] Lord's Prayer      — {lordMult}d6{(lordD4s > 0 ? $"+{lordD4s}d4" : "")} dmg to all enemies within 6ft");
+                        if (L >= 20) Console.WriteLine($"  [4] Last Rites         — revive a fallen party member (1d6 HP)");
+                    }
+                    if (P.HasFeat("Prayer of Sanctuary"))      Console.WriteLine($"  [5] Sanctuary          — ward an ally 1d4 turns: can't be attacked nor attack (50ft)");
+                    if (P.HasFeat("Prayer of the Most High"))  Console.WriteLine($"  [6] The Most High      — {mostHighDice}d4 holy dmg to ALL enemies within 50ft");
+                    if (P.HasFeat("Prayer of Redemption"))     Console.WriteLine($"  [7] Redemption         — fully heal an ally + double max HP for 1d4 turns");
+                    if (P.HasFeat("Prayer of Mass Blessings")) Console.WriteLine($"  [8] Mass Blessings     — +1d4 to all allies' rolls for 1d4 turns");
                     Console.Write("  Choose prayer: ");
                     string pc = (Console.ReadLine() ?? "").Trim();
+
+                    bool validPrayer = pc switch
+                    {
+                        "1" or "2" or "3" => isPriest,
+                        "4" => isPriest && L >= 20,
+                        "5" => P.HasFeat("Prayer of Sanctuary"),
+                        "6" => P.HasFeat("Prayer of the Most High"),
+                        "7" => P.HasFeat("Prayer of Redemption"),
+                        "8" => P.HasFeat("Prayer of Mass Blessings"),
+                        _ => false
+                    };
+                    if (!validPrayer) { Console.WriteLine("  You know no such prayer."); continue; }
+                    P.PrayerUses--;
+
+                    if (pc == "5") // ── Prayer of Sanctuary ───────────────
+                    {
+                        Player sancTarget = P;
+                        if (AllPlayers.Count > 1)
+                        {
+                            var living = AllPlayers.Where(pl => pl.HP > 0).ToList();
+                            for (int pi2 = 0; pi2 < living.Count; pi2++) Console.Write($"[{pi2 + 1}]{living[pi2].Name}  ");
+                            Console.Write("\n  Ward who: ");
+                            if (int.TryParse(Console.ReadLine()?.Trim(), out int wi) && wi >= 1 && wi <= living.Count)
+                                sancTarget = living[wi - 1];
+                        }
+                        sancTarget.SanctuaryTurns = Rng.Next(1, 5);
+                        Console.WriteLine($"  SANCTUARY! A divine ward surrounds {sancTarget.Name} for {sancTarget.SanctuaryTurns} turn(s).");
+                        Console.WriteLine("  They cannot be attacked — nor raise a hand in anger.");
+                        justBlocked = false;
+                        break;
+                    }
+                    if (pc == "6") // ── Prayer of the Most High ───────────
+                    {
+                        int mhDmg = 0;
+                        for (int d = 0; d < mostHighDice; d++) mhDmg += Rng.Next(1, 5);
+                        Console.WriteLine($"  THE MOST HIGH ANSWERS! {mhDmg} ({mostHighDice}d4) holy damage sears all enemies within 50ft!");
+                        foreach (var mh in alive.Where(e => PlayerPos.Feet(e.Position) <= 50f).ToList())
+                        {
+                            int dealt = mh.MagicResistant ? Math.Max(1, mhDmg / 2) : mhDmg;
+                            mh.HP -= dealt;
+                            Console.WriteLine($"    {mh.Name} takes {dealt}! HP:{mh.HP}/{mh.MaxHP}");
+                            if (!mh.Alive) HandleKill(mh);
+                        }
+                        justBlocked = false;
+                        break;
+                    }
+                    if (pc == "7") // ── Prayer of Redemption ──────────────
+                    {
+                        Player redTarget = P;
+                        if (AllPlayers.Count > 1)
+                        {
+                            var living = AllPlayers.Where(pl => pl.HP > 0).ToList();
+                            for (int pi3 = 0; pi3 < living.Count; pi3++) Console.Write($"[{pi3 + 1}]{living[pi3].Name}  ");
+                            Console.Write("\n  Redeem who: ");
+                            if (int.TryParse(Console.ReadLine()?.Trim(), out int ri) && ri >= 1 && ri <= living.Count)
+                                redTarget = living[ri - 1];
+                        }
+                        redTarget.ExpireRedemption();   // don't stack with an existing redemption
+                        redTarget.RedemptionExtraHP = redTarget.MaxHP;
+                        redTarget.MaxHP *= 2;
+                        redTarget.HP = redTarget.MaxHP;
+                        redTarget.RedemptionTurns = Rng.Next(1, 5);
+                        Console.WriteLine($"  REDEMPTION! {redTarget.Name} is fully healed and their vigor doubles for {redTarget.RedemptionTurns} turn(s)!");
+                        Console.WriteLine($"    HP: {redTarget.HP}/{redTarget.MaxHP}");
+                        justBlocked = false;
+                        break;
+                    }
+                    if (pc == "8") // ── Prayer of Mass Blessings ──────────
+                    {
+                        int bless = Rng.Next(1, 5);
+                        int blessTurns = Rng.Next(1, 5);
+                        Console.WriteLine($"  MASS BLESSINGS! +{bless} to all rolls for every ally, {blessTurns} turn(s)!");
+                        foreach (var pl in AllPlayers.Where(pl => pl.HP > 0))
+                            pl.ApplyBlessing(bless, blessTurns);
+                        justBlocked = false;
+                        break;
+                    }
 
                     if (pc == "1") // ── Prayer of Healing ─────────────────
                     {
@@ -3190,9 +3518,9 @@ class CombatSession
         if (P.IsGrappled) o.Add("break grapple");
         if (P.HasFeat("Block")) o.Add("block");
         if (P.HasFeat("Parry") && justBlocked && !(blockTarget is Ogre)) o.Add("parry");
-        if (P.HasFeat("Bard Song")) o.Add("bard song");
-        if (P.KnownSpells.Any()) o.Add("cast spell");
-        if (P.CharacterType == "Priest") o.Add("pray");
+        if (P.HasFeat("Bard Song") && SilenceTurns <= 0) o.Add("bard song");
+        if (P.KnownSpells.Any() && SilenceTurns <= 0) o.Add("cast spell");
+        if (P.CanPray && SilenceTurns <= 0) o.Add("pray");
         bool deadGoblin = Active.Any(e => !e.Alive && e is Goblin);
         if (P.HasFeat("Double Tap") && deadGoblin && !P.HasGoblinSword) o.Add("pick up goblin sword");
         if (P.HeldWeapon is "Goblin Dagger" or "Troll Axe") o.Add("throw weapon");
@@ -3205,12 +3533,15 @@ class CombatSession
         if (GroundWeapons.Any(w => PlayerPos.ManhattanDist(w.Pos) <= 1)) o.Add("pick up weapon");
         if (P.CharacterType == "Berserker") o.Add("whirlwind");
         if (P.CharacterType == "Berserker" && P.RagePoints > 0 && !P.IsRaging) o.Add("rage");
-        if (P.CharacterType == "Musician" && P.SongTokens > 0 && !P.SongPlaying) o.Add("play song");
-        if (P.CharacterType == "Musician" && P.SongPlaying) o.Add("stop song");
+        if (P.CanSing && P.SongTokens > 0 && !P.SongPlaying && SilenceTurns <= 0) o.Add("play song");
+        if (P.SongPlaying) o.Add("stop song");
         return o;
     }
 
     // ── MUSICIAN SONGS ────────────────────────────────────────────────────
+
+    // Silence Song: nobody (players or enemies) may use spells/prayers/songs
+    int SilenceTurns = 0;
 
     // Slayer song boosts melee, ranged, thrown, spell and grapple rolls for
     // the whole party — any member's active song empowers the current actor.
@@ -3634,6 +3965,7 @@ class CombatSession
 
     void RaiseDead(Enemy corpse, Enemy necro)
     {
+        if (SilenceTurns > 0) { Console.WriteLine($"  {necro.Name} chants over a corpse — but the silence smothers the ritual!"); return; }
         corpse.HP = corpse.MaxHP;
         corpse.Fled = false;
         corpse.IsUndead = true;
@@ -4419,6 +4751,13 @@ class CombatSession
                     Console.WriteLine($"  {e.Name} (charmed) attacks {victim.Name} for {dmg}! HP:{victim.HP}/{victim.MaxHP}");
                     if (!victim.Alive) { Console.WriteLine($"  {victim.Name} falls to {e.Name}!"); if (!victim.XpAwarded) { victim.XpAwarded = true; GainXP(victim.XPValue); } }
                 }
+                continue;
+            }
+
+            // Sanctuary: the divine ward turns enemies away from the player
+            if (P.SanctuaryTurns > 0)
+            {
+                Console.WriteLine($"  {e.Name} is turned aside by the sanctuary ward around {P.Name}.");
                 continue;
             }
 
@@ -5700,6 +6039,7 @@ class CombatSession
 
     void DoEnemySpell(SpellGoblin sg)
     {
+        if (SilenceTurns > 0) { Console.WriteLine($"  {sg.Name} mouths a spell — but the silence smothers it!"); return; }
         int sgRaw = Rng.Next(1, 7); // d6 concentration roll
         bool sgCrit = sgRaw == 6;
         bool sgFumble = sgRaw == 1;
@@ -5847,6 +6187,7 @@ class CombatSession
 
     void DoGoblinShamanPray(GoblinShaman gs, List<Enemy> allAlive)
     {
+        if (SilenceTurns > 0) { Console.WriteLine($"  {gs.Name} tries to chant — but the silence smothers the prayer!"); return; }
         float feet = gs.Position.Feet(PlayerPos);
 
         // Lord's Prayer: player within 6ft — 1d6 holy damage
