@@ -123,6 +123,13 @@ while (true)
         pl.RagePointsSpent = 0;
     }
 
+    // Refresh Musician song tokens at the start of each wave
+    foreach (var pl in allPlayers.Where(pl => pl.CharacterType == "Musician"))
+    {
+        pl.EndSong();
+        pl.SongTokens = pl.MaxSongTokens();
+    }
+
     Console.WriteLine($"\n──────────────────────────────────");
     Console.WriteLine($" GROUP {waveNum}: {DescribeGroup(group)}");
     Console.WriteLine($"──────────────────────────────────");
@@ -131,6 +138,10 @@ while (true)
         groupsDefeated == 0 ? new GridPos(1, 48) : new GridPos(1, 25),
         state, waveNum);
     bool survived = session.Run();
+
+    // Songs end with the battle; remove any lingering stat bonuses before saving
+    foreach (var pl in allPlayers.Where(pl => pl.CharacterType == "Musician"))
+        pl.EndSong();
 
     if (session.ExitRequested)
     {
@@ -408,6 +419,14 @@ void GainXP(int xp)
             {
                 int maxRage = 1 + (pl.Level >= 2 ? (pl.Level - 2) / 4 + 1 : 0);
                 if (pl.RagePoints < maxRage) pl.RagePoints = maxRage;
+            }
+            if (pl.CharacterType == "Musician")
+            {
+                if (pl.Level % 2 == 0)
+                    Console.WriteLine($"  Bardic song token earned! (Max tokens: {pl.MaxSongTokens()})");
+                if (pl.SongTokens < pl.MaxSongTokens()) pl.SongTokens = pl.MaxSongTokens();
+                if (pl.Level % 3 == 0)
+                    Console.WriteLine($"  Songs grow stronger! Bonuses +{pl.SongBonusAmount()}, DeathTone fear {pl.FearDiceCount()}d6.");
             }
         }
     }
@@ -753,7 +772,7 @@ void SelectRace(Player p)
 
 void SelectCharacterType(Player p)
 {
-    var types = new[] { "Mage", "Priest", "Warrior", "Duelist", "Archer", "Martial Artist", "Berserker" };
+    var types = new[] { "Mage", "Priest", "Warrior", "Duelist", "Archer", "Martial Artist", "Berserker", "Musician" };
     Console.WriteLine("\nChoose your character type:");
     Console.WriteLine("  [1] Mage           — Wand + Staff; Air Blade (ranged) + Air Wave (knockback)");
     Console.WriteLine("  [2] Priest         — Prayers: Healing, Forgiveness, Lord's Prayer");
@@ -762,7 +781,8 @@ void SelectCharacterType(Player p)
     Console.WriteLine("  [5] Archer         — Bow + 50 arrows + Short Sword backup");
     Console.WriteLine("  [6] Martial Artist — Pick a martial art; 1d6+2d4 scaling + grapple/throw");
     Console.WriteLine("  [7] Berserker      — Great Axe; Whirlwind spin + Rage (survive lethal hits)");
-    Console.Write("  Choice (1-7 or name): ");
+    Console.WriteLine("  [8] Musician       — Pick an instrument; songs buff you (linger 1d4 turns after playing)");
+    Console.Write("  Choice (1-8 or name): ");
     string raw = (Console.ReadLine() ?? "").Trim();
     string chosen = "Warrior";
     if (int.TryParse(raw, out int cidx) && cidx >= 1 && cidx <= types.Length)
@@ -846,6 +866,31 @@ void SelectCharacterType(Player p)
         Console.WriteLine("  Rage: spend rage points (+1 per 4 levels from L2) for +2d4/pt damage for 3 turns");
         Console.WriteLine("  Rage: survive at 0 HP while raging, heal 1d4 per rage point spent when rage fades");
     }
+    else if (chosen == "Musician")
+    {
+        p.MinDamage = 1; p.MaxDamage = 4; // 1d4 unarmed
+        p.HeldWeapon = "Short Sword";
+        p.SongTokens = 4;
+        var instruments = new[] { "Guitar", "Flute", "Violin", "Drum", "Cello", "Trumpet",
+                                  "Saxophone", "Bagpipes", "Accordion", "Tambourine", "Harmonica", "Bells" };
+        Console.WriteLine("\n  Pick your instrument:");
+        for (int ii = 0; ii < instruments.Length; ii++)
+            Console.WriteLine($"  [{ii + 1,2}] {instruments[ii]}");
+        Console.Write("  Choice (1-12 or name): ");
+        string iraw = (Console.ReadLine() ?? "").Trim();
+        string inst = "Guitar";
+        if (int.TryParse(iraw, out int iidx) && iidx >= 1 && iidx <= instruments.Length) inst = instruments[iidx - 1];
+        else { var im = instruments.FirstOrDefault(i => i.StartsWith(iraw, StringComparison.OrdinalIgnoreCase)); if (im != null) inst = im; }
+        p.MusicInstrument = inst;
+        Console.WriteLine($"  Instrument: {inst}!  Starting: Short Sword + unarmed 1d4");
+        Console.WriteLine("  Songs (1 token each, effects last while playing + 1d4 turns after stopping):");
+        Console.WriteLine("    Slayer         — +2 attack, +1 damage");
+        Console.WriteLine("    Wind Song      — +2 dodge, block and parry");
+        Console.WriteLine("    Hardstone Song — take 2 less damage");
+        Console.WriteLine("    DeathTone      — each turn, enemies with HP ≤ 2d6 roll flee in fear");
+        Console.WriteLine("  Every 3rd level: song bonuses +2, fear +1d6. Every 2 levels: +1 song token.");
+        Console.WriteLine("  Tokens start at 4 and refresh after each wave.");
+    }
 
     // Set starting HP by class
     p.MaxHP = chosen switch
@@ -855,6 +900,7 @@ void SelectCharacterType(Player p)
         "Martial Artist" => 10,
         "Duelist"        => 8,
         "Archer"         => 8,
+        "Musician"       => 8,
         "Priest"         => 6,
         "Mage"           => 6,
         _                => 8,
@@ -888,6 +934,10 @@ string SaveFilePath(string name)
 void SaveGame(Player p, int groups)
 {
     string path = SaveFilePath(p.Name);
+    // Strip temporary song stat bonuses so a mid-combat save (e.g. on level-up)
+    // doesn't bake Wind Song / Hardstone into the character permanently.
+    int windAdj  = p.ActiveSong == "Wind Song" ? p.SongEffectApplied : 0;
+    int stoneAdj = p.ActiveSong == "Hardstone Song" ? p.SongEffectApplied : 0;
     var lines = new List<string>
     {
         $"Name={p.Name}",
@@ -895,11 +945,11 @@ void SaveGame(Player p, int groups)
         $"HP={p.HP}", $"MaxHP={p.MaxHP}",
         $"MinAttack={p.MinAttack}", $"MaxAttack={p.MaxAttack}",
         $"MinDamage={p.MinDamage}", $"MaxDamage={p.MaxDamage}",
-        $"MinDodge={p.MinDodge}", $"MaxDodge={p.MaxDodge}",
+        $"MinDodge={p.MinDodge - windAdj}", $"MaxDodge={p.MaxDodge - windAdj}",
         $"MinGrapple={p.MinGrapple}", $"MaxGrapple={p.MaxGrapple}",
         $"MinGrappleDmg={p.MinGrappleDmg}", $"MaxGrappleDmg={p.MaxGrappleDmg}",
-        $"MinBlock={p.MinBlock}", $"MaxBlock={p.MaxBlock}",
-        $"MinParry={p.MinParry}", $"MaxParry={p.MaxParry}",
+        $"MinBlock={p.MinBlock - windAdj}", $"MaxBlock={p.MaxBlock - windAdj}",
+        $"MinParry={p.MinParry - windAdj}", $"MaxParry={p.MaxParry - windAdj}",
         $"MinBardSong={p.MinBardSong}", $"MaxBardSong={p.MaxBardSong}",
         $"MinPowerAtk={p.MinPowerAtk}", $"MaxPowerAtk={p.MaxPowerAtk}",
         $"MinLimbBreak={p.MinLimbBreak}", $"MaxLimbBreak={p.MaxLimbBreak}",
@@ -907,7 +957,7 @@ void SaveGame(Player p, int groups)
         $"SavedStatPoints={p.SavedStatPoints}",
         $"GearPointsAvailable={p.GearPointsAvailable}",
         $"AdditionalActions={p.AdditionalActions}",
-        $"ArmorDamageReduction={p.ArmorDamageReduction}",
+        $"ArmorDamageReduction={p.ArmorDamageReduction - stoneAdj}",
         $"RingletBonus={p.RingletBonus}",
         $"Level={p.Level}", $"XP={p.XP}", $"PendingFeats={p.PendingFeats}",
         $"HasGoblinSword={p.HasGoblinSword}",
@@ -921,6 +971,8 @@ void SaveGame(Player p, int groups)
         $"DaggerCount={p.DaggerCount}",
         $"AxeCount={p.AxeCount}",
         $"RagePoints={p.RagePoints}",
+        $"MusicInstrument={p.MusicInstrument}",
+        $"SongTokens={p.SongTokens}",
         $"SecondaryWeapon={p.SecondaryWeapon ?? ""}",
         $"Race={p.Race}",
         $"ElementalFocus={p.ElementalFocus}",
@@ -993,6 +1045,8 @@ bool TryLoadGame(Player p, string filePath)
         p.DaggerCount = I("DaggerCount");
         p.AxeCount = I("AxeCount");
         p.RagePoints = I("RagePoints");
+        p.MusicInstrument = G("MusicInstrument");
+        p.SongTokens = I("SongTokens");
         p.SecondaryWeapon = G("SecondaryWeapon") is { Length: > 0 } sw2 ? sw2 : null;
         p.Race = G("Race") is { Length: > 0 } rc ? rc : "Human";
         p.SpellDamageBonus = I("SpellDamageBonus");
@@ -1178,6 +1232,12 @@ class Player
     public bool IsRaging = false;
     public int RageTurnsLeft = 0;
     public int RagePointsSpent = 0;
+    public string MusicInstrument = "";
+    public int SongTokens = 0;
+    public string ActiveSong = "";
+    public bool SongPlaying = false;
+    public int SongLingerTurns = 0;
+    public int SongEffectApplied = 0;
     public int GroupsDefeated = 0;
 
     public Player(Random rng)
@@ -1197,6 +1257,45 @@ class Player
     }
 
     public void ClearRoundEffects() { Defending = false; ChainLightningUses = 0; }
+
+    // ── Musician songs ──
+    // Tier: +2 to song bonuses (and +1d6 fear dice) every 3rd level.
+    public int SongTier() => Level >= 3 ? Level / 3 : 0;
+    public int MaxSongTokens() => 4 + Level / 2;                // +1 token every 2 levels, starts at 4
+    public int SongBonusAmount() => 2 + 2 * SongTier();          // Slayer atk / Wind / Hardstone
+    public int SlayerDmgBonus() => 1 + 2 * SongTier();
+    public int FearDiceCount() => 2 + SongTier();                // DeathTone (2+tier)d6
+    public bool SongActive(string s) => ActiveSong == s && (SongPlaying || SongLingerTurns > 0);
+
+    // Wind Song / Hardstone are applied as temporary stat deltas so every
+    // dodge/block/parry/damage-reduction roll in the game picks them up.
+    public void ApplySongStats()
+    {
+        if (ActiveSong == "Wind Song")
+        {
+            int b = SongBonusAmount();
+            MinDodge += b; MaxDodge += b; MinBlock += b; MaxBlock += b; MinParry += b; MaxParry += b;
+            SongEffectApplied = b;
+        }
+        else if (ActiveSong == "Hardstone Song")
+        {
+            int b = SongBonusAmount();
+            ArmorDamageReduction += b;
+            SongEffectApplied = b;
+        }
+    }
+
+    public void EndSong()
+    {
+        if (ActiveSong == "Wind Song")
+        {
+            int b = SongEffectApplied;
+            MinDodge -= b; MaxDodge -= b; MinBlock -= b; MaxBlock -= b; MinParry -= b; MaxParry -= b;
+        }
+        else if (ActiveSong == "Hardstone Song")
+            ArmorDamageReduction -= SongEffectApplied;
+        SongEffectApplied = 0; ActiveSong = ""; SongPlaying = false; SongLingerTurns = 0;
+    }
 }
 
 abstract class Enemy
@@ -2021,6 +2120,27 @@ class CombatSession
             }
         }
 
+        // Musician song upkeep: pulse DeathTone, count down lingering echoes
+        if (P.CharacterType == "Musician" && P.ActiveSong != "")
+        {
+            if (P.SongPlaying)
+            {
+                Console.WriteLine($"  [♪ Playing {P.ActiveSong} on your {P.MusicInstrument} — tokens: {P.SongTokens}]");
+                if (P.ActiveSong == "DeathTone") DeathTonePulse();
+            }
+            else
+            {
+                Console.WriteLine($"  [♪ {P.ActiveSong} echoes — {P.SongLingerTurns} turn(s) left]");
+                if (P.ActiveSong == "DeathTone") DeathTonePulse();
+                P.SongLingerTurns--;
+                if (P.SongLingerTurns <= 0)
+                {
+                    Console.WriteLine($"  [♪ {P.ActiveSong} fades away]");
+                    P.EndSong();
+                }
+            }
+        }
+
         if (P.IsRaging)
             Console.WriteLine($"  [RAGING — {P.RageTurnsLeft} turn(s) left, +{P.RagePointsSpent*2}d4 dmg/hit]");
         int actLeft = 2 + P.AdditionalActions;
@@ -2419,6 +2539,42 @@ class CombatSession
                     else Console.WriteLine("  Parry failed!");
                     justBlocked = false;
                     break;
+                }
+
+                case "play song":
+                {
+                    if (P.SongTokens <= 0) { Console.WriteLine("  No song tokens left this wave."); continue; }
+                    int sb = P.SongBonusAmount(), sd = P.SlayerDmgBonus(), fd = P.FearDiceCount();
+                    Console.WriteLine($"  Songs (tokens: {P.SongTokens}):");
+                    Console.WriteLine($"  [1] Slayer         — +{sb} attack, +{sd} damage");
+                    Console.WriteLine($"  [2] Wind Song      — +{sb} dodge, block and parry");
+                    Console.WriteLine($"  [3] Hardstone Song — take {sb} less damage");
+                    Console.WriteLine($"  [4] DeathTone      — each turn, enemies with HP ≤ {fd}d6 roll flee");
+                    Console.Write("  Song # (or [C]ancel): ");
+                    string sraw = (Console.ReadLine() ?? "").Trim().ToLower();
+                    var songNames = new[] { "Slayer", "Wind Song", "Hardstone Song", "DeathTone" };
+                    string? song = null;
+                    if (int.TryParse(sraw, out int si) && si >= 1 && si <= 4) song = songNames[si - 1];
+                    else song = songNames.FirstOrDefault(s => s.ToLower().StartsWith(sraw));
+                    if (song == null) { Console.WriteLine("  You lower your instrument."); continue; }
+                    if (P.ActiveSong != "") P.EndSong();   // switching songs cuts the old one off
+                    P.SongTokens--;
+                    P.ActiveSong = song;
+                    P.SongPlaying = true;
+                    P.SongLingerTurns = 0;
+                    P.ApplySongStats();
+                    Console.WriteLine($"  ♪ You strike up {song} on your {P.MusicInstrument}! (Tokens left: {P.SongTokens})");
+                    if (song == "DeathTone") DeathTonePulse();
+                    justBlocked = false;
+                    break;
+                }
+
+                case "stop song":
+                {
+                    P.SongPlaying = false;
+                    P.SongLingerTurns = Rng.Next(1, 5);
+                    Console.WriteLine($"  ♪ You end {P.ActiveSong}; its echo lingers for {P.SongLingerTurns} turn(s).");
+                    continue;   // stopping is a free action
                 }
 
                 case "bard song":
@@ -3025,7 +3181,24 @@ class CombatSession
         if (GroundWeapons.Any(w => PlayerPos.ManhattanDist(w.Pos) <= 1)) o.Add("pick up weapon");
         if (P.CharacterType == "Berserker") o.Add("whirlwind");
         if (P.CharacterType == "Berserker" && P.RagePoints > 0 && !P.IsRaging) o.Add("rage");
+        if (P.CharacterType == "Musician" && P.SongTokens > 0 && !P.SongPlaying) o.Add("play song");
+        if (P.CharacterType == "Musician" && P.SongPlaying) o.Add("stop song");
         return o;
+    }
+
+    // ── MUSICIAN SONGS ────────────────────────────────────────────────────
+
+    void DeathTonePulse()
+    {
+        int dice = P.FearDiceCount();
+        int roll = 0;
+        for (int d = 0; d < dice; d++) roll += Rng.Next(1, 7);
+        Console.WriteLine($"  ♪ DEATHTONE! Dread chord: {roll} ({dice}d6). Enemies with {roll} HP or less flee!");
+        foreach (var fe in Active.Where(e => e.Alive && !e.IsPlayerAlly && e.HP <= roll).ToList())
+        {
+            fe.Fled = true;
+            Console.WriteLine($"  {fe.Name} ({fe.HP} HP) is gripped by mortal dread and flees!");
+        }
     }
 
     Enemy? PickTarget(List<Enemy> alive)
@@ -3123,6 +3296,14 @@ class CombatSession
         int brokenArmPenalty = P.BrokenLimbs.Count(l => l.Contains("Arm"));
         int warriorAtkBonus  = P.CharacterType == "Warrior"  && P.Level >= 2 ? (P.Level - 2) / 3 + 1 : 0;
         int trueSightAtkBonus = (P.TrueSightTurns > 0 && P.TrueSightStat == "attack") ? P.TrueSightBonus : 0;
+        int songAtkBonus = 0;
+        if (P.SongActive("Slayer"))
+        {
+            songAtkBonus = P.SongBonusAmount();
+            int songDmg = P.SlayerDmgBonus();
+            dmgBonus += songDmg;
+            Console.WriteLine($"  ♪ Slayer song: +{songAtkBonus} attack, +{songDmg} damage!");
+        }
 
         // Duelist Flurry: 3 attacks this action
         int flurryCount = (P.CharacterType == "Duelist" && P.DuelistEffectTurns.GetValueOrDefault("Duelist Flurry") > 0) ? 3 : 1;
@@ -3130,7 +3311,7 @@ class CombatSession
         {
             if (fi > 0) Console.WriteLine($"  [Flurry hit {fi + 1}]");
             int rawRoll = Rng.Next(minAtk, maxAtk + 1);
-            PerformAttack(target, rawRoll + atkPen + warriorAtkBonus - brokenArmPenalty + trueSightAtkBonus, minDmg, maxDmg, fi == 0 ? dmgBonus : 0, useSunder, useDisarm, fi == 0 && useSap, rawRoll == maxAtk, rawRoll == minAtk);
+            PerformAttack(target, rawRoll + atkPen + warriorAtkBonus - brokenArmPenalty + trueSightAtkBonus + songAtkBonus, minDmg, maxDmg, fi == 0 ? dmgBonus : 0, useSunder, useDisarm, fi == 0 && useSap, rawRoll == maxAtk, rawRoll == minAtk);
         }
 
         // Off-hand (Double Tap)

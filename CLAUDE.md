@@ -30,6 +30,7 @@ Development branch: `claude/todo-implementation-ymd2ro`
 | Archer | 8 | Bow + Short Sword | 50 arrows, arrow crafting |
 | Martial Artist | 10 | Unarmed | Martial art style, grapple/throw |
 | Berserker | 12 | Great Axe | Whirlwind spin, Rage (survive lethal hits, heal after rage) |
+| Musician | 8 | Short Sword | Instrument + songs: Slayer (+atk/dmg), Wind Song (+dodge/block/parry), Hardstone (damage reduction), DeathTone (fear by HP vs 2d6). Song tokens: 4 + 1 per 2 levels, refresh each wave; bonuses +2 and fear +1d6 every 3rd level; effects linger 1d4 turns after stopping |
 
 ## Races
 
