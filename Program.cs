@@ -2115,6 +2115,42 @@ class CombatSession
         PlaceEnemies(enemies, nearEdge: false);
     }
 
+    // Step-by-step movement: the player picks each square instead of
+    // committing the whole roll to one direction. A single prompt can also
+    // take a path string like "nnee". Enter or X stops early.
+    void StepMovement(int squares)
+    {
+        Console.WriteLine("  Step with N/S/E/W (chain letters like 'nnee'); Enter or X to stop.");
+        int used = 0;
+        while (used < squares)
+        {
+            Console.Write($"  [{used}/{squares} moved] at ({PlayerPos.X},{PlayerPos.Y}) — step: ");
+            string d = (Console.ReadLine() ?? "").Trim().ToLower();
+            if (d == "" || d == "x" || d == "q" || d == "done" || d == "stop") break;
+            bool badInput = false;
+            foreach (char c in d)
+            {
+                if (used >= squares) break;
+                int dx = c == 'e' ? 1 : c == 'w' ? -1 : 0;
+                int dy = c == 's' ? 1 : c == 'n' ? -1 : 0;
+                if (dx == 0 && dy == 0) { badInput = true; break; }
+                int nx = Math.Clamp(PlayerPos.X + dx, 0, 49);
+                int ny = Math.Clamp(PlayerPos.Y + dy, 0, 49);
+                if (nx == PlayerPos.X && ny == PlayerPos.Y)
+                {
+                    Console.WriteLine("  You bump into the edge of the field.");
+                    continue;
+                }
+                PlayerPos = new GridPos(nx, ny);
+                used++;
+                PushDisplay();
+            }
+            if (badInput) Console.WriteLine("  Use N/S/E/W letters only (or X to stop).");
+        }
+        Console.WriteLine($"  You end your move at ({PlayerPos.X},{PlayerPos.Y})." +
+            (used < squares ? $"  ({squares - used} square(s) unused)" : ""));
+    }
+
     void PushDisplay()
     {
         if (_displayState == null) return;
@@ -2571,15 +2607,8 @@ class CombatSession
                 {
                     if (P.IsGrappled) { Console.WriteLine("  You can't move while grappled!"); continue; }
                     int moveRoll = Rng.Next(P.MinMovement, P.MaxMovement + 1) + P.MovementBonus;
-                    Console.Write($"  Move roll: {moveRoll} squares. Direction [N/S/E/W]: ");
-                    string dir = (Console.ReadLine() ?? "").Trim().ToLower();
-                    int mdx = dir.StartsWith("e") ? 1 : dir.StartsWith("w") ? -1 : 0;
-                    int mdy = dir.StartsWith("s") ? 1 : dir.StartsWith("n") ? -1 : 0;
-                    if (mdx == 0 && mdy == 0) { Console.WriteLine("  Invalid direction (N/S/E/W)."); continue; }
-                    PlayerPos = new GridPos(
-                        Math.Clamp(PlayerPos.X + mdx * moveRoll, 0, 49),
-                        Math.Clamp(PlayerPos.Y + mdy * moveRoll, 0, 49));
-                    Console.WriteLine($"  You move {moveRoll} sq {dir.ToUpper()}. Now at ({PlayerPos.X},{PlayerPos.Y}).");
+                    Console.WriteLine($"  Move roll: {moveRoll} square(s).");
+                    StepMovement(moveRoll);
                     justBlocked = false;
                     break;
                 }
@@ -2588,15 +2617,8 @@ class CombatSession
                 {
                     if (P.IsGrappled) { Console.WriteLine("  You can't sprint while grappled!"); continue; }
                     int sprintRoll = Rng.Next(P.MinMovement, P.MaxMovement + 1) * 2 + P.MovementBonus;
-                    Console.Write($"  SPRINT! {sprintRoll} squares. Direction [N/S/E/W]: ");
-                    string spDir = (Console.ReadLine() ?? "").Trim().ToLower();
-                    int sdx = spDir.StartsWith("e") ? 1 : spDir.StartsWith("w") ? -1 : 0;
-                    int sdy = spDir.StartsWith("s") ? 1 : spDir.StartsWith("n") ? -1 : 0;
-                    if (sdx == 0 && sdy == 0) { Console.WriteLine("  Invalid direction (N/S/E/W)."); continue; }
-                    PlayerPos = new GridPos(
-                        Math.Clamp(PlayerPos.X + sdx * sprintRoll, 0, 49),
-                        Math.Clamp(PlayerPos.Y + sdy * sprintRoll, 0, 49));
-                    Console.WriteLine($"  You sprint {sprintRoll} sq {spDir.ToUpper()}. Now at ({PlayerPos.X},{PlayerPos.Y}). [-2 to next action roll]");
+                    Console.WriteLine($"  SPRINT! {sprintRoll} square(s). [-2 to next action roll]");
+                    StepMovement(sprintRoll);
                     justSprinted = true;
                     justBlocked = false;
                     break;
