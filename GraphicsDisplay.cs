@@ -7,12 +7,23 @@ using System.Numerics;
 
 // ── Shared state pushed by game thread, read by render thread ─────────────
 
+class PartyStat
+{
+    public string Name = "", Weapon = "", Shield = "";
+    public int HP, MaxHP, Level;
+    public int SpellUses, SongTokens, PrayerUses;
+    public int Arrows, Daggers, Axes;
+    public int ArmorDR, Ringlet;
+    public bool CanSpell, CanSong, CanPray, IsCurrent;
+}
+
 class RenderSnapshot
 {
     public GridPos PlayerPos;
     public int PlayerHP, PlayerMaxHP, PlayerLevel, WaveNum;
     public List<(GridPos Pos, string TypeName, int HP, int MaxHP)> Enemies = new();
     public List<(GridPos Pos, string Initials)> OtherPlayers = new();
+    public List<PartyStat> Party = new();
     public List<GridPos> GroundWeapons = new();
 }
 
@@ -53,6 +64,7 @@ class GraphicsDisplay
     {
         Raylib.SetConfigFlags(ConfigFlags.ResizableWindow);
         Raylib.InitWindow(WinW, WinH, "One Who Stands Against The Horde");
+        Raylib.SetWindowMinSize(Panel + Cell * 7, Cell * 10);
         Raylib.SetTargetFPS(30);
 
         LoadTextures();
@@ -107,19 +119,28 @@ class GraphicsDisplay
 
     void DrawMap(RenderSnapshot snap)
     {
-        int ox = snap.PlayerPos.X - View;   // grid origin offset
-        int oy = snap.PlayerPos.Y - View;
+        // Viewport is derived from the live window size: resize the window
+        // and you see more (or less) of the battlefield.
+        int screenW = Raylib.GetScreenWidth();
+        int screenH = Raylib.GetScreenHeight();
+        int mapW    = Math.Max(Cell, screenW - Panel);
+        int cellsX  = Math.Max(1, mapW / Cell);
+        int cellsY  = Math.Max(1, screenH / Cell + 1);
+        int ox = snap.PlayerPos.X - cellsX / 2;   // grid origin offset (player centered)
+        int oy = snap.PlayerPos.Y - cellsY / 2;
+        int mapPxW = cellsX * Cell;
+        int mapPxH = cellsY * Cell;
 
         // Grid lines (subtle)
-        for (int r = 0; r <= View * 2 + 1; r++)
+        for (int r = 0; r <= cellsY; r++)
         {
             int py = r * Cell;
-            Raylib.DrawLine(0, py, ViewPx, py, new Color(30, 30, 30, 255));
+            Raylib.DrawLine(0, py, mapPxW, py, new Color(30, 30, 30, 255));
         }
-        for (int c = 0; c <= View * 2 + 1; c++)
+        for (int c = 0; c <= cellsX; c++)
         {
             int px = c * Cell;
-            Raylib.DrawLine(px, 0, px, ViewPx, new Color(30, 30, 30, 255));
+            Raylib.DrawLine(px, 0, px, mapPxH, new Color(30, 30, 30, 255));
         }
 
         // Ground weapons (small yellow dot)
@@ -127,7 +148,7 @@ class GraphicsDisplay
         {
             int sx = (wp.X - ox) * Cell;
             int sy = (wp.Y - oy) * Cell;
-            if (sx < 0 || sy < 0 || sx >= ViewPx || sy >= ViewPx) continue;
+            if (sx < 0 || sy < 0 || sx >= mapPxW || sy >= mapPxH) continue;
             Raylib.DrawRectangle(sx + 6, sy + 6, Cell - 12, Cell - 12, Color.Gold);
         }
 
@@ -136,7 +157,7 @@ class GraphicsDisplay
         {
             int sx = (pos.X - ox) * Cell;
             int sy = (pos.Y - oy) * Cell;
-            if (sx < 0 || sy < 0 || sx >= ViewPx || sy >= ViewPx) continue;
+            if (sx < 0 || sy < 0 || sx >= mapPxW || sy >= mapPxH) continue;
             DrawEntity(sx, sy, type, hp, maxHp);
         }
 
@@ -145,15 +166,15 @@ class GraphicsDisplay
         {
             int sx = (pos.X - ox) * Cell;
             int sy = (pos.Y - oy) * Cell;
-            if (sx < 0 || sy < 0 || sx >= ViewPx || sy >= ViewPx) continue;
+            if (sx < 0 || sy < 0 || sx >= mapPxW || sy >= mapPxH) continue;
             Raylib.DrawRectangle(sx + 1, sy + 1, Cell - 2, Cell - 2, new Color(30, 110, 255, 255));
             Raylib.DrawText(initials, sx + 6, sy + 10, 18, Color.Black);
         }
 
-        // Player
+        // Player (always at the viewport center)
         {
-            int sx = View * Cell;
-            int sy = View * Cell;
+            int sx = (snap.PlayerPos.X - ox) * Cell;
+            int sy = (snap.PlayerPos.Y - oy) * Cell;
             if (_tex.TryGetValue("Player", out var ptex))
             {
                 var dst = new Rectangle(sx, sy, Cell, Cell);
@@ -220,30 +241,68 @@ class GraphicsDisplay
 
     // ── Status panel ───────────────────────────────────────────────────────
 
+    static string Trunc(string s, int max) => s.Length <= max ? s : s[..(max - 1)] + "…";
+
     void DrawPanel(RenderSnapshot snap)
     {
-        int px = ViewPx + 10;
-        Raylib.DrawRectangle(ViewPx, 0, Panel, WinH, new Color(18, 18, 24, 255));
-        Raylib.DrawLine(ViewPx, 0, ViewPx, WinH, new Color(60, 60, 80, 255));
+        int screenW = Raylib.GetScreenWidth();
+        int screenH = Raylib.GetScreenHeight();
+        int panelX = screenW - Panel;
+        int px = panelX + 10;
+        Raylib.DrawRectangle(panelX, 0, Panel, screenH, new Color(18, 18, 24, 255));
+        Raylib.DrawLine(panelX, 0, panelX, screenH, new Color(60, 60, 80, 255));
 
-        Raylib.DrawText("OWSATH", px, 12, 20, Color.White);
-        Raylib.DrawText($"Wave {snap.WaveNum}", px, 40, 15, Color.LightGray);
-        Raylib.DrawText($"Level {snap.PlayerLevel}", px, 60, 15, Color.LightGray);
+        Raylib.DrawText("OWSATH", px, 10, 20, Color.White);
+        Raylib.DrawText($"Wave {snap.WaveNum}", px + 110, 14, 15, Color.LightGray);
+        Raylib.DrawText($"Enemies: {snap.Enemies.Count}", px, 34, 13, Color.Orange);
 
-        // HP label + bar
-        bool crit = snap.PlayerHP <= snap.PlayerMaxHP / 4;
-        var hpCol = crit ? Color.Red : new Color(50, 205, 50, 255);
-        Raylib.DrawText($"HP  {snap.PlayerHP} / {snap.PlayerMaxHP}", px, 88, 14, hpCol);
-        int barW = snap.PlayerMaxHP > 0
-            ? (int)((Panel - 20) * snap.PlayerHP / (float)snap.PlayerMaxHP) : 0;
-        Raylib.DrawRectangle(px,       108, Panel - 20, 10, new Color(50, 50, 50, 255));
-        Raylib.DrawRectangle(px,       108, barW,       10, hpCol);
+        // ── Party: HP, uses, ammo, gear, level for every player ──
+        int y = 54;
+        foreach (var m in snap.Party)
+        {
+            var nameCol = m.HP <= 0 ? Color.Gray : (m.IsCurrent ? Color.Yellow : Color.White);
+            Raylib.DrawText($"{(m.IsCurrent ? "> " : "")}{Trunc(m.Name, 17)}  Lv{m.Level}", px, y, 13, nameCol);
+            y += 15;
 
-        // Enemy count
-        Raylib.DrawText($"Enemies: {snap.Enemies.Count}", px, 130, 13, Color.Orange);
+            bool crit = m.HP <= m.MaxHP / 4;
+            var hpCol = m.HP <= 0 ? Color.Gray : (crit ? Color.Red : new Color(50, 205, 50, 255));
+            Raylib.DrawText($"HP {m.HP}/{m.MaxHP}", px, y, 12, hpCol);
+            int barW = m.MaxHP > 0 ? (int)((Panel - 110) * Math.Clamp(m.HP, 0, m.MaxHP) / (float)m.MaxHP) : 0;
+            Raylib.DrawRectangle(px + 88, y + 2, Panel - 110, 8, new Color(50, 50, 50, 255));
+            Raylib.DrawRectangle(px + 88, y + 2, barW, 8, hpCol);
+            y += 14;
 
-        // Legend
-        int ly = WinH - 370;
+            var uses = new List<string>();
+            if (m.CanSpell) uses.Add($"Spells {m.SpellUses}");
+            if (m.CanPray)  uses.Add($"Prayers {m.PrayerUses}");
+            if (m.CanSong)  uses.Add($"Songs {m.SongTokens}");
+            if (uses.Count > 0)
+            {
+                Raylib.DrawText(string.Join("  ", uses), px, y, 11, new Color(120, 190, 255, 255));
+                y += 13;
+            }
+
+            var ammo = new List<string>();
+            if (m.Arrows > 0)  ammo.Add($"Arrows {m.Arrows}");
+            if (m.Daggers > 0) ammo.Add($"Daggers {m.Daggers}");
+            if (m.Axes > 0)    ammo.Add($"Axes {m.Axes}");
+            if (ammo.Count > 0)
+            {
+                Raylib.DrawText(string.Join("  ", ammo), px, y, 11, Color.Gold);
+                y += 13;
+            }
+
+            var gear = new List<string> { m.Weapon };
+            if (m.Shield != "")  gear.Add($"Shld {m.Shield}");
+            if (m.ArmorDR > 0)   gear.Add($"Armor -{m.ArmorDR}");
+            if (m.Ringlet > 0)   gear.Add($"Ring +{m.Ringlet}");
+            Raylib.DrawText(Trunc(string.Join("  ", gear), 36), px, y, 11, Color.LightGray);
+            y += 19;
+        }
+
+        // Legend (anchored to the window bottom; hidden if the party list needs the room)
+        int ly = screenH - 370;
+        if (ly < y) return;
         Raylib.DrawText("Legend", px, ly, 13, Color.Gray);
         DrawLegend(px, ly + 336, "AB", "Ally player", new Color(30, 110, 255, 255));
         DrawLegend(px, ly +  16, "G",  "Goblin",       new Color(144, 238, 144, 255));

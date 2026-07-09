@@ -2195,6 +2195,17 @@ class CombatSession
             OtherPlayers = ActivePlayers.Where(pl => pl != P && pl.HP > 0)
                                         .Select(pl => (pl.Position, PlayerInitials(pl.Name)))
                                         .ToList(),
+            Party = AllPlayers.Select(pl => new PartyStat
+            {
+                Name = pl.Name, HP = pl.HP, MaxHP = pl.MaxHP, Level = pl.Level,
+                SpellUses = pl.SpellUses, SongTokens = pl.SongTokens, PrayerUses = pl.PrayerUses,
+                CanSpell = pl.KnownSpells.Any(), CanSong = pl.CanSing, CanPray = pl.CanPray,
+                Arrows = pl.ArrowCount, Daggers = pl.DaggerCount, Axes = pl.AxeCount,
+                ArmorDR = pl.ArmorDamageReduction, Ringlet = pl.RingletBonus,
+                Weapon = pl.HeldWeapon ?? "Unarmed",
+                Shield = pl.OffHandShieldName != null ? $"{pl.OffHandShieldName} +{pl.OffHandShieldBlock}" : "",
+                IsCurrent = pl == P,
+            }).ToList(),
             GroundWeapons = GroundWeapons.Select(w => w.Pos).ToList(),
         });
     }
