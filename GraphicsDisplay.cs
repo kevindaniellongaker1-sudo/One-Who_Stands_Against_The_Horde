@@ -12,6 +12,7 @@ class RenderSnapshot
     public GridPos PlayerPos;
     public int PlayerHP, PlayerMaxHP, PlayerLevel, WaveNum;
     public List<(GridPos Pos, string TypeName, int HP, int MaxHP)> Enemies = new();
+    public List<(GridPos Pos, string Initials)> OtherPlayers = new();
     public List<GridPos> GroundWeapons = new();
 }
 
@@ -139,6 +140,16 @@ class GraphicsDisplay
             DrawEntity(sx, sy, type, hp, maxHp);
         }
 
+        // Other party members (blue tile, black initials)
+        foreach (var (pos, initials) in snap.OtherPlayers)
+        {
+            int sx = (pos.X - ox) * Cell;
+            int sy = (pos.Y - oy) * Cell;
+            if (sx < 0 || sy < 0 || sx >= ViewPx || sy >= ViewPx) continue;
+            Raylib.DrawRectangle(sx + 1, sy + 1, Cell - 2, Cell - 2, new Color(30, 110, 255, 255));
+            Raylib.DrawText(initials, sx + 6, sy + 10, 18, Color.Black);
+        }
+
         // Player
         {
             int sx = View * Cell;
@@ -232,8 +243,9 @@ class GraphicsDisplay
         Raylib.DrawText($"Enemies: {snap.Enemies.Count}", px, 130, 13, Color.Orange);
 
         // Legend
-        int ly = WinH - 354;
+        int ly = WinH - 370;
         Raylib.DrawText("Legend", px, ly, 13, Color.Gray);
+        DrawLegend(px, ly + 336, "AB", "Ally player", new Color(30, 110, 255, 255));
         DrawLegend(px, ly +  16, "G",  "Goblin",       new Color(144, 238, 144, 255));
         DrawLegend(px, ly +  32, "GW", "Goblin War",   new Color(100, 200, 100, 255));
         DrawLegend(px, ly +  48, "RG", "Rogue Gob",    new Color(200, 220,  80, 255));

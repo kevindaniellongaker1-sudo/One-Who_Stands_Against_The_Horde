@@ -1309,6 +1309,7 @@ class Player
     public int OffhandMaxDamage = 4;
     public bool IsGrappled = false;
     public Enemy? GrappledBy = null;
+    public GridPos Position = new(-1, -1);   // per-player battlefield position
     public List<string> Feats = new();
     public Dictionary<string, int> FeatStacks = new();
     public Dictionary<string, int> GearCounts = new();
@@ -2121,7 +2122,9 @@ class CombatSession
     List<(GridPos Pos, string Type)> GroundWeapons = new();
     public bool PlayerFled = false;
     public bool ExitRequested = false;
-    GridPos PlayerPos;
+    // Routes to the current player's own position so every party member
+    // stands on (and moves from) their own square.
+    GridPos PlayerPos { get => P.Position; set => P.Position = value; }
     SharedGameState? _displayState;
     int _waveNum;
 
@@ -2129,7 +2132,7 @@ class CombatSession
     {
         P = p; AllPlayers = allPlayers; ActivePlayers = allPlayers.ToList();
         Active = enemies; Rng = rng; XpThreshold = xpFn; GainXP = gainXp;
-        PlayerPos = playerStart;
+        foreach (var pl in allPlayers) pl.Position = playerStart;   // party starts together
         _displayState = displayState;
         _waveNum = waveNum;
         PlaceEnemies(enemies, nearEdge: false);
@@ -2171,6 +2174,13 @@ class CombatSession
             (used < squares ? $"  ({squares - used} square(s) unused)" : ""));
     }
 
+    static string PlayerInitials(string name)
+    {
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        string s = string.Concat(parts.Take(2).Select(w => char.ToUpper(w[0])));
+        return s.Length > 0 ? s : "?";
+    }
+
     void PushDisplay()
     {
         if (_displayState == null) return;
@@ -2182,6 +2192,9 @@ class CombatSession
             Enemies = Active.Where(e => e.Alive)
                             .Select(e => (e.Position, e.GetType().Name, e.HP, e.MaxHP))
                             .ToList(),
+            OtherPlayers = ActivePlayers.Where(pl => pl != P && pl.HP > 0)
+                                        .Select(pl => (pl.Position, PlayerInitials(pl.Name)))
+                                        .ToList(),
             GroundWeapons = GroundWeapons.Select(w => w.Pos).ToList(),
         });
     }
