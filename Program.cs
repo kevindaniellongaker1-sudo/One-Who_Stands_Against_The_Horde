@@ -366,13 +366,15 @@ List<Enemy> BuildGroup(int waveNum, Random r)
         }
     }
 
-    // Enemy casters get use pools scaled to the wave (player formulas)
+    // Enemy casters: uses = floor(lowestPlayerLevel * 0.80), minimum 1
+    int lowestPlayerLevel = allPlayers.Any() ? allPlayers.Min(pl => pl.Level) : waveNum;
+    int enemyAbilityUses  = Math.Max(1, (int)(lowestPlayerLevel * 0.80));
     foreach (var e in g)
     {
-        e.Level = waveNum;
-        e.SpellUsesLeft  = 6 + (waveNum / 2) * 2;
-        e.PrayerUsesLeft = 5 + (waveNum / 2) * 2;
-        e.SongUsesLeft   = 5 + waveNum / 2;
+        e.Level          = waveNum;
+        e.SpellUsesLeft  = enemyAbilityUses;
+        e.PrayerUsesLeft = enemyAbilityUses;
+        e.SongUsesLeft   = enemyAbilityUses;
     }
     return g;
 }
@@ -1063,6 +1065,9 @@ void SaveGame(Player p, int groups)
         $"MinRangedAtk={p.MinRangedAtk - warAdj - blessAdj}", $"MaxRangedAtk={p.MaxRangedAtk - warAdj - blessAdj}",
         $"MinRangedDmgBonus={p.MinRangedDmgBonus}", $"MaxRangedDmgBonus={p.MaxRangedDmgBonus}",
         $"GroupsDefeated={groups}",
+        $"OffHandShieldName={p.OffHandShieldName ?? ""}",
+        $"OffHandShieldDefense={p.OffHandShieldDefense}",
+        $"OffHandShieldBlock={p.OffHandShieldBlock}",
     };
     File.WriteAllLines(path, lines);
     Console.WriteLine($"  ✓ Game saved ({p.Name}).");
@@ -1160,6 +1165,16 @@ bool TryLoadGame(Player p, string filePath)
         p.MaxRangedDmgBonus = I("MaxRangedDmgBonus");
 
         p.GroupsDefeated = I("GroupsDefeated");
+        // Off-hand shield — only present in newer saves
+        if (dict.ContainsKey("OffHandShieldName"))
+        {
+            string sn           = G("OffHandShieldName");
+            p.OffHandShieldName    = sn.Length > 0 ? sn : null;
+            p.OffHandShieldDefense = I("OffHandShieldDefense");
+            p.OffHandShieldBlock   = I("OffHandShieldBlock");
+            // ArmorDamageReduction and MaxBlock were saved with the shield bonus
+            // already baked in, so we do NOT re-add them here.
+        }
         return true;
     }
     catch
@@ -1343,6 +1358,11 @@ class Player
     public int RedemptionTurns = 0;     // doubled max HP countdown
     public int RedemptionExtraHP = 0;
     public int GroupsDefeated = 0;
+
+    // Off-hand shield slot (dropped by enemies; bonuses persist in save file)
+    public string? OffHandShieldName    = null;
+    public int     OffHandShieldDefense = 0;   // added to ArmorDamageReduction at pickup
+    public int     OffHandShieldBlock   = 0;   // added to MaxBlock at pickup
 
     public Player(Random rng)
     {
@@ -4080,6 +4100,116 @@ class CombatSession
             if (recovered < e.ArrowsInBody) Console.WriteLine($"  {e.ArrowsInBody - recovered} arrow(s) broke.");
             e.ArrowsInBody = 0;
         }
+
+        // ── Shield drop ─────────────────────────────────────────────────────
+        if (e.HasShield && !e.ShieldLost)
+        {
+            e.ShieldLost = true; // consumed as loot
+            string dropName = e.ShieldBlockBonus == 1 ? "Buckler"
+                            : e.TypeName.StartsWith("Orc") ? "Round Shield"
+                            : "Kite Shield";
+            int dropDef   = 1;                  // +1 ArmorDamageReduction
+            int dropBlock = e.ShieldBlockBonus; // +N MaxBlock
+            Console.WriteLine($"  A {dropName} falls from {e.Name}! (Def +{dropDef}, Block +{dropBlock})");
+
+            foreach (var candidate in AllPlayers.Where(pl => pl.HP > 0))
+            {
+                if (candidate.OffHandShieldName == null)
+                {
+                    Console.Write($"  {candidate.Name}: Pick up the {dropName}? (y/n): ");
+                    if ((Console.ReadLine() ?? "").Trim().ToLower() == "y")
+                    {
+                        candidate.OffHandShieldName    = dropName;
+                        candidate.OffHandShieldDefense = dropDef;
+                        candidate.OffHandShieldBlock   = dropBlock;
+                        candidate.ArmorDamageReduction += dropDef;
+                        candidate.MaxBlock             += dropBlock;
+                        Console.WriteLine($"  {candidate.Name} equips the {dropName} in their off-hand. "
+                            + $"(Armor Reduction: +{candidate.ArmorDamageReduction}, Block Max: {candidate.MaxBlock})");
+                        break;
+                    }
+                }
+                else
+                {
+                    Console.Write($"  {candidate.Name}: Swap your {candidate.OffHandShieldName} for the {dropName}? (y/n): ");
+                    if ((Console.ReadLine() ?? "").Trim().ToLower() == "y")
+                    {
+                        // Remove old shield bonuses
+                        candidate.ArmorDamageReduction -= candidate.OffHandShieldDefense;
+                        candidate.MaxBlock             -= candidate.OffHandShieldBlock;
+                        // Equip new shield
+                        candidate.OffHandShieldName    = dropName;
+                        candidate.OffHandShieldDefense = dropDef;
+                        candidate.OffHandShieldBlock   = dropBlock;
+                        candidate.ArmorDamageReduction += dropDef;
+                        candidate.MaxBlock             += dropBlock;
+                        Console.WriteLine($"  {candidate.Name} equips the {dropName}. "
+                            + $"(Armor Reduction: +{candidate.ArmorDamageReduction}, Block Max: {candidate.MaxBlock})");
+                        break;
+                    }
+                }
+            }
+        }
+
+        // ── Weapon drop ─────────────────────────────────────────────────────
+        string dropWeapon = EnemyWeaponType(e);
+        if (dropWeapon != "" && !e.Disarmed)
+        {
+            var (minA, maxA, minD, maxD) = WeaponPickupStats(dropWeapon);
+            if (minA > 0)
+            {
+                Console.WriteLine($"  {e.Name}'s {dropWeapon} lies on the ground! (Atk {minA}-{maxA}, Dmg {minD}-{maxD})");
+                bool weaponTaken = false;
+                foreach (var candidate in AllPlayers.Where(pl => pl.HP > 0))
+                {
+                    Console.Write($"  {candidate.Name}: Pick up the {dropWeapon}? (y/n): ");
+                    if ((Console.ReadLine() ?? "").Trim().ToLower() != "y") continue;
+
+                    if (candidate.HeldWeapon == null)
+                    {
+                        candidate.HeldWeapon = dropWeapon;
+                        Console.WriteLine($"  {candidate.Name} equips the {dropWeapon}. (Atk {minA}-{maxA}, Dmg {minD}-{maxD})");
+                        weaponTaken = true;
+                    }
+                    else if (candidate.SecondaryWeapon == null)
+                    {
+                        Console.Write($"  Main hand (m) replaces [{candidate.HeldWeapon}] \u2192 off-hand, or add as off-hand (o), or skip (n)? ");
+                        string slot = (Console.ReadLine() ?? "").Trim().ToLower();
+                        if (slot == "m")
+                        {
+                            candidate.SecondaryWeapon = candidate.HeldWeapon;
+                            candidate.HeldWeapon = dropWeapon;
+                            Console.WriteLine($"  {candidate.Name} wields {dropWeapon}; {candidate.SecondaryWeapon} moved to off-hand.");
+                            weaponTaken = true;
+                        }
+                        else if (slot == "o")
+                        {
+                            candidate.SecondaryWeapon = dropWeapon;
+                            Console.WriteLine($"  {candidate.Name} adds {dropWeapon} to off-hand.");
+                            weaponTaken = true;
+                        }
+                    }
+                    else
+                    {
+                        Console.Write($"  Replace main [{candidate.HeldWeapon}] (m), off-hand [{candidate.SecondaryWeapon}] (o), or skip (n)? ");
+                        string slot = (Console.ReadLine() ?? "").Trim().ToLower();
+                        if (slot == "m")
+                        {
+                            Console.WriteLine($"  {candidate.Name} drops {candidate.HeldWeapon} and wields {dropWeapon}.");
+                            candidate.HeldWeapon = dropWeapon;
+                            weaponTaken = true;
+                        }
+                        else if (slot == "o")
+                        {
+                            Console.WriteLine($"  {candidate.Name} drops {candidate.SecondaryWeapon} and holsters {dropWeapon}.");
+                            candidate.SecondaryWeapon = dropWeapon;
+                            weaponTaken = true;
+                        }
+                    }
+                    if (weaponTaken) break;
+                }
+            }
+        }
     }
 
     // ── Necromancy ──────────────────────────────────────────────────────────
@@ -4193,6 +4323,10 @@ class CombatSession
         Orc => "Orc Longsword",
         Troll => "Troll Axe",
         Ogre => "Ogre Club",
+        HobgoblinFighter => "Long Sword",
+        HobgoblinThief   => "Short Sword",
+        HobgoblinCleric  => "Mace",
+        GoblinWarrior    => "Short Sword",
         _ => ""
     };
 
@@ -4212,6 +4346,9 @@ class CombatSession
         "Staff"          => (1, 6, 2, 6),
         "Kukuri"         => (2, 8, 2, 8),
         "Wand"           => (1, 6, 3, 4),
+        "Long Sword"     => (2, 9, 2, 10),
+        "Ogre Club"      => (2, 14, 4, 16),
+        "Troll Axe"      => (2, 12, 3, 12),
         _ => (0, 0, 0, 0)
     };
 
