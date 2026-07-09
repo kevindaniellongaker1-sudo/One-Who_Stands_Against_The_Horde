@@ -4348,7 +4348,6 @@ class CombatSession
         "Wand"           => (1, 6, 3, 4),
         "Long Sword"     => (2, 9, 2, 10),
         "Ogre Club"      => (2, 14, 4, 16),
-        "Troll Axe"      => (2, 12, 3, 12),
         _ => (0, 0, 0, 0)
     };
 
