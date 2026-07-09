@@ -4315,6 +4315,7 @@ class CombatSession
     string EnemyWeaponType(Enemy e) => e switch
     {
         SpellGoblin => "",
+        GoblinWarrior    => "Short Sword",
         Goblin => "Goblin Dagger",
         OrcBarbarian => "Battle Axe",
         OrcMonk om => om.HasMartialStaff ? "Staff" : "",
@@ -4326,7 +4327,6 @@ class CombatSession
         HobgoblinFighter => "Long Sword",
         HobgoblinThief   => "Short Sword",
         HobgoblinCleric  => "Mace",
-        GoblinWarrior    => "Short Sword",
         _ => ""
     };
 
