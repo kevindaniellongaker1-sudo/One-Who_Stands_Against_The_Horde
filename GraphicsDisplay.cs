@@ -25,6 +25,9 @@ class RenderSnapshot
     public List<(GridPos Pos, string Initials)> OtherPlayers = new();
     public List<PartyStat> Party = new();
     public List<GridPos> GroundWeapons = new();
+    public List<GridPos> Walls = new();
+    public List<GridPos> Trees = new();
+    public List<GridPos> Rocks = new();
 }
 
 class SharedGameState
@@ -141,6 +144,31 @@ class GraphicsDisplay
         {
             int px = c * Cell;
             Raylib.DrawLine(px, 0, px, mapPxH, new Color(30, 30, 30, 255));
+        }
+
+        // Terrain: camp walls, trees, rocks
+        foreach (var w in snap.Walls)
+        {
+            int sx = (w.X - ox) * Cell;
+            int sy = (w.Y - oy) * Cell;
+            if (sx < 0 || sy < 0 || sx >= mapPxW || sy >= mapPxH) continue;
+            Raylib.DrawRectangle(sx, sy, Cell, Cell, new Color(115, 80, 48, 255));
+            Raylib.DrawRectangleLines(sx, sy, Cell, Cell, new Color(70, 46, 25, 255));
+        }
+        foreach (var t in snap.Trees)
+        {
+            int sx = (t.X - ox) * Cell;
+            int sy = (t.Y - oy) * Cell;
+            if (sx < 0 || sy < 0 || sx >= mapPxW || sy >= mapPxH) continue;
+            Raylib.DrawCircle(sx + Cell / 2, sy + Cell / 2, Cell * 0.38f, new Color(20, 105, 35, 255));
+            Raylib.DrawRectangle(sx + Cell / 2 - 3, sy + Cell - 12, 6, 10, new Color(100, 65, 30, 255));
+        }
+        foreach (var rk in snap.Rocks)
+        {
+            int sx = (rk.X - ox) * Cell;
+            int sy = (rk.Y - oy) * Cell;
+            if (sx < 0 || sy < 0 || sx >= mapPxW || sy >= mapPxH) continue;
+            Raylib.DrawCircle(sx + Cell / 2, sy + Cell / 2 + 4, Cell * 0.32f, new Color(120, 120, 128, 255));
         }
 
         // Ground weapons (small yellow dot)

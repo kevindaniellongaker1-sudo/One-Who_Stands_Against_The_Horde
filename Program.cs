@@ -146,6 +146,7 @@ while (true)
     foreach (var pl in everyone)
     {
         pl.SanctuaryTurns = 0;
+        pl.Climbed = false;
         pl.ExpireBlessing();
         pl.ExpireRedemption();
     }
@@ -375,6 +376,12 @@ List<Enemy> BuildGroup(int waveNum, Random r)
         e.SpellUsesLeft  = enemyAbilityUses;
         e.PrayerUsesLeft = enemyAbilityUses;
         e.SongUsesLeft   = enemyAbilityUses;
+        // Small creatures are slighter of frame: -1 max HP
+        if (SizeRules.Of(e.Race) == 0)
+        {
+            e.MaxHP = Math.Max(1, e.MaxHP - 1);
+            e.HP = Math.Min(e.HP, e.MaxHP);
+        }
     }
     return g;
 }
@@ -714,7 +721,7 @@ void SelectRace(Player p)
     {
         "Moon Elf", "Human", "Stone Dwarf", "Light-Foot Hobbit",
         "Sun Elf", "Wood Elf", "Orc", "Goblin", "Troll", "Iron Dwarf", "Brave Minds Hobbit",
-        "Gem Gnome", "Glass Gnome", "Hobgoblin", "Ogre"
+        "Gem Gnome", "Glass Gnome", "Hobgoblin", "Ogre", "Giant"
     };
     Console.WriteLine("\nChoose your race:");
     Console.WriteLine("  [1]  Moon Elf          — +3 spell damage");
@@ -731,8 +738,10 @@ void SelectRace(Player p)
     Console.WriteLine("  [12] Gem Gnome          — +1 movement, +2 to hit with spells");
     Console.WriteLine("  [13] Glass Gnome        — +1 min attack, +1 movement; spell targets may half-dodge");
     Console.WriteLine("  [14] Hobgoblin          — +1 movement, +1 base damage");
-    Console.WriteLine("  [15] Ogre               — +2 base and max damage, double HP, half dodge, -1 movement");
-    Console.Write("  Choice (1-15 or name): ");
+    Console.WriteLine("  [15] Ogre               — +2 base and max damage, double HP, half dodge, -1 movement, -2 dmg taken");
+    Console.WriteLine("  [16] Giant              — +2 melee damage, +4 HP, +1 movement; clumsy vs smaller foes");
+    Console.WriteLine("  (Size matters: small races get attack/dodge bonuses vs bigger foes; see race notes)");
+    Console.Write("  Choice (1-16 or name): ");
     string raw = (Console.ReadLine() ?? "").Trim();
     string chosen = "Human";
     if (int.TryParse(raw, out int ridx) && ridx >= 1 && ridx <= races.Length)
@@ -833,8 +842,27 @@ void SelectRace(Player p)
             p.MinDodge = Math.Max(1, p.MinDodge / 2);
             p.MaxDodge = Math.Max(1, p.MaxDodge / 2);
             p.MovementBonus -= 1;
+            p.ArmorDamageReduction += 2;
             Console.WriteLine($"  [Race] Ogre: +2 damage ({p.MinDamage}-{p.MaxDamage}), HP doubled to {p.MaxHP}, dodge halved ({p.MinDodge}-{p.MaxDodge}), -1 movement.");
+            Console.WriteLine("  [Race] Ogre tough skin: -2 incoming damage. +2/+3 dmg but -1/-2 attack and worse dodge vs medium/small foes.");
             break;
+        case "Giant":
+            p.MinDamage += 2;
+            p.MaxDamage += 2;
+            p.MaxHP += 4;
+            p.HP = p.MaxHP;
+            p.MovementBonus += 1;
+            Console.WriteLine($"  [Race] Giant: +2 melee damage ({p.MinDamage}-{p.MaxDamage}), +4 HP ({p.MaxHP}), +1 movement.");
+            Console.WriteLine("  [Race] Giant clumsiness: -2 dodge vs medium/small; -1 block/parry vs medium, -2 vs small.");
+            break;
+    }
+
+    // Small races are slighter of frame: -1 max HP (size trade-off for their agility bonuses)
+    if (SizeRules.Of(p.Race) == 0)
+    {
+        p.MaxHP = Math.Max(1, p.MaxHP - 1);
+        p.HP = Math.Min(p.HP, p.MaxHP);
+        Console.WriteLine($"  [Size] Small frame: -1 max HP ({p.MaxHP}). Bonus attack/dodge vs bigger foes.");
     }
 }
 
@@ -1272,6 +1300,59 @@ void UpdateHiscores(string name, int wave, int level)
 // CLASSES
 // ═══════════════════════════════════════════════════════════════════════════
 
+// ── Size categories: 0 = small, 1 = medium, 2 = large ──────────────────────
+// Small (goblins, gnomes, hobbits): nimble underdogs — bonus attack/dodge vs
+// bigger foes, weak-spot damage vs large, but -1 HP and -1 melee dmg vs medium+.
+// Giants and Ogres are large with their own clumsiness tables. Bonuses stack.
+static class SizeRules
+{
+    public static int Of(string race) => race switch
+    {
+        "Goblin" or "Gem Gnome" or "Glass Gnome" or "Light-Foot Hobbit" or "Brave Minds Hobbit" => 0,
+        "Ogre" or "Giant" => 2,
+        _ => 1,
+    };
+
+    // Melee attack roll bonus for attacker race vs defender race
+    public static int AtkBonus(string atkRace, string defRace)
+    {
+        int a = Of(atkRace), d = Of(defRace);
+        int b = 0;
+        if (a == 0) { if (d >= 1) b += 1; if (d == 2) b += 1; }        // small: +1 vs medium, +2 vs large
+        if (atkRace == "Ogre") { if (d == 1) b -= 1; else if (d == 0) b -= 2; }
+        return b;
+    }
+
+    // Melee damage bonus for attacker race vs defender race
+    public static int DmgBonus(string atkRace, string defRace)
+    {
+        int a = Of(atkRace), d = Of(defRace);
+        int b = 0;
+        if (a == 0) { if (d >= 1) b -= 1; if (d == 2) b += 1; }        // small: -1 dmg, but +1 weak spots vs large
+        if (atkRace == "Ogre") { if (d == 1) b += 2; else if (d == 0) b += 3; }
+        return b;
+    }
+
+    // Dodge roll adjustment range (min, max) for defender race vs attacker race
+    public static (int Min, int Max) DodgeBonus(string defRace, string atkRace)
+    {
+        int ds = Of(defRace), a = Of(atkRace);
+        int mn = 0, mx = 0;
+        if (ds == 0) { if (a >= 1) { mn += 1; mx += 2; } if (a == 2) { mn += 1; mx += 1; } }
+        if (defRace == "Giant" && a <= 1) { mn -= 2; mx -= 2; }
+        if (defRace == "Ogre" && a == 1) { mn -= 1; mx -= 1; }
+        return (mn, mx);
+    }
+
+    // Block/parry roll adjustment for defender race vs attacker race (Giant clumsiness)
+    public static int BlockParryBonus(string defRace, string atkRace)
+    {
+        if (defRace != "Giant") return 0;
+        int a = Of(atkRace);
+        return a == 0 ? -2 : a == 1 ? -1 : 0;
+    }
+}
+
 class Player
 {
     public string Name = "The Lone Warrior";
@@ -1310,6 +1391,7 @@ class Player
     public bool IsGrappled = false;
     public Enemy? GrappledBy = null;
     public GridPos Position = new(-1, -1);   // per-player battlefield position
+    public bool Climbed = false;             // on top of a tree/rock (high ground)
     public List<string> Feats = new();
     public Dictionary<string, int> FeatStacks = new();
     public Dictionary<string, int> GearCounts = new();
@@ -1915,7 +1997,7 @@ class Ogre : Enemy
         HasDoubleTap = true;
         HasArmBlock = true; BlockMin = 4; BlockMax = 12;
         MagicVulnerable = true;
-        ToughHideMin = 1; ToughHideMax = 4;
+        ToughHideMin = 2; ToughHideMax = 2;   // flat -2 damage reduction (tough skin)
         OffhandMinAtk = 4; OffhandMaxAtk = 12;
         OffhandMinDmg = 2; OffhandMaxDmg = 8;
         XPValue = 50;
@@ -2122,6 +2204,12 @@ class CombatSession
     List<(GridPos Pos, string Type)> GroundWeapons = new();
     public bool PlayerFled = false;
     public bool ExitRequested = false;
+    // ── Terrain: camp walls (impassable) + climbable trees and rocks ──
+    HashSet<(int X, int Y)> Walls = new();
+    HashSet<(int X, int Y)> Trees = new();
+    HashSet<(int X, int Y)> Rocks = new();
+    (int X, int Y) _campCenter = (42, 25);
+    Enemy? _atkEnemy;   // enemy currently taking its turn (for size-based dodge)
     // Routes to the current player's own position so every party member
     // stands on (and moves from) their own square.
     GridPos PlayerPos { get => P.Position; set => P.Position = value; }
@@ -2133,6 +2221,8 @@ class CombatSession
         P = p; AllPlayers = allPlayers; ActivePlayers = allPlayers.ToList();
         Active = enemies; Rng = rng; XpThreshold = xpFn; GainXP = gainXp;
         foreach (var pl in allPlayers) pl.Position = playerStart;   // party starts together
+        foreach (var pl in allPlayers) pl.Climbed = false;
+        GenerateTerrain();
         _displayState = displayState;
         _waveNum = waveNum;
         PlaceEnemies(enemies, nearEdge: false);
@@ -2162,6 +2252,11 @@ class CombatSession
                 if (nx == PlayerPos.X && ny == PlayerPos.Y)
                 {
                     Console.WriteLine("  You bump into the edge of the field.");
+                    continue;
+                }
+                if (IsWall(nx, ny))
+                {
+                    Console.WriteLine("  A palisade wall blocks your way!");
                     continue;
                 }
                 PlayerPos = new GridPos(nx, ny);
@@ -2207,6 +2302,9 @@ class CombatSession
                 IsCurrent = pl == P,
             }).ToList(),
             GroundWeapons = GroundWeapons.Select(w => w.Pos).ToList(),
+            Walls = Walls.Select(w => new GridPos(w.X, w.Y)).ToList(),
+            Trees = Trees.Select(t => new GridPos(t.X, t.Y)).ToList(),
+            Rocks = Rocks.Select(r => new GridPos(r.X, r.Y)).ToList(),
         });
     }
 
@@ -2455,6 +2553,7 @@ class CombatSession
 
     bool PlayerTurn()
     {
+        _atkEnemy = null;
         // Expire duelist effects at start of each turn
         if (P.CharacterType == "Duelist")
         {
@@ -2650,6 +2749,7 @@ class CombatSession
                 case "move":
                 {
                     if (P.IsGrappled) { Console.WriteLine("  You can't move while grappled!"); continue; }
+                    if (P.Climbed) { Console.WriteLine("  You're up high — climb down (action) or jump down first!"); continue; }
                     int moveRoll = Rng.Next(P.MinMovement, P.MaxMovement + 1) + P.MovementBonus;
                     Console.WriteLine($"  Move roll: {moveRoll} square(s).");
                     StepMovement(moveRoll);
@@ -2660,6 +2760,7 @@ class CombatSession
                 case "sprint":
                 {
                     if (P.IsGrappled) { Console.WriteLine("  You can't sprint while grappled!"); continue; }
+                    if (P.Climbed) { Console.WriteLine("  You're up high — climb down (action) or jump down first!"); continue; }
                     int sprintRoll = Rng.Next(P.MinMovement, P.MaxMovement + 1) * 2 + P.MovementBonus;
                     Console.WriteLine($"  SPRINT! {sprintRoll} square(s). [-2 to next action roll]");
                     StepMovement(sprintRoll);
@@ -2741,7 +2842,7 @@ class CombatSession
                     {
                         if (blocked) break;
                         int eAtk = Rng.Next(e.MinAttack, e.MaxAttack + 1) - e.AttackPenalty;
-                        int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) - 2;
+                        int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize() - 2;
                         Console.WriteLine($"  {e.Name} reacts! Roll {eAtk} vs your dodge-2 ({pDdg}).");
                         if (eAtk >= pDdg)
                         {
@@ -2879,7 +2980,7 @@ class CombatSession
                         justBlocked = false;
                         break;
                     }
-                    int bRoll = Rng.Next(P.MinBlock, P.MaxBlock + 1);
+                    int bRoll = Rng.Next(P.MinBlock, P.MaxBlock + 1) + SizeRules.BlockParryBonus(P.Race, target!.Race);
                     int eAtk = Rng.Next(target.MinAttack, target.MaxAttack + 1);
                     Console.WriteLine($"  Block! Roll {bRoll} vs {target.Name}'s attack {eAtk}.");
                     if (bRoll >= eAtk)
@@ -2906,7 +3007,7 @@ class CombatSession
                 {
                     if (blockTarget == null || !blockTarget.Alive) { Console.WriteLine("  No blocked target for parry."); continue; }
                     if (blockTarget is Ogre) { Console.WriteLine("  You can't parry an ogre — they're too massive!"); justBlocked = false; continue; }
-                    int pRoll = Rng.Next(P.MinParry, P.MaxParry + 1);
+                    int pRoll = Rng.Next(P.MinParry, P.MaxParry + 1) + SizeRules.BlockParryBonus(P.Race, target!.Race);
                     int pDdg = Rng.Next(blockTarget.MinDodge, blockTarget.MaxDodge + 1);
                     Console.WriteLine($"  Parry! Roll {pRoll} vs {blockTarget.Name}'s dodge {pDdg}.");
                     if (pRoll >= pDdg)
@@ -2989,6 +3090,34 @@ class CombatSession
                     P.SongLingerTurns = Rng.Next(1, 5);
                     Console.WriteLine($"  ♪ You end {P.ActiveSong}; its echo lingers for {P.SongLingerTurns} turn(s).");
                     continue;   // stopping is a free action
+                }
+
+                case "climb":
+                {
+                    string what = Trees.Contains((PlayerPos.X, PlayerPos.Y)) ? "tree" : "rock";
+                    P.Climbed = true;
+                    Console.WriteLine($"  You scramble up the {what}! HIGH GROUND: +2 attack rolls, +1 dodge.");
+                    Console.WriteLine("  (Climbing down costs an action; jumping down is free but deals 1d4 falling damage.)");
+                    justBlocked = false;
+                    break;
+                }
+
+                case "climb down":
+                {
+                    P.Climbed = false;
+                    Console.WriteLine("  You climb carefully back down.");
+                    justBlocked = false;
+                    break;
+                }
+
+                case "jump down":
+                {
+                    P.Climbed = false;
+                    int fall = Rng.Next(1, 5);
+                    P.HP -= fall;
+                    Console.WriteLine($"  You leap down! {fall} falling damage. HP:{P.HP}/{P.MaxHP}");
+                    if (P.IsRaging && P.HP < 0) { P.HP = 0; Console.WriteLine("  RAGE keeps you standing!"); }
+                    continue;   // jumping is a free action
                 }
 
                 case "bard song":
@@ -3288,7 +3417,7 @@ class CombatSession
                         else { thrDmgMin = 1; thrDmgMax = 2; }
                     }
                     thrAtk += SlayerAtk();
-                    int thrDdg = Rng.Next(throwTarget.MinDodge, throwTarget.MaxDodge + 1) - throwTarget.DodgePenalty;
+                    int thrDdg = Rng.Next(throwTarget.MinDodge, throwTarget.MaxDodge + 1) + SizeDodgeRoll(throwTarget.Race, P.Race) - throwTarget.DodgePenalty;
                     Console.WriteLine($"  Throw {P.HeldWeapon}! ({throwFeet:F0}ft) Roll {thrAtk} vs {throwTarget.Name}'s dodge {thrDdg}.");
                     string thrWeap = P.HeldWeapon!;
                     P.HeldWeapon = null;
@@ -3323,8 +3452,8 @@ class CombatSession
                         Console.WriteLine("  Too far! Max 20ft for thrown dagger.");
                         continue;
                     }
-                    int tdAtk = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 1) + SlayerAtk();
-                    int tdDdg = Rng.Next(throwTarget.MinDodge, throwTarget.MaxDodge + 1) - throwTarget.DodgePenalty;
+                    int tdAtk = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 1) + SlayerAtk() + HighGround();
+                    int tdDdg = Rng.Next(throwTarget.MinDodge, throwTarget.MaxDodge + 1) + SizeDodgeRoll(throwTarget.Race, P.Race) - throwTarget.DodgePenalty;
                     Console.WriteLine($"  Throw dagger! ({thrDaggerFeet:F0}ft) Roll {tdAtk} vs {throwTarget.Name}'s dodge {tdDdg}. ({P.DaggerCount - 1} daggers left)");
                     P.DaggerCount--;
                     GridPos tdLand;
@@ -3348,8 +3477,8 @@ class CombatSession
                     if (P.HasFeat("Double Tap") && P.DaggerCount > 0 && throwTarget.Alive)
                     {
                         Console.WriteLine("  [Double Tap] Second dagger throw!");
-                        int tdAtk2 = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 1) + SlayerAtk();
-                        int tdDdg2 = Rng.Next(throwTarget.MinDodge, throwTarget.MaxDodge + 1) - throwTarget.DodgePenalty;
+                        int tdAtk2 = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 1) + SlayerAtk() + HighGround();
+                        int tdDdg2 = Rng.Next(throwTarget.MinDodge, throwTarget.MaxDodge + 1) + SizeDodgeRoll(throwTarget.Race, P.Race) - throwTarget.DodgePenalty;
                         Console.WriteLine($"  Throw dagger! ({thrDaggerFeet:F0}ft) Roll {tdAtk2} vs dodge {tdDdg2}. ({P.DaggerCount - 1} daggers left)");
                         P.DaggerCount--;
                         GridPos tdLand2;
@@ -3384,8 +3513,8 @@ class CombatSession
                         Console.WriteLine("  Too far! Max 20ft for thrown axe.");
                         continue;
                     }
-                    int taAtk = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 2) + SlayerAtk();
-                    int taDdg = Rng.Next(throwTarget.MinDodge, throwTarget.MaxDodge + 1) - throwTarget.DodgePenalty;
+                    int taAtk = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 2) + SlayerAtk() + HighGround();
+                    int taDdg = Rng.Next(throwTarget.MinDodge, throwTarget.MaxDodge + 1) + SizeDodgeRoll(throwTarget.Race, P.Race) - throwTarget.DodgePenalty;
                     Console.WriteLine($"  Throw axe! ({thrAxeFeet:F0}ft) Roll {taAtk} vs {throwTarget.Name}'s dodge {taDdg}. ({P.AxeCount - 1} axes left)");
                     P.AxeCount--;
                     GridPos taLand;
@@ -3409,8 +3538,8 @@ class CombatSession
                     if (P.HasFeat("Double Tap") && P.AxeCount > 0 && throwTarget.Alive)
                     {
                         Console.WriteLine("  [Double Tap] Second axe throw!");
-                        int taAtk2 = Rng.Next(1, 9) + SlayerAtk();
-                        int taDdg2 = Rng.Next(throwTarget.MinDodge, throwTarget.MaxDodge + 1) - throwTarget.DodgePenalty;
+                        int taAtk2 = Rng.Next(1, 9) + SlayerAtk() + HighGround();
+                        int taDdg2 = Rng.Next(throwTarget.MinDodge, throwTarget.MaxDodge + 1) + SizeDodgeRoll(throwTarget.Race, P.Race) - throwTarget.DodgePenalty;
                         Console.WriteLine($"  Throw axe! ({thrAxeFeet:F0}ft) Roll {taAtk2} vs dodge {taDdg2}. ({P.AxeCount - 1} axes left)");
                         P.AxeCount--;
                         GridPos taLand2;
@@ -3685,8 +3814,25 @@ class CombatSession
         if (P.CharacterType == "Berserker" && P.RagePoints > 0 && !P.IsRaging) o.Add("rage");
         if (P.CanSing && P.SongTokens > 0 && !P.SongPlaying && SilenceTurns <= 0) o.Add("play song");
         if (P.SongPlaying) o.Add("stop song");
+        if (!P.IsGrappled && !P.Climbed && IsClimbable(PlayerPos)) o.Add("climb");
+        if (P.Climbed) { o.Add("climb down"); o.Add("jump down"); }
         return o;
     }
+
+    // ── HIGH GROUND & SIZE HELPERS ────────────────────────────────────────
+
+    int HighGround() => P.Climbed ? 2 : 0;   // +2 to attack rolls from up high
+
+    // Dodge adjustment sampled from the (min,max) size window
+    int SizeDodgeRoll(string defRace, string atkRace)
+    {
+        var (mn, mx) = SizeRules.DodgeBonus(defRace, atkRace);
+        if (mn == mx) return mn;
+        return Rng.Next(Math.Min(mn, mx), Math.Max(mn, mx) + 1);
+    }
+
+    // Player's dodge bonus vs whichever enemy is currently acting (+1 while climbed)
+    int PDodgeSize() => (P.Climbed ? 1 : 0) + (_atkEnemy == null ? 0 : SizeDodgeRoll(P.Race, _atkEnemy.Race));
 
     // ── MUSICIAN SONGS ────────────────────────────────────────────────────
 
@@ -3827,6 +3973,12 @@ class CombatSession
             dmgBonus += songDmg;
             Console.WriteLine($"  ♪ Slayer song: +{songAtkBonus} attack, +{songDmg} damage!");
         }
+        int sizeAtk = SizeRules.AtkBonus(P.Race, target.Race);
+        int sizeDmg = SizeRules.DmgBonus(P.Race, target.Race);
+        dmgBonus += sizeDmg;
+        if (sizeAtk != 0 || sizeDmg != 0)
+            Console.WriteLine($"  [Size] {sizeAtk:+0;-0} attack, {sizeDmg:+0;-0} damage vs {(target.Race.Length > 0 ? target.Race : "foe")}.");
+        if (P.Climbed) Console.WriteLine("  [High ground] +2 attack!");
 
         // Duelist Flurry: 3 attacks this action
         int flurryCount = (P.CharacterType == "Duelist" && P.DuelistEffectTurns.GetValueOrDefault("Duelist Flurry") > 0) ? 3 : 1;
@@ -3834,14 +3986,14 @@ class CombatSession
         {
             if (fi > 0) Console.WriteLine($"  [Flurry hit {fi + 1}]");
             int rawRoll = Rng.Next(minAtk, maxAtk + 1);
-            PerformAttack(target, rawRoll + atkPen + warriorAtkBonus - brokenArmPenalty + trueSightAtkBonus + songAtkBonus, minDmg, maxDmg, fi == 0 ? dmgBonus : 0, useSunder, useDisarm, fi == 0 && useSap, rawRoll == maxAtk, rawRoll == minAtk);
+            PerformAttack(target, rawRoll + atkPen + warriorAtkBonus - brokenArmPenalty + trueSightAtkBonus + songAtkBonus + sizeAtk + HighGround(), minDmg, maxDmg, fi == 0 ? dmgBonus : 0, useSunder, useDisarm, fi == 0 && useSap, rawRoll == maxAtk, rawRoll == minAtk);
         }
 
         // Off-hand (Double Tap)
         if (P.HasFeat("Double Tap") && target.Alive)
         {
             int ofAtk = Rng.Next(1, 7);
-            int ofDdg = Rng.Next(target.MinDodge, target.MaxDodge + 1) - target.DodgePenalty;
+            int ofDdg = Rng.Next(target.MinDodge, target.MaxDodge + 1) + SizeDodgeRoll(target.Race, P.Race) - target.DodgePenalty;
             Console.WriteLine($"  Off-hand: roll {ofAtk} vs dodge {ofDdg}.");
             if (ofAtk >= ofDdg && !EnemyBlocks(target, ofAtk))
             {
@@ -3864,7 +4016,7 @@ class CombatSession
             DoKick(target);
             if (target.Alive)
             {
-                int hbA = Rng.Next(1, 7), hbD = Rng.Next(target.MinDodge, target.MaxDodge + 1) - target.DodgePenalty;
+                int hbA = Rng.Next(1, 7), hbD = Rng.Next(target.MinDodge, target.MaxDodge + 1) + SizeDodgeRoll(target.Race, P.Race) - target.DodgePenalty;
                 Console.WriteLine($"  Headbutt: {hbA} vs {hbD}.");
                 if (hbA >= hbD && !EnemyBlocks(target, hbA))
                 {
@@ -3903,7 +4055,7 @@ class CombatSession
             return;
         }
 
-        int ddg = Rng.Next(target.MinDodge, target.MaxDodge + 1) - target.DodgePenalty - target.FrostPenalty;
+        int ddg = Rng.Next(target.MinDodge, target.MaxDodge + 1) + SizeDodgeRoll(target.Race, P.Race) - target.DodgePenalty - target.FrostPenalty;
         Console.WriteLine($"  Attack{(isCrit ? " [CRIT]" : "")}: {atkRoll} vs {target.Name}'s dodge {ddg}.");
 
         if (atkRoll < ddg)
@@ -3990,7 +4142,7 @@ class CombatSession
 
     void DoKick(Enemy target)
     {
-        int kA = Rng.Next(1, 5), kD = Rng.Next(target.MinDodge, target.MaxDodge + 1) - target.DodgePenalty;
+        int kA = Rng.Next(1, 5), kD = Rng.Next(target.MinDodge, target.MaxDodge + 1) + SizeDodgeRoll(target.Race, P.Race) - target.DodgePenalty;
         Console.WriteLine($"  Kick: {kA} vs {kD}.");
         if (kA >= kD && !EnemyBlocks(target, kA))
         {
@@ -4008,7 +4160,7 @@ class CombatSession
     {
         if (!target.Alive) return;
         int a = Rng.Next(P.MinAttack, P.MaxAttack + 1);
-        int d = Rng.Next(target.MinDodge, target.MaxDodge + 1) - target.DodgePenalty;
+        int d = Rng.Next(target.MinDodge, target.MaxDodge + 1) + SizeDodgeRoll(target.Race, P.Race) - target.DodgePenalty;
         Console.WriteLine($"  [Free attack] {a} vs {d}.");
         if (a >= d && !EnemyBlocks(target, a))
         {
@@ -4282,7 +4434,7 @@ class CombatSession
     void NecromancerTouchPlayer(Enemy necro)
     {
         int atk = Rng.Next(necro.MinAttack, necro.MaxAttack + 1) - necro.AttackPenalty - necro.FrostPenalty;
-        int ddg = Rng.Next(P.MinDodge, P.MaxDodge + 1);
+        int ddg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize();
         Console.WriteLine($"  {necro.Name} reaches out with a NEGATIVE TOUCH! {atk} vs your dodge {ddg}.");
         if (atk >= ddg)
         {
@@ -4408,8 +4560,8 @@ class CombatSession
         else if (feet <= 45f) { dmgMin = 2; dmgMax = 10; }
         else { dmgMin = 1; dmgMax = 5; }
         dmgMin += P.MinRangedDmgBonus; dmgMax += P.MinRangedDmgBonus + P.MaxRangedDmgBonus;
-        int atkRoll = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 1) + SlayerAtk();
-        int ddg = Rng.Next(target.MinDodge, target.MaxDodge + 1) - target.DodgePenalty;
+        int atkRoll = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 1) + SlayerAtk() + HighGround();
+        int ddg = Rng.Next(target.MinDodge, target.MaxDodge + 1) + SizeDodgeRoll(target.Race, P.Race) - target.DodgePenalty;
         Console.WriteLine($"  BOW ({feet:F0}ft, dmg {dmgMin}-{dmgMax})! Roll {atkRoll} vs {target.Name}'s dodge {ddg}.");
         P.ArrowCount--;
         Console.WriteLine($"  Arrows remaining: {P.ArrowCount}");
@@ -4430,8 +4582,8 @@ class CombatSession
             Console.WriteLine("  [Double Tap] Second arrow!");
             P.ArrowCount--;
             Console.WriteLine($"  Arrows remaining: {P.ArrowCount}");
-            int atk2 = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 1) + SlayerAtk();
-            int ddg2 = Rng.Next(target.MinDodge, target.MaxDodge + 1) - target.DodgePenalty;
+            int atk2 = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 1) + SlayerAtk() + HighGround();
+            int ddg2 = Rng.Next(target.MinDodge, target.MaxDodge + 1) + SizeDodgeRoll(target.Race, P.Race) - target.DodgePenalty;
             int d2Min, d2Max;
             if (feet <= 14f) { d2Min = 4; d2Max = 12; }
             else if (feet <= 45f) { d2Min = 2; d2Max = 10; }
@@ -4456,8 +4608,8 @@ class CombatSession
         float feet = PlayerPos.Feet(target.Position);
         if (feet < 20f) { Console.WriteLine($"  Too close for wand! ({feet:F1}ft, min 20ft)"); return; }
         if (feet > 50f) { Console.WriteLine($"  Too far for wand! ({feet:F1}ft, max 50ft)"); return; }
-        int atkRoll = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 1) + SlayerAtk() + P.SpellAttackBonus;
-        int ddg = Rng.Next(target.MinDodge, target.MaxDodge + 1) - target.DodgePenalty;
+        int atkRoll = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 1) + SlayerAtk() + HighGround() + P.SpellAttackBonus;
+        int ddg = Rng.Next(target.MinDodge, target.MaxDodge + 1) + SizeDodgeRoll(target.Race, P.Race) - target.DodgePenalty;
         Console.WriteLine($"  WAND ({feet:F0}ft, dmg 3-4)! Roll {atkRoll} vs {target.Name}'s dodge {ddg}.");
         if (atkRoll >= ddg && !EnemyBlocks(target, atkRoll, isRanged: true))
         {
@@ -4472,8 +4624,8 @@ class CombatSession
 
     void DoMaceAttack(Enemy target)
     {
-        int atkRoll = Rng.Next(P.MinAttack, P.MaxAttack + 1) + SlayerAtk();
-        int ddg = Rng.Next(target.MinDodge, target.MaxDodge + 1) - target.DodgePenalty;
+        int atkRoll = Rng.Next(P.MinAttack, P.MaxAttack + 1) + SlayerAtk() + HighGround();
+        int ddg = Rng.Next(target.MinDodge, target.MaxDodge + 1) + SizeDodgeRoll(target.Race, P.Race) - target.DodgePenalty;
         Console.WriteLine($"  MACE (non-lethal 2d4)! Roll {atkRoll} vs {target.Name}'s dodge {ddg}.");
         if (atkRoll >= ddg && !EnemyBlocks(target, atkRoll))
         {
@@ -4513,7 +4665,7 @@ class CombatSession
         int gst2 = GrappleStyleTier();
         int minG = P.MinGrapple + P.GetFeatStacks("Closeliner") + (gst2 >= 2 ? 1 : 0);
         int maxG = P.MaxGrapple + (gst2 >= 3 ? 2 : 0);
-        int gRoll = Rng.Next(minG, maxG + 1) - P.SprintPenalty + SlayerAtk();
+        int gRoll = Rng.Next(minG, maxG + 1) - P.SprintPenalty + SlayerAtk() + HighGround();
         P.SprintPenalty = 0;
         if (P.EnlargeActive) gRoll *= 2;
         int dRoll = Rng.Next(target.MinDodge, target.MaxDodge + 1);
@@ -4618,7 +4770,7 @@ class CombatSession
 
         int SpellAtk(string element) => P.SpellAttackBonus + (P.HasFeat("Spell Focus") ? 2 : 0) + (P.HasFeat("Elemental") && P.ElementalFocus == element ? 2 : 0);
         bool lastSpellCrit = false, lastSpellFumble = false;
-        int SpellAtkRoll() { int raw = Rng.Next(P.MinSpellAtk, P.MaxSpellAtk + 1); lastSpellCrit = raw == P.MaxSpellAtk; lastSpellFumble = raw == P.MinSpellAtk; return raw + SlayerAtk(); }
+        int SpellAtkRoll() { int raw = Rng.Next(P.MinSpellAtk, P.MaxSpellAtk + 1); lastSpellCrit = raw == P.MaxSpellAtk; lastSpellFumble = raw == P.MinSpellAtk; return raw + SlayerAtk() + HighGround(); }
         int SpellDmg(int dmg, string element) { if (P.HasFeat("Magical Overflow")) dmg *= 2; if (P.HasFeat("Elemental") && P.ElementalFocus == element) dmg += 2; dmg += P.MinSpellDmgBonus + P.MaxSpellDmgBonus + SlayerDmg(); return dmg; }
         int ExtDur(int turns) => P.HasFeat("Extended Magi") ? turns * 2 : turns;
         float SpellRange(float range) => P.HasFeat("OverReach Magic") ? range * 2f : range;
@@ -4996,6 +5148,7 @@ class CombatSession
         foreach (var e in Active.Where(e => e.Alive).ToList())
         {
             if (!e.Alive) continue;
+            _atkEnemy = e;   // size-based dodge context for the player
 
             // Raised dead ally: attacks nearest living non-ally enemy
             if (e.IsPlayerAlly)
@@ -5145,7 +5298,7 @@ class CombatSession
                         {
                             e.GrappleNextTurn = false;
                             int gAtk = Rng.Next(e.MinGrapple, e.MaxGrapple + 1) - e.AttackPenalty;
-                            int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1);
+                            int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize();
                             Console.WriteLine($"  {e.Name} grapples! {gAtk} vs your dodge {pDdg}.");
                             if (gAtk >= pDdg) { int gDmg = Rng.Next(e.GrappleDmgMin, e.GrappleDmgMax + 1); P.HP -= gDmg; Console.WriteLine($"  Grappled! {gDmg} crush damage. HP:{P.HP}/{P.MaxHP}"); }
                             else Console.WriteLine($"  Grapple attempt failed!");
@@ -5200,7 +5353,7 @@ class CombatSession
                 {
                     e.GrappleNextTurn = false;
                     int gAtk = Rng.Next(e.MinGrapple, e.MaxGrapple + 1) - e.AttackPenalty;
-                    int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1);
+                    int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize();
                     Console.WriteLine($"  {e.Name} grapples! {gAtk} vs your dodge {pDdg}.");
                     if (gAtk >= pDdg)
                     {
@@ -5498,7 +5651,7 @@ class CombatSession
                     else if (e.Position.IsCardinalAdjacent(PlayerPos))
                     {
                         // Dark power spent — reduced to clawing
-                        int ncAtk = Rng.Next(1, 7), ncDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1);
+                        int ncAtk = Rng.Next(1, 7), ncDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize();
                         Console.WriteLine($"  {e.Name}'s dark power is spent — it claws! Roll {ncAtk} vs dodge {ncDdg}.");
                         if (ncAtk >= ncDdg)
                         {
@@ -5605,7 +5758,7 @@ class CombatSession
                     {
                         tpri.PrayerUsesLeft--;
                         int smAtk = Rng.Next(2, 11);
-                        int smDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1);
+                        int smDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize();
                         Console.WriteLine($"  {e.Name} calls down a dark smite! Roll {smAtk} vs your dodge {smDdg}.");
                         if (smAtk >= smDdg)
                         {
@@ -5892,7 +6045,7 @@ class CombatSession
         else
         {
             int gAtk = Rng.Next(e.MinGrapple, e.MaxGrapple + 1) - e.AttackPenalty;
-            int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1);
+            int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize();
             Console.WriteLine($"  {e.Name} goes for a grapple! {gAtk} vs your dodge {pDdg}.");
             if (gAtk >= pDdg)
             {
@@ -5969,7 +6122,7 @@ class CombatSession
         else
         {
             int gAtk = Rng.Next(e.MinGrapple, e.MaxGrapple + 1) - e.AttackPenalty;
-            int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1);
+            int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize();
             Console.WriteLine($"  {e.Name} lunges to grapple{(bothHands ? " with both hands" : "")}! {gAtk} vs your dodge {pDdg}.");
             Console.WriteLine($"  (You can only counter-grapple 8-12 or dodge to escape an Ogre's grab!)");
             if (gAtk >= pDdg)
@@ -6019,7 +6172,7 @@ class CombatSession
     {
         if (!e.HasKick || !e.Alive || P.HP <= 0) return;
         int kAtk = Rng.Next(1, 7);
-        int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1);
+        int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize();
         Console.WriteLine($"  {e.Name} kicks! Roll {kAtk} vs your dodge {pDdg}.");
         if (kAtk >= pDdg)
         {
@@ -6168,7 +6321,7 @@ class CombatSession
         int rawEAtk = Rng.Next(e.MinAttack, e.MaxAttack + 1);
         bool eCrit = rawEAtk == e.MaxAttack;
         bool eFumble = rawEAtk == e.MinAttack;
-        int eAtk = rawEAtk - e.AttackPenalty - e.FrostPenalty - e.SprintPenalty;
+        int eAtk = rawEAtk - e.AttackPenalty - e.FrostPenalty - e.SprintPenalty + SizeRules.AtkBonus(e.Race, P.Race);
         e.SprintPenalty = 0;
         if (eFumble && !e.Disarmed)
         {
@@ -6182,7 +6335,7 @@ class CombatSession
         }
         if (e.PowerAttackMode) eAtk = Math.Max(1, eAtk - 2); // power attack penalty
         int brokenLegPenalty = P.BrokenLimbs.Count(l => l.Contains("Leg"));
-        int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) - P.FrostPenalty - brokenLegPenalty;
+        int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize() - P.FrostPenalty - brokenLegPenalty;
         if (P.EnlargeActive) pDdg = Math.Max(1, pDdg / 2);
         if (P.TrueSightTurns > 0 && P.TrueSightStat == "dodge") pDdg += P.TrueSightBonus;
         Console.WriteLine($"  {e.Name} attacks{(e.PowerAttackMode ? " (POWER)" : "")}! Roll {eAtk} vs your dodge {pDdg}.");
@@ -6199,6 +6352,7 @@ class CombatSession
                 if (eCrit) { dmg *= 2; Console.WriteLine($"  CRITICAL HIT! {e.Name} strikes true! (×2)"); }
                 if (e.PowerAttackMode) dmg += 4;
                 if (e.Disarmed) dmg = Math.Max(1, dmg / 2);
+                dmg = Math.Max(1, dmg + SizeRules.DmgBonus(e.Race, P.Race));
             }
             if (P.Defending) dmg = Math.Max(1, dmg / 2);
             if (P.ArmorDamageReduction > 0) dmg = Math.Max(1, dmg - P.ArmorDamageReduction);
@@ -6210,7 +6364,7 @@ class CombatSession
             if (e.HasDoubleTap && P.HP > 0 && !e.DroppedWeapon)
             {
                 int ofAtk = Rng.Next(e.OffhandMinAtk, e.OffhandMaxAtk + 1) - e.AttackPenalty;
-                int ofDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1);
+                int ofDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize();
                 string offhandLabel = e.OffhandNonLethal ? "War Mace (non-lethal)" : "off-hand";
                 Console.WriteLine($"  {e.Name} {offhandLabel}! Roll {ofAtk} vs your dodge {ofDdg}.");
                 if (ofAtk >= ofDdg)
@@ -6269,6 +6423,40 @@ class CombatSession
 
     // ── GRID HELPERS ─────────────────────────────────────────────────────
 
+    // Random camp (palisade walls with a gate facing the players) on the right
+    // side of the map, plus scattered climbable trees and rocks.
+    void GenerateTerrain()
+    {
+        int camps = Rng.Next(1, 3);
+        for (int c = 0; c < camps; c++)
+        {
+            int w = Rng.Next(6, 10), h = Rng.Next(5, 8);
+            int x0 = Rng.Next(34, 49 - w);
+            int y0 = Rng.Next(3, 46 - h);
+            if (c == 0) _campCenter = (x0 + w / 2, y0 + h / 2);
+            for (int x = x0; x <= x0 + w; x++) { Walls.Add((x, y0)); Walls.Add((x, y0 + h)); }
+            for (int y = y0; y <= y0 + h; y++) { Walls.Add((x0, y)); Walls.Add((x0 + w, y)); }
+            // Gate on the west wall, facing the players
+            int gy = y0 + h / 2;
+            Walls.Remove((x0, gy));
+            Walls.Remove((x0, Math.Min(y0 + h - 1, gy + 1)));
+        }
+        int trees = Rng.Next(10, 18), rocks = Rng.Next(6, 12);
+        for (int i = 0; i < trees; i++)
+        {
+            var p = (Rng.Next(2, 48), Rng.Next(1, 49));
+            if (!Walls.Contains(p)) Trees.Add(p);
+        }
+        for (int i = 0; i < rocks; i++)
+        {
+            var p = (Rng.Next(2, 48), Rng.Next(1, 49));
+            if (!Walls.Contains(p) && !Trees.Contains(p)) Rocks.Add(p);
+        }
+    }
+
+    bool IsWall(int x, int y) => Walls.Contains((x, y));
+    bool IsClimbable(GridPos p) => Trees.Contains((p.X, p.Y)) || Rocks.Contains((p.X, p.Y));
+
     void PlaceEnemies(List<Enemy> enemies, bool nearEdge)
     {
         var occupied = new HashSet<(int, int)>(Active.Where(e => e.Alive).Select(e => (e.Position.X, e.Position.Y)));
@@ -6279,12 +6467,22 @@ class CombatSession
             int attempts = 0;
             do
             {
-                // Enemies always come from the right side
-                int x = Rng.Next(nearEdge ? 44 : 30, 50);
-                int y = Rng.Next(1, 49);
+                int x, y;
+                if (nearEdge)
+                {
+                    // Reinforcements still pour in from the right edge
+                    x = Rng.Next(44, 50);
+                    y = Rng.Next(1, 49);
+                }
+                else
+                {
+                    // The horde musters in and around its camp
+                    x = Math.Clamp(_campCenter.X + Rng.Next(-7, 8), 20, 49);
+                    y = Math.Clamp(_campCenter.Y + Rng.Next(-7, 8), 1, 48);
+                }
                 pos = new GridPos(x, y);
                 attempts++;
-            } while (occupied.Contains((pos.X, pos.Y)) && attempts < 100);
+            } while ((occupied.Contains((pos.X, pos.Y)) || IsWall(pos.X, pos.Y)) && attempts < 100);
             occupied.Add((pos.X, pos.Y));
             e.Position = pos;
         }
@@ -6296,11 +6494,18 @@ class CombatSession
         int dy = Math.Sign(target.Y - from.Y);
         int adx = Math.Abs(target.X - from.X);
         int ady = Math.Abs(target.Y - from.Y);
-        if (adx == 0) return new GridPos(from.X, Math.Clamp(from.Y + dy, 0, 49));
-        if (ady == 0) return new GridPos(Math.Clamp(from.X + dx, 0, 49), from.Y);
-        return adx >= ady
-            ? new GridPos(Math.Clamp(from.X + dx, 0, 49), from.Y)
-            : new GridPos(from.X, Math.Clamp(from.Y + dy, 0, 49));
+
+        // Candidate steps in order of preference; walls are impassable, so
+        // creatures sidestep them square by square (through camp gates etc.)
+        var cand = new List<GridPos>();
+        void Add(int cx, int cy) { if (cx != 0 || cy != 0) cand.Add(new GridPos(Math.Clamp(from.X + cx, 0, 49), Math.Clamp(from.Y + cy, 0, 49))); }
+        if (adx >= ady) { Add(dx, 0); Add(0, dy != 0 ? dy : 1); Add(0, dy != 0 ? -dy : -1); }
+        else            { Add(0, dy); Add(dx != 0 ? dx : 1, 0); Add(dx != 0 ? -dx : -1, 0); }
+
+        foreach (var c in cand)
+            if (!IsWall(c.X, c.Y) && !c.SameAs(from))
+                return c;
+        return from;   // boxed in — stay put
     }
 
     void MoveTowardPlayer(Enemy e, ref int actions, bool suppressCost = false)
@@ -6358,7 +6563,7 @@ class CombatSession
     void ShowMap(List<Enemy> alive)
     {
         int hw = 10, hh = 5;
-        Console.WriteLine("  Map (@ you  g goblin  s spell-goblin  h hob  o orc  B orc-barb  t troll  O ogre  x axe  w weapon):");
+        Console.WriteLine("  Map (@ you  g goblin  s spell-goblin  h hob  o orc  B orc-barb  t troll  O ogre  x axe  w weapon  # wall  T tree  r rock):");
         for (int y = PlayerPos.Y - hh; y <= PlayerPos.Y + hh; y++)
         {
             Console.Write("  ");
@@ -6367,12 +6572,16 @@ class CombatSession
                 if (x < 0 || x > 49 || y < 0 || y > 49) { Console.Write('#'); continue; }
                 var pos = new GridPos(x, y);
                 if (pos.SameAs(PlayerPos)) { Console.Write('@'); continue; }
+                if (IsWall(x, y)) { Console.Write('#'); continue; }
                 bool isAxe = Active.OfType<Troll>().Any(tr => tr.ThrownAxePositions.Any(ap => ap.SameAs(pos)));
                 if (isAxe) { Console.Write('x'); continue; }
                 var en = alive.FirstOrDefault(a => a.Position.SameAs(pos));
                 if (en != null) { Console.Write(EnemyChar(en)); continue; }
                 bool isWeapon = GroundWeapons.Any(w => w.Pos.SameAs(pos));
-                Console.Write(isWeapon ? 'w' : '.');
+                if (isWeapon) { Console.Write('w'); continue; }
+                if (Trees.Contains((x, y))) { Console.Write('T'); continue; }
+                if (Rocks.Contains((x, y))) { Console.Write('r'); continue; }
+                Console.Write('.');
             }
             Console.WriteLine();
         }
@@ -6403,7 +6612,7 @@ class CombatSession
             Console.WriteLine($"  {sg.Name} is out of magic!");
             if (sg.Position.IsCardinalAdjacent(PlayerPos))
             {
-                int cAtk = Rng.Next(1, 7), cDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1);
+                int cAtk = Rng.Next(1, 7), cDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize();
                 Console.WriteLine($"  {sg.Name} claws at you! Roll {cAtk} vs dodge {cDdg}.");
                 if (cAtk >= cDdg)
                 {
@@ -6521,7 +6730,7 @@ class CombatSession
     {
         float feet = ob.Position.Feet(PlayerPos);
         int atkRoll = Rng.Next(ob.MinAttack, ob.MaxAttack + 1) - ob.AttackPenalty;
-        int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) - P.FrostPenalty - P.BrokenLimbs.Count(l => l.Contains("Leg"));
+        int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize() - P.FrostPenalty - P.BrokenLimbs.Count(l => l.Contains("Leg"));
         Console.WriteLine($"  {ob.Name} hurls a hand axe! ({feet:F0}ft) Roll {atkRoll} vs your dodge {pDdg}. ({ob.HandAxeCount - 1} axes left)");
         ob.HandAxeCount--;
         if (atkRoll >= pDdg)
@@ -6542,7 +6751,7 @@ class CombatSession
     {
         float feet = rg.Position.Feet(PlayerPos);
         int atkRoll = Rng.Next(rg.MinAttack, rg.MaxAttack + 1) - rg.AttackPenalty;
-        int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) - P.FrostPenalty - P.BrokenLimbs.Count(l => l.Contains("Leg"));
+        int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize() - P.FrostPenalty - P.BrokenLimbs.Count(l => l.Contains("Leg"));
         rg.DaggerCount--;
         int daggersLeft = rg.DaggerCount;
         Console.WriteLine($"  {rg.Name} hurls a dagger! ({feet:F0}ft) Roll {atkRoll} vs your dodge {pDdg}. ({daggersLeft} daggers left)");
@@ -6625,7 +6834,7 @@ class CombatSession
     {
         if (hbf.ArrowCount <= 0) return;
         int atkRoll = Rng.Next(hbf.MinAttack, hbf.MaxAttack + 1) - hbf.AttackPenalty;
-        int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) - P.FrostPenalty;
+        int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize() - P.FrostPenalty;
         int dmgMin, dmgMax;
         if (feet <= 14f) { dmgMin = 3; dmgMax = 8; }
         else if (feet <= 40f) { dmgMin = 2; dmgMax = 6; }
@@ -6650,7 +6859,7 @@ class CombatSession
     {
         float feet = hbt.Position.Feet(PlayerPos);
         int atkRoll = Rng.Next(hbt.MinAttack, hbt.MaxAttack + 1) - hbt.AttackPenalty;
-        int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) - P.FrostPenalty;
+        int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize() - P.FrostPenalty;
         hbt.DaggerCount--;
         Console.WriteLine($"  {hbt.Name} hurls a dagger! ({feet:F0}ft) Roll {atkRoll} vs your dodge {pDdg}. ({hbt.DaggerCount} daggers left)");
         if (atkRoll >= pDdg)
@@ -6781,7 +6990,7 @@ class CombatSession
         int rawAtk = Rng.Next(orr.BowMinAtk, orr.BowMaxAtk + 1) - orr.AttackPenalty;
         bool isCrit = (rawAtk + orr.AttackPenalty) == orr.BowMaxAtk;
         bool isFumble = (rawAtk + orr.AttackPenalty) == orr.BowMinAtk;
-        int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) - P.FrostPenalty;
+        int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize() - P.FrostPenalty;
         Console.WriteLine($"  {orr.Name} draws long bow! ({feet:F0}ft, dmg {orr.BowMinDmg}-{orr.BowMaxDmg}) Roll {rawAtk} vs your dodge {pDdg}.");
         orr.ArrowCount--;
         if (isFumble) { Console.WriteLine($"  FUMBLE! {orr.Name}'s bow string snaps!"); return; }
@@ -6797,7 +7006,7 @@ class CombatSession
             if (orr.HasDoubleTap && orr.ArrowCount > 0 && P.HP > 0)
             {
                 int raw2 = Rng.Next(orr.BowMinAtk, orr.BowMaxAtk + 1);
-                int pDdg2 = Rng.Next(P.MinDodge, P.MaxDodge + 1);
+                int pDdg2 = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize();
                 Console.WriteLine($"  {orr.Name} double-taps! Roll {raw2} vs dodge {pDdg2}.");
                 orr.ArrowCount--;
                 if (raw2 >= pDdg2)
@@ -6819,7 +7028,7 @@ class CombatSession
     void DoTrollAxeThrow(Troll tr, float feet)
     {
         int atkRoll = Rng.Next(tr.MinAttack, tr.MaxAttack + 1) - tr.AttackPenalty;
-        int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) - P.FrostPenalty;
+        int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize() - P.FrostPenalty;
         int dmgMin, dmgMax;
         if (feet <= 7.5f) { dmgMin = 2; dmgMax = 6; }
         else if (feet <= 10f) { dmgMin = 1; dmgMax = 6; }

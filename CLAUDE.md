@@ -89,6 +89,13 @@ Enemy casters have pools too (set in BuildGroup from waveNum with the player for
 `Enemy.SpellUsesLeft` (SpellGoblin, NecromancerTroll raise/heal/touch), `PrayerUsesLeft`
 (GoblinShaman, TrollPriest), `SongUsesLeft` (TrollMusician). When spent they claw/cower.
 
+## Terrain & size (SizeRules class)
+
+- CombatSession generates 1-2 palisade camps (right side, west-facing gate) + random trees/rocks. `Walls`/`Trees`/`Rocks` sets; walls block players (StepMovement) and enemies (wall-aware StepToward). Enemies spawn clustered around `_campCenter`; reinforcements still enter from the right edge.
+- Climb (action) on a tree/rock square: +2 attack rolls (`HighGround()`), +1 dodge; climb down = action, jump down = free + 1d4 fall damage. `Player.Climbed`, reset at combat start/end.
+- Sizes: small = Goblin/gnomes/hobbits (0), large = Ogre/Giant (2), else medium. Small: +1 atk & +1/+2 dodge vs medium (stacks +1 more vs large), -1 melee dmg (+1 weak-spot vs large cancels), -1 MaxHP at creation/spawn. Giant race (+2 melee dmg, +4 HP, +1 move): -2 dodge vs med/small, -1/-2 block+parry. Ogre: flat -2 dmg taken (players +2 ArmorDR, enemies ToughHide 2/2), +2/+3 dmg but -1/-2 atk vs med/small, -1 dodge vs medium.
+- Hooks: DoAttack/PerformAttack, EnemyAttack, block/parry cases, `PDodgeSize()` via `_atkEnemy`, `SizeDodgeRoll` at enemy-dodge sites.
+
 ## Key systems
 
 ### Non-lethal damage
