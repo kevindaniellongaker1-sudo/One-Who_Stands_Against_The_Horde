@@ -429,6 +429,15 @@ List<Enemy> BuildGroup(int waveNum, Random r)
         for (int gi = 0; gi < giantSlots; gi++)
             if (r.Next(1, 4) == 1)
                 g.Add(GiantEnemy.RandType(r, $"Giant {gi + 1}"));
+
+        // Once giants march, every race musters harder: +1 of each, goblins +2
+        g.Add(Goblin.RandType(r, "Goblin Muster 1"));
+        g.Add(Goblin.RandType(r, "Goblin Muster 2"));
+        g.Add(Hobgoblin.RandType(r, "Hobgoblin Muster"));
+        g.Add(new Orc(r, "Orc Muster"));
+        g.Add(Troll.RandType(r, "Troll Muster"));
+        g.Add(Ogre.RandType(r, "Ogre Muster"));
+        g.Add(GiantEnemy.RandType(r, "Giant Muster"));
     }
 
     // Enemy casters: uses = floor(lowestPlayerLevel * 0.80), minimum 1
@@ -1088,10 +1097,54 @@ void VisitShop(Player pl)
     while (true)
     {
         Console.WriteLine($"\n═══ TRAVELLING MERCHANT ═══  Purse: {Shop.Fmt(pl.Copper)}");
-        Console.WriteLine("  [1] Arrows   [2] Weapons   [3] Shields   [4] Sell your gear   [5] Leave");
+        Console.WriteLine($"  Wearing: {pl.MainArmor}{(pl.UnderArmor.Length > 0 ? $" over {pl.UnderArmor}" : "")}");
+        Console.WriteLine("  [1] Arrows   [2] Weapons   [3] Shields   [4] Sell your gear   [5] Armor   [6] Leave");
         Console.Write("  Browse: ");
-        string c = (Console.ReadLine() ?? "5").Trim().ToLower();
-        if (c is "5" or "leave" or "exit" or "x" or "") break;
+        string c = (Console.ReadLine() ?? "6").Trim().ToLower();
+        if (c is "6" or "leave" or "exit" or "x" or "") break;
+
+        if (c is "5" or "armor" or "armour")
+        {
+            var alist = Shop.Armors.Keys.ToArray();
+            for (int i = 0; i < alist.Length; i++)
+            {
+                var a = Shop.Armors[alist[i]];
+                Console.WriteLine($"  [{i + 1,2}] {alist[i],-14}{(a.Under ? " [under]" : "        ")} — {Shop.Fmt(a.Cost),-8} {a.Desc}");
+            }
+            Console.WriteLine("  ([under] pieces layer beneath a main armor — you can wear one of each)");
+            Console.Write("  Buy # (or Enter to go back): ");
+            if (!int.TryParse(Console.ReadLine()?.Trim(), out int ai2) || ai2 < 1 || ai2 > alist.Length) continue;
+            string aname = alist[ai2 - 1];
+            var def = Shop.Armors[aname];
+            if (def.Cost > pl.Copper) { Console.WriteLine($"  Not enough coin ({Shop.Fmt(def.Cost)})."); continue; }
+
+            // Unequip whatever occupies the slot (trade-in at 80%)
+            string oldName = def.Under ? pl.UnderArmor : pl.MainArmor;
+            if (oldName.Length > 0 && oldName != "Cloth" && Shop.Armors.TryGetValue(oldName, out var oldDef))
+            {
+                long tradeIn = Shop.Sell(oldName);
+                pl.Copper += tradeIn;
+                pl.ArmorDamageReduction -= oldDef.MeleeDR;
+                pl.ArmorSpellDR -= oldDef.SpellDR;
+                pl.ArmorPrayerDR -= oldDef.PrayerDR;
+                Console.WriteLine($"  Traded in your {oldName} for {Shop.Fmt(tradeIn)}.");
+            }
+            pl.Copper -= def.Cost;
+            if (def.Under) pl.UnderArmor = aname; else pl.MainArmor = aname;
+            pl.ArmorDamageReduction += def.MeleeDR;
+            pl.ArmorSpellDR += def.SpellDR;
+            pl.ArmorPrayerDR += def.PrayerDR;
+            // Absorption chances of both layers combine as independent rolls
+            int pctMain = Shop.Armors.TryGetValue(pl.MainArmor, out var am) ? am.AbsorbPct : 0;
+            int pctUnder = Shop.Armors.TryGetValue(pl.UnderArmor, out var au) ? au.AbsorbPct : 0;
+            pl.ArmorAbsorbPct = 100 - (100 - pctMain) * (100 - pctUnder) / 100;
+            pl.ArmorMetal = (Shop.Armors.TryGetValue(pl.MainArmor, out var m1) && m1.Metal)
+                         || (Shop.Armors.TryGetValue(pl.UnderArmor, out var m2) && m2.Metal);
+            Console.WriteLine($"  You don the {aname}! Damage taken -{pl.ArmorDamageReduction}, spells -{pl.ArmorSpellDR}, prayers -{pl.ArmorPrayerDR}" +
+                (pl.ArmorAbsorbPct > 0 ? $", {pl.ArmorAbsorbPct}% magic absorption" : "") +
+                (pl.ArmorMetal ? "  [metal — lightning conducts!]" : "") + $".  Purse: {Shop.Fmt(pl.Copper)}");
+            continue;
+        }
 
         if (c is "1" or "arrows")
         {
@@ -1305,6 +1358,12 @@ void SaveGame(Player p, int groups)
         $"BluntArrows={p.BluntArrows}",
         $"BarbedArrows={p.BarbedArrows}",
         $"SpiralArrows={p.SpiralArrows}",
+        $"MainArmor={p.MainArmor}",
+        $"UnderArmor={p.UnderArmor}",
+        $"ArmorSpellDR={p.ArmorSpellDR}",
+        $"ArmorPrayerDR={p.ArmorPrayerDR}",
+        $"ArmorAbsorbPct={p.ArmorAbsorbPct}",
+        $"ArmorMetal={p.ArmorMetal}",
         $"HeldWeapon={p.HeldWeapon ?? ""}",
         $"SecondaryWeapon={p.SecondaryWeapon ?? ""}",
         $"Race={p.Race}",
@@ -1390,6 +1449,12 @@ bool TryLoadGame(Player p, string filePath)
         p.BluntArrows = I("BluntArrows");
         p.BarbedArrows = I("BarbedArrows");
         p.SpiralArrows = I("SpiralArrows");
+        p.MainArmor = G("MainArmor") is { Length: > 0 } ma ? ma : "Cloth";
+        p.UnderArmor = G("UnderArmor");
+        p.ArmorSpellDR = I("ArmorSpellDR");
+        p.ArmorPrayerDR = I("ArmorPrayerDR");
+        p.ArmorAbsorbPct = I("ArmorAbsorbPct");
+        p.ArmorMetal = B("ArmorMetal");
         if (dict.ContainsKey("HeldWeapon"))
             p.HeldWeapon = G("HeldWeapon") is { Length: > 0 } hw ? hw : null;
         else
@@ -1624,7 +1689,30 @@ static class Shop
         ["Kite Shield"] = (2, 1), ["Tower Shield"] = (3, 1),
     };
 
-    public static long Sell(string item) => Price.TryGetValue(item, out long p) ? p * 8 / 10 : 0;
+    // Armor: Price, worn-under flag, metal flag, flat DR vs melee/ranged,
+    // DR vs spells, DR vs prayers, spell/prayer absorb % (adds a use), blurb.
+    public record ArmorDef(long Cost, bool Under, bool Metal, int MeleeDR, int SpellDR, int PrayerDR, int AbsorbPct, string Desc);
+    public static readonly Dictionary<string, ArmorDef> Armors = new()
+    {
+        ["Padded Armor"]  = new(75 * Silver,  true,  false, 1, 0, 0, 0,  "-2 non-lethal; wearable under other armor"),
+        ["Leather Vest"]  = new(85 * Silver,  true,  false, 1, 0, 0, 0,  "-1 melee; wearable with other armor"),
+        ["Leather Armor"] = new(Gold,         true,  false, 2, 2, 2, 0,  "1d4 less from all sources; wearable under metal"),
+        ["Chainmail"]     = new(5 * Gold,     true,  true,  4, 0, 0, 0,  "metal; -2d3 lethal melee & ranged; under plate"),
+        ["Breastplate"]   = new(10 * Gold,    false, true,  5, 0, 0, 0,  "plated; -2d4 all but magic and prayer"),
+        ["Half Plate"]    = new(25 * Gold,    false, true,  6, 2, 0, 0,  "plated; -3d3 physical, -1d4 spells"),
+        ["Soft Leather"]  = new(40 * Gold,    true,  false, 3, 2, 5, 0,  "-2d4 NL, -1d4 lethal, -2d4 prayer, -1d4 non-fire spells"),
+        ["Full Plate"]    = new(50 * Gold,    false, true,  10, 6, 2, 0, "plated; -4d4 physical, -3d3 spells, -1d4 prayers"),
+        ["Oak Armor"]     = new(50 * Gold,    false, false, 8, 7, 7, 0,  "non-metal plate; strong all-round, wary of fire"),
+        ["Hard Leather"]  = new(75 * Gold,    true,  false, 4, 5, 5, 0,  "broad lethal/elemental/prayer reduction; under plate"),
+        ["Studded Armor"] = new(85 * Gold,    true,  true,  5, 4, 5, 0,  "metal; broad reduction, +1 extra; under plate"),
+        ["Scale Armor"]   = new(100 * Gold,   false, true,  10, 7, 5, 0, "plated; -4d4 melee, -3d6 ranged, -3d4 spell, -2d4 prayer"),
+        ["Rune Armor"]    = new(5 * Platinum, false, false, 10, 9, 8, 45, "absorbs 45% of spells/prayers (+1 use); prayers heal x2 on you"),
+        ["Scribed Robes"] = new(5 * Platinum, true,  false, 0, 4, 4, 55, "absorbs 55% of spells/prayers (+1 use); prayers heal x2 on you"),
+    };
+
+    public static long Sell(string item) =>
+        Price.TryGetValue(item, out long p) ? p * 8 / 10 :
+        Armors.TryGetValue(item, out var a) ? a.Cost * 8 / 10 : 0;
 
     public static string Fmt(long c)
     {
@@ -1683,6 +1771,13 @@ class Player
     public int SpiralArrows = 0;             // +1d4 attack, +1d4 damage
     // Unbroken arrows awaiting end-of-wave recovery (combat-scoped)
     public int RecoverRegular = 0, RecoverBlunt = 0, RecoverBarbed = 0, RecoverSpiral = 0;
+    // Armor: one main suit + one under-layer. Cloth = unarmored.
+    public string MainArmor = "Cloth";
+    public string UnderArmor = "";
+    public int ArmorSpellDR = 0;      // reduction vs enemy spells
+    public int ArmorPrayerDR = 0;     // reduction vs enemy prayers
+    public int ArmorAbsorbPct = 0;    // chance to absorb spells/prayers (+1 use)
+    public bool ArmorMetal = false;   // lightning conducts through metal
     public List<string> Feats = new();
     public Dictionary<string, int> FeatStacks = new();
     public Dictionary<string, int> GearCounts = new();
@@ -3693,6 +3788,11 @@ class CombatSession
                         }
                         else
                         {
+                            if (P.ArmorAbsorbPct > 0)
+                            {
+                                roll *= 2;
+                                Console.WriteLine("  Your rune-worked armor drinks in the prayer — healing doubled!");
+                            }
                             int heal = Math.Min(roll, P.MaxHP - P.HP);
                             P.HP += heal;
                             Console.WriteLine($"  Prayer of Healing! Restored {heal} HP. ({P.HP}/{P.MaxHP})");
@@ -4240,6 +4340,29 @@ class CombatSession
 
     Enemy? Bystander(Enemy target) =>
         Active.FirstOrDefault(a => a.Alive && a != target && a.Position.IsCardinalAdjacent(target.Position));
+
+    // ── ARMOR vs MAGIC ────────────────────────────────────────────────────
+    // Applies rune absorption (damage → 0, +1 use), the lightning-vs-metal
+    // rule (full damage + burns), then the armor's spell/prayer reduction.
+    int MitigateMagic(int dmg, string channel, string element = "")
+    {
+        if (P.ArmorAbsorbPct > 0 && Rng.Next(100) < P.ArmorAbsorbPct)
+        {
+            if (channel == "spell") P.SpellUses++;
+            else P.PrayerUses++;
+            Console.WriteLine($"  Your armor's runes ABSORB the {channel}! (+1 {channel} use)");
+            return 0;
+        }
+        if (channel == "spell" && element == "lightning" && P.ArmorMetal)
+        {
+            P.BurningDmg = Math.Max(P.BurningDmg, Rng.Next(1, 5));
+            P.BurningTurns = Math.Max(P.BurningTurns, Rng.Next(1, 6));
+            Console.WriteLine("  Lightning courses through your metal armor — full damage and searing burns!");
+            return dmg;
+        }
+        int dr = channel == "spell" ? P.ArmorSpellDR : P.ArmorPrayerDR;
+        return dr > 0 && dmg > 0 ? Math.Max(1, dmg - dr) : dmg;
+    }
 
     void RecoverArrowLater(string type)
     {
@@ -6290,8 +6413,7 @@ class CombatSession
                         Console.WriteLine($"  {e.Name} calls down a dark smite! Roll {smAtk} vs your dodge {smDdg}.");
                         if (smAtk >= smDdg)
                         {
-                            int smDmg = Rng.Next(1, 5) + Rng.Next(1, 5);
-                            if (P.ArmorDamageReduction > 0) smDmg = Math.Max(1, smDmg - P.ArmorDamageReduction);
+                            int smDmg = MitigateMagic(Rng.Next(1, 5) + Rng.Next(1, 5), "prayer");
                             P.HP -= smDmg;
                             Console.WriteLine($"  Dark energy sears you for {smDmg}! HP:{P.HP}/{P.MaxHP}");
                         }
@@ -7285,6 +7407,7 @@ class CombatSession
             int sDmg = Rng.Next(1, 7) + Rng.Next(1, 7) + gm.Level / 10;
             if (feet <= 10f) sDmg += Rng.Next(1, 5);   // point-blank burst
             if (P.SpellweaveArmorTurns > 0) sDmg = Math.Max(1, sDmg - 2);
+            sDmg = MitigateMagic(sDmg, "spell", elem == "ice" ? "frost" : elem);
             P.HP -= sDmg;
             Console.WriteLine($"  {elem.ToUpper()} HIT for {sDmg}! HP:{P.HP}/{P.MaxHP}");
             switch (elem)
@@ -7355,7 +7478,7 @@ class CombatSession
             case "Fire Blast":
             {
                 // 5×5 area centered on player: hits player + any enemies in Manhattan dist ≤ 1
-                int dmg = Math.Max(1, Rng.Next(4, 13) - mageShieldAbsorb);
+                int dmg = MitigateMagic(Math.Max(1, Rng.Next(4, 13) - mageShieldAbsorb), "spell", "fire");
                 if (sgCrit) { dmg *= 2; Console.WriteLine("    CRITICAL! Double fire damage!"); }
                 burnDmg = Rng.Next(1, 5); burnTurns = Rng.Next(4, 9);
                 Console.WriteLine($"    Fire erupts around you! {dmg} fire damage. HP:{P.HP - dmg}/{P.MaxHP}");
@@ -7378,7 +7501,7 @@ class CombatSession
             case "Chain Lightning":
             {
                 // Hits player first, then jumps to enemies within 2 squares
-                int dmg = Math.Max(1, Rng.Next(3, 7) - mageShieldAbsorb);
+                int dmg = MitigateMagic(Math.Max(1, Rng.Next(3, 7) - mageShieldAbsorb), "spell", "lightning");
                 if (sgCrit) { dmg *= 2; Console.WriteLine("    CRITICAL! Double lightning damage!"); }
                 Console.WriteLine($"    Lightning strikes you for {dmg}! HP:{P.HP - dmg}/{P.MaxHP}");
                 P.HP -= dmg;
@@ -7405,7 +7528,7 @@ class CombatSession
             case "Frost Burst":
             {
                 // 7.5×7.5 cone aimed at player: all in 3×3 around player hit
-                int dmg = Math.Max(1, Rng.Next(2, 9) - mageShieldAbsorb);
+                int dmg = MitigateMagic(Math.Max(1, Rng.Next(2, 9) - mageShieldAbsorb), "spell", "frost");
                 if (sgCrit) { dmg *= 2; Console.WriteLine("    CRITICAL! Double frost damage!"); }
                 frostPen = Rng.Next(2, 9); frostTurns = Rng.Next(2, 7);
                 Console.WriteLine($"    Frost cone! {dmg} cold damage. HP:{P.HP - dmg}/{P.MaxHP}");
@@ -7485,7 +7608,7 @@ class CombatSession
         // Lord's Prayer: player within 6ft — 1d6 holy damage
         if (feet <= 6f)
         {
-            int dmg = Rng.Next(1, 7);
+            int dmg = MitigateMagic(Rng.Next(1, 7), "prayer");
             Console.WriteLine($"  {gs.Name} chants Lord's Prayer! {dmg} holy damage. HP:{P.HP - dmg}/{P.MaxHP}");
             P.HP -= dmg;
             return;
@@ -7594,7 +7717,7 @@ class CombatSession
         // Lord's Prayer: player within 6ft — 1d6 holy damage
         if (feet <= 6f)
         {
-            int dmg = Rng.Next(1, 7);
+            int dmg = MitigateMagic(Rng.Next(1, 7), "prayer");
             Console.WriteLine($"  {hbc.Name} chants Lord's Prayer! {dmg} holy damage. HP:{P.HP - dmg}/{P.MaxHP}");
             P.HP -= dmg;
             return;
@@ -7649,6 +7772,7 @@ class CombatSession
         {
             int dmg = Rng.Next(1, 7);
             if (op.HasHolyRoller && dmg == 6) { int bonus = Rng.Next(1, 7); dmg += bonus; Console.WriteLine($"  HOLY ROLLER! +{bonus} divine surge!"); }
+            dmg = MitigateMagic(dmg, "prayer");
             Console.WriteLine($"  {op.Name} chants Lord's Prayer! {dmg} holy damage. HP:{P.HP - dmg}/{P.MaxHP}");
             P.HP -= dmg;
             return;

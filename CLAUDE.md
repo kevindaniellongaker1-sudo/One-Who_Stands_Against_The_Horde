@@ -96,6 +96,12 @@ Enemy casters have pools too (set in BuildGroup from waveNum with the player for
 - Sizes: small = Goblin/gnomes/hobbits (0), large = Ogre/Giant (2), else medium. Small: +1 atk & +1/+2 dodge vs medium (stacks +1 more vs large), -1 melee dmg (+1 weak-spot vs large cancels), -1 MaxHP at creation/spawn. Giant race (+2 melee dmg, +4 HP, +1 move): -2 dodge vs med/small, -1/-2 block+parry. Ogre: flat -2 dmg taken (players +2 ArmorDR, enemies ToughHide 2/2), +2/+3 dmg but -1/-2 atk vs med/small, -1 dodge vs medium.
 - Hooks: DoAttack/PerformAttack, EnemyAttack, block/parry cases, `PDodgeSize()` via `_atkEnemy`, `SizeDodgeRoll` at enemy-dodge sites.
 
+## Economy (Shop static class)
+
+- Copper-based currency (`Player.Copper`; 100c=1s, 100s=1g, 100g=1p; `Shop.Fmt`). Wave loot by race + leftover gear at 80%, split between players. `VisitShop` = option [5] at the between-wave stop: arrows (blunt/barbed/spiral with bow-side effects), weapons (`Shop.Price`, `Shop.TwoHanded` gated on Giant's Strength), shields (equip into OffHandShield slot), armor (`Shop.Armors`: main + under layer; MeleeDR folds into ArmorDamageReduction, `ArmorSpellDR`/`ArmorPrayerDR` typed, `ArmorAbsorbPct` absorbs spells/prayers via `MitigateMagic` — also lightning-vs-metal burns), sell anything at 80%.
+- Ammo breakage: hit 25% break, miss 20% strays to a bystander (35% break) else 50% break; unbroken arrows recovered at wave end (`RecoverRegular` etc.); thrown weapons land or break via `ResolveThrownLanding`.
+- Enemy variants: `Ogre.RandType` (2 base:Warrior:Duelist:Berserker w/ 5 rages), `GiantEnemy.RandType` at wave 51+ (base bow+shield, Mage grimoire, Priest, Duelist).
+
 ## Key systems
 
 ### Non-lethal damage
