@@ -253,6 +253,13 @@ class GraphicsDisplay
                 "TrollMusician"    => "TM",
                 "NecromancerTroll" => "NT",
                 "Ogre"             => "Og",
+                "OgreWarrior"      => "OW",
+                "OgreDuelist"      => "OD",
+                "OgreBerserker"    => "OZ",
+                "GiantEnemy"       => "Gi",
+                "GiantMage"        => "GM",
+                "GiantPriest"      => "GP",
+                "GiantDuelist"     => "GD",
                 _                  => "?"
             };
             Raylib.DrawText(lbl, sx + 4, sy + 10, 18, Color.Black);
@@ -386,6 +393,13 @@ class GraphicsDisplay
         "TrollMusician"    => new Color(140, 110,  60, 255),
         "NecromancerTroll" => new Color( 80,  60, 120, 255),
         "Ogre"             => new Color(180,  80,  80, 255),
+        "OgreWarrior"      => new Color(200,  90,  60, 255),
+        "OgreDuelist"      => new Color(190,  70, 110, 255),
+        "OgreBerserker"    => new Color(230,  50,  50, 255),
+        "GiantEnemy"       => new Color(160, 140, 200, 255),
+        "GiantMage"        => new Color(120,  90, 230, 255),
+        "GiantPriest"      => new Color(200, 180, 120, 255),
+        "GiantDuelist"     => new Color(220, 140, 180, 255),
         _                  => Color.Gray
     };
 }

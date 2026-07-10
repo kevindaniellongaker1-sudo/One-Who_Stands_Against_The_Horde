@@ -351,7 +351,7 @@ List<Enemy> BuildGroup(int waveNum, Random r)
             int cr = r.Next(1, crMax);
             switch (cr)
             {
-                case 1: case 2: g.Add(new Ogre(r, $"Ogre {i + 1}")); break;
+                case 1: case 2: g.Add(Ogre.RandType(r, $"Ogre {i + 1}")); break;
                 case 3: for (int j = 0; j < 3; j++) g.Add(Orc.RandType(r, $"Orc {i * 3 + j + 1}")); break;
                 case 4: g.Add(Troll.RandType(r, $"Troll {i * 2 + 1}")); g.Add(Troll.RandType(r, $"Troll {i * 2 + 2}")); break;
                 case 5: for (int j = 0; j < 4; j++) g.Add(Hobgoblin.RandType(r, $"Hobgoblin {i * 4 + j + 1}")); break;
@@ -365,6 +365,15 @@ List<Enemy> BuildGroup(int waveNum, Random r)
                 default: if (waveNum >= 61) { g.Add(new OrcBarbarian(r, $"Orc Barbarian {i*2 + 1}")); g.Add(new OrcBarbarian(r, $"Orc Barbarian {i*2 + 2}")); } else { g.Add(Troll.RandType(r, $"Troll {i*2 + 1}")); g.Add(Troll.RandType(r, $"Troll {i*2 + 2}")); } break;
             }
         }
+    }
+
+    // Giants join the horde 10 waves after Orc Barbarians first appear (wave 51+)
+    if (waveNum >= 51)
+    {
+        int giantSlots = 1 + (waveNum - 51) / 15;
+        for (int gi = 0; gi < giantSlots; gi++)
+            if (r.Next(1, 4) == 1)
+                g.Add(GiantEnemy.RandType(r, $"Giant {gi + 1}"));
     }
 
     // Enemy casters: uses = floor(lowestPlayerLevel * 0.80), minimum 1
@@ -738,8 +747,8 @@ void SelectRace(Player p)
     Console.WriteLine("  [12] Gem Gnome          — +1 movement, +2 to hit with spells");
     Console.WriteLine("  [13] Glass Gnome        — +1 min attack, +1 movement; spell targets may half-dodge");
     Console.WriteLine("  [14] Hobgoblin          — +1 movement, +1 base damage");
-    Console.WriteLine("  [15] Ogre               — +2 base and max damage, double HP, half dodge, -1 movement, -2 dmg taken");
-    Console.WriteLine("  [16] Giant              — +2 melee damage, +4 HP, +1 movement; clumsy vs smaller foes");
+    Console.WriteLine("  [15] Ogre               — +2 dmg, double HP, half dodge, -1 move, -2 dmg taken, free Giant's Strength");
+    Console.WriteLine("  [16] Giant              — +2 melee dmg, +4 HP, +1 move, free Giant's Strength; clumsy vs smaller foes");
     Console.WriteLine("  (Size matters: small races get attack/dodge bonuses vs bigger foes; see race notes)");
     Console.Write("  Choice (1-16 or name): ");
     string raw = (Console.ReadLine() ?? "").Trim();
@@ -843,8 +852,10 @@ void SelectRace(Player p)
             p.MaxDodge = Math.Max(1, p.MaxDodge / 2);
             p.MovementBonus -= 1;
             p.ArmorDamageReduction += 2;
+            p.AddFeat("Giant's Strength");
             Console.WriteLine($"  [Race] Ogre: +2 damage ({p.MinDamage}-{p.MaxDamage}), HP doubled to {p.MaxHP}, dodge halved ({p.MinDodge}-{p.MaxDodge}), -1 movement.");
             Console.WriteLine("  [Race] Ogre tough skin: -2 incoming damage. +2/+3 dmg but -1/-2 attack and worse dodge vs medium/small foes.");
+            Console.WriteLine("  [Race] Giant's Strength (free feat): wield the Ogre Club and two-handed weapons in one hand.");
             break;
         case "Giant":
             p.MinDamage += 2;
@@ -852,8 +863,10 @@ void SelectRace(Player p)
             p.MaxHP += 4;
             p.HP = p.MaxHP;
             p.MovementBonus += 1;
+            p.AddFeat("Giant's Strength");
             Console.WriteLine($"  [Race] Giant: +2 melee damage ({p.MinDamage}-{p.MaxDamage}), +4 HP ({p.MaxHP}), +1 movement.");
             Console.WriteLine("  [Race] Giant clumsiness: -2 dodge vs medium/small; -1 block/parry vs medium, -2 vs small.");
+            Console.WriteLine("  [Race] Giant's Strength (free feat): wield the Ogre Club and two-handed weapons in one hand.");
             break;
     }
 
@@ -1986,6 +1999,15 @@ class NecromancerTroll : Troll
 
 class Ogre : Enemy
 {
+    // Spawn pool: 2 parts regular ogre, 1 part each variant
+    public static Ogre RandType(Random r, string name) => r.Next(1, 6) switch
+    {
+        3 => new OgreWarrior(r, name.Replace("Ogre", "Ogre Warrior")),
+        4 => new OgreDuelist(r, name.Replace("Ogre", "Ogre Duelist")),
+        5 => new OgreBerserker(r, name.Replace("Ogre", "Ogre Berserker")),
+        _ => new Ogre(r, name)
+    };
+
     public Ogre(Random rng, string name) : base(name, "Ogre")
     {
         MaxHP = 45; HP = MaxHP;
@@ -2003,6 +2025,128 @@ class Ogre : Enemy
         XPValue = 50;
         Race = "Ogre"; MinDamage += 2; MaxDamage += 2;
         MinDodge = Math.Max(1, MinDodge / 2); MaxDodge = Math.Max(1, MaxDodge / 2);
+    }
+}
+
+// ── Ogre variants (Ogre.RandType: 2 parts base ogre, 1 each variant) ──────
+// All ogres carry Giant's Strength: two-handed weapons in one hand.
+
+class OgreWarrior : Ogre
+{
+    public OgreWarrior(Random rng, string name) : base(rng, name)
+    {
+        TypeName = "Ogre Warrior";
+        MinDamage = 4 + 2; MaxDamage = 12 + 2;   // Great Sword 4-12 (+2 ogre race dmg)
+        HasBlock = true;
+        HasShield = true; ShieldBlockBonus = 3;  // tower shield: blocks melee AND ranged
+        HasDoubleTap = false;                    // sword + shield, no off-hand attack
+        XPValue = 65;
+    }
+}
+
+class OgreDuelist : Ogre
+{
+    public OgreDuelist(Random rng, string name) : base(rng, name)
+    {
+        TypeName = "Ogre Duelist";
+        MinDamage = 2 + 2; MaxDamage = 12 + 2;    // Battle Axe 2-12 (+2 ogre race dmg)
+        HasDoubleTap = true;                      // off-hand Ogre Club
+        OffhandMinAtk = 4; OffhandMaxAtk = 12;
+        OffhandMinDmg = 3; OffhandMaxDmg = 12;    // Ogre Club
+        XPValue = 65;
+    }
+}
+
+class OgreBerserker : Ogre
+{
+    public int OgreRagePoints = 5;
+    public int OgreRageTurns = 0;                 // +2 dmg while raging
+    public OgreBerserker(Random rng, string name) : base(rng, name)
+    {
+        TypeName = "Ogre Berserker";
+        MinDamage = 2 + 2; MaxDamage = 12 + 2;    // Battle Axe x2
+        HasDoubleTap = true;
+        OffhandMinAtk = 4; OffhandMaxAtk = 12;
+        OffhandMinDmg = 2; OffhandMaxDmg = 12;    // second Battle Axe
+        XPValue = 70;
+    }
+}
+
+// ── Giants: join the spawn pool 10 waves after Orc Barbarians (wave 51+) ──
+// All giants have Giant's Strength: two-handed weapons in one hand.
+
+class GiantEnemy : Enemy
+{
+    public int GiantArrows = 12;   // composite bow, 2d4
+    public GiantEnemy(Random rng, string name) : base(name, "Giant")
+    {
+        MaxHP = 50; HP = MaxHP;
+        MinAttack = 2; MaxAttack = 12;           // 2d6-style attack rolls
+        MinDamage = 4; MaxDamage = 14;           // Great Sword in one hand
+        MinDodge = 1; MaxDodge = 6;
+        MinGrapple = 4; MaxGrapple = 14;
+        GrappleDmgMin = 3; GrappleDmgMax = 10;
+        HasBlock = true; BlockMin = 3; BlockMax = 12;
+        HasShield = true; ShieldBlockBonus = 3;  // tower shield — blocks ranged too
+        XPValue = 85;
+        Race = "Giant";
+    }
+
+    // Spawn pool: 3 parts base giant, 1 part each specialist
+    public static GiantEnemy RandType(Random r, string name) => r.Next(1, 7) switch
+    {
+        4 => new GiantMage(r, name.Replace("Giant", "Giant Mage")),
+        5 => new GiantPriest(r, name.Replace("Giant", "Giant Priest")),
+        6 => new GiantDuelist(r, name.Replace("Giant", "Giant Duelist")),
+        _ => new GiantEnemy(r, name)
+    };
+}
+
+class GiantMage : GiantEnemy
+{
+    public string Grimoire;          // lightning / fire / ice / negative / boost
+    public GiantMage(Random rng, string name) : base(rng, name)
+    {
+        TypeName = "Giant Mage";
+        HasShield = false; ShieldBlockBonus = 0;
+        MinDamage = 2; MaxDamage = 10;           // long staff
+        GiantArrows = 0;
+        Grimoire = new[] { "lightning", "fire", "ice", "negative", "boost" }[rng.Next(5)];
+        XPValue = 95;
+    }
+}
+
+class GiantPriest : GiantEnemy
+{
+    public GiantPriest(Random rng, string name) : base(rng, name)
+    {
+        TypeName = "Giant Priest";
+        HasShield = false; ShieldBlockBonus = 0;
+        MinDamage = 2; MaxDamage = 8;            // war mace 2d4 (non-lethal)
+        HasDoubleTap = true;
+        OffhandMinAtk = 2; OffhandMaxAtk = 12;
+        OffhandMinDmg = 2; OffhandMaxDmg = 8;    // second war mace
+        OffhandNonLethal = true;
+        GiantArrows = 0;
+        XPValue = 95;
+    }
+}
+
+class GiantDuelist : GiantEnemy
+{
+    public int HandAxes = 6;
+    public GiantDuelist(Random rng, string name) : base(rng, name)
+    {
+        TypeName = "Giant Duelist";
+        HasShield = false; ShieldBlockBonus = 0;
+        MinDamage = 4; MaxDamage = 14;           // great sword
+        HasDoubleTap = true;                     // war mace off-hand
+        OffhandMinAtk = 2; OffhandMaxAtk = 12;
+        OffhandMinDmg = 2; OffhandMaxDmg = 8;
+        OffhandNonLethal = true;
+        HasKick = true; KickDmgMin = 2; KickDmgMax = 8;   // Fury of Blows
+        GiantArrows = 0;
+        XPValue = 100;
     }
 }
 
@@ -5830,6 +5974,78 @@ class CombatSession
                 continue;
             }
 
+            // ── Giant AI ───────────────────────────────────────────────────
+            if (e is GiantEnemy giant)
+            {
+                for (int i = 0; i < actions && P.HP > 0 && e.Alive; i++)
+                {
+                    if (giant is GiantMage gmage) { GiantMageAction(gmage); continue; }
+
+                    // Priest: booming dark prayer heals the most wounded ally
+                    if (giant is GiantPriest gpr && gpr.PrayerUsesLeft > 0 && SilenceTurns <= 0)
+                    {
+                        var wounded = Active.Where(a => a.Alive && !a.IsPlayerAlly && a != e &&
+                                                        a.HP < a.MaxHP && a.Position.Feet(e.Position) <= 30f)
+                                            .OrderBy(a => (float)a.HP / a.MaxHP).FirstOrDefault();
+                        if (wounded != null)
+                        {
+                            gpr.PrayerUsesLeft--;
+                            int gh = Rng.Next(1, 5) + Rng.Next(1, 5) + Rng.Next(1, 5);
+                            wounded.HP = Math.Min(wounded.HP + gh, wounded.MaxHP);
+                            Console.WriteLine($"  {e.Name} booms a prayer — {wounded.Name} heals {gh}! (HP:{wounded.HP}/{wounded.MaxHP})");
+                            continue;
+                        }
+                    }
+
+                    // Duelist: hurls hand axes when not in melee
+                    if (giant is GiantDuelist gdu && !e.Position.IsCardinalAdjacent(PlayerPos)
+                        && gdu.HandAxes > 0 && e.Position.Feet(PlayerPos) <= 25f)
+                    {
+                        gdu.HandAxes--;
+                        int haAtk = Rng.Next(e.MinAttack, e.MaxAttack + 1);
+                        int haDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize();
+                        Console.WriteLine($"  {e.Name} hurls a hand axe! Roll {haAtk} vs your dodge {haDdg}. ({gdu.HandAxes} left)");
+                        if (haAtk >= haDdg)
+                        {
+                            int haDmg = Rng.Next(2, 9);
+                            if (P.ArmorDamageReduction > 0) haDmg = Math.Max(1, haDmg - P.ArmorDamageReduction);
+                            P.HP -= haDmg;
+                            Console.WriteLine($"  Axe HIT for {haDmg}! HP:{P.HP}/{P.MaxHP}");
+                        }
+                        else Console.WriteLine("  You dodge the whirling axe!");
+                        continue;
+                    }
+
+                    // Base giant: composite bow (2d4, 12 arrows) at range
+                    if (giant.GiantArrows > 0 && !e.Position.IsCardinalAdjacent(PlayerPos)
+                        && e.Position.Feet(PlayerPos) is > 5f and <= 60f)
+                    {
+                        giant.GiantArrows--;
+                        int gbAtk = Rng.Next(e.MinAttack, e.MaxAttack + 1);
+                        int gbDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize();
+                        Console.WriteLine($"  {e.Name} looses a giant arrow! Roll {gbAtk} vs your dodge {gbDdg}. ({giant.GiantArrows} arrows left)");
+                        if (gbAtk >= gbDdg)
+                        {
+                            int gbDmg = Rng.Next(1, 5) + Rng.Next(1, 5);
+                            if (P.ArmorDamageReduction > 0) gbDmg = Math.Max(1, gbDmg - P.ArmorDamageReduction);
+                            P.HP -= gbDmg;
+                            Console.WriteLine($"  Arrow HIT for {gbDmg}! HP:{P.HP}/{P.MaxHP}");
+                        }
+                        else Console.WriteLine("  The huge arrow thuds into the earth beside you!");
+                        continue;
+                    }
+
+                    // Melee / close in
+                    if (e.Position.IsCardinalAdjacent(PlayerPos))
+                    {
+                        EnemyAttack(e);
+                        if (giant is GiantDuelist && e.Alive && P.HP > 0) EnemyKick(e);   // Fury of Blows
+                    }
+                    else MoveTowardPlayer(e, ref actions, suppressCost: true);
+                }
+                continue;
+            }
+
             // ── Ogre AI ────────────────────────────────────────────────────
             if (e is Ogre)
             {
@@ -5840,8 +6056,30 @@ class CombatSession
 
                 int ogrePct = e.HP * 100 / e.MaxHP;
 
-                // ≤ 20% HP: roll 1d4 per action
-                if (ogrePct <= 20 && !e.HasFledBefore)
+                // Ogre Berserker: rages at low HP instead of fleeing (5 rages,
+                // each heals 1d4 and grants +2 damage for 3 turns)
+                if (e is OgreBerserker obz)
+                {
+                    if (obz.OgreRageTurns > 0 && --obz.OgreRageTurns == 0)
+                    {
+                        obz.MinDamage -= 2; obz.MaxDamage -= 2;
+                        Console.WriteLine($"  {e.Name}'s rage subsides.");
+                    }
+                    if (ogrePct <= 25 && obz.OgreRagePoints > 0 && obz.OgreRageTurns <= 0)
+                    {
+                        obz.OgreRagePoints--;
+                        obz.OgreRageTurns = 3;
+                        obz.MinDamage += 2; obz.MaxDamage += 2;
+                        int rageHeal = Rng.Next(1, 5);
+                        e.HP = Math.Min(e.HP + rageHeal, e.MaxHP);
+                        Console.WriteLine($"  {e.Name} flies into a RAGE instead of fleeing! Heals {rageHeal} HP, +2 damage for 3 turns. ({obz.OgreRagePoints} rage(s) left)");
+                        ogrePct = e.HP * 100 / e.MaxHP;
+                    }
+                }
+
+                // ≤ 20% HP: roll 1d4 per action (Berserkers with rage left never flee)
+                if (ogrePct <= 20 && !e.HasFledBefore
+                    && !(e is OgreBerserker obf && (obf.OgreRagePoints > 0 || obf.OgreRageTurns > 0)))
                 {
                     e.PowerAttackMode = false;
                     for (int i = 0; i < actions && P.HP > 0; i++)
@@ -6599,8 +6837,90 @@ class CombatSession
         Orc => 'o',
         Troll => 't',
         Ogre => 'O',
+        GiantEnemy => 'G',
         _ => '?'
     };
+
+    // ── GIANT MAGE GRIMOIRE ───────────────────────────────────────────────
+
+    void GiantMageAction(GiantMage gm)
+    {
+        if (SilenceTurns > 0) { Console.WriteLine($"  {gm.Name} thunders arcane words — but the silence smothers them!"); return; }
+        if (gm.SpellUsesLeft <= 0)
+        {
+            // Out of magic: staff melee or lumber closer
+            if (gm.Position.IsCardinalAdjacent(PlayerPos)) { EnemyAttack(gm); return; }
+            int unused = 0;
+            MoveTowardPlayer(gm, ref unused, suppressCost: true);
+            return;
+        }
+
+        float feet = gm.Position.Feet(PlayerPos);
+
+        // Boosting grimoire: empowers the horde instead of attacking
+        if (gm.Grimoire == "boost")
+        {
+            var ally = Active.Where(a => a.Alive && !a.IsPlayerAlly && a != gm).OrderBy(_ => Rng.Next()).FirstOrDefault();
+            if (ally != null)
+            {
+                gm.SpellUsesLeft--;
+                ally.MinAttack += 1; ally.MinDodge += 1;
+                Console.WriteLine($"  {gm.Name} chants from its grimoire — {ally.Name} surges with power! (+1 attack, +1 dodge)");
+                return;
+            }
+        }
+
+        // Negative grimoire: mend the walking dead first
+        if (gm.Grimoire == "negative")
+        {
+            var undead = Active.FirstOrDefault(u => u != gm && u.IsUndead && u.Alive && u.HP < u.MaxHP && u.Position.Feet(gm.Position) <= 25f);
+            if (undead != null)
+            {
+                gm.SpellUsesLeft--;
+                int nh = Rng.Next(1, 5) + Rng.Next(1, 5);
+                undead.HP = Math.Min(undead.HP + nh, undead.MaxHP);
+                Console.WriteLine($"  {gm.Name} pours negative energy into {undead.Name} — heals {nh}! (HP:{undead.HP}/{undead.MaxHP})");
+                return;
+            }
+        }
+
+        // Attack spell chosen by range: close = big burst, far = bolt
+        if (feet > 50f)
+        {
+            int unused = 0;
+            MoveTowardPlayer(gm, ref unused, suppressCost: true);
+            return;
+        }
+        gm.SpellUsesLeft--;
+        int sAtk = Rng.Next(gm.MinAttack, gm.MaxAttack + 1);
+        int sDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize();
+        string elem = gm.Grimoire == "boost" ? "lightning" : gm.Grimoire;   // boost fallback when no allies
+        Console.WriteLine($"  {gm.Name} hurls {elem} from its grimoire! Roll {sAtk} vs your dodge {sDdg}.");
+        if (sAtk >= sDdg)
+        {
+            int sDmg = Rng.Next(1, 7) + Rng.Next(1, 7) + gm.Level / 10;
+            if (feet <= 10f) sDmg += Rng.Next(1, 5);   // point-blank burst
+            if (P.SpellweaveArmorTurns > 0) sDmg = Math.Max(1, sDmg - 2);
+            P.HP -= sDmg;
+            Console.WriteLine($"  {elem.ToUpper()} HIT for {sDmg}! HP:{P.HP}/{P.MaxHP}");
+            switch (elem)
+            {
+                case "fire":
+                    P.BurningDmg = Rng.Next(1, 5); P.BurningTurns = Rng.Next(1, 5);
+                    Console.WriteLine($"  You catch FIRE! {P.BurningDmg}/turn for {P.BurningTurns} turn(s).");
+                    break;
+                case "ice":
+                    P.FrostPenalty = Math.Max(P.FrostPenalty, 2); P.FrostTurns = Math.Max(P.FrostTurns, 2);
+                    Console.WriteLine("  Frost crackles over you! -2 to rolls for 2 turns.");
+                    break;
+                case "negative":
+                    gm.HP = Math.Min(gm.HP + sDmg / 2, gm.MaxHP);
+                    Console.WriteLine($"  {gm.Name} drinks your life force! (heals {sDmg / 2})");
+                    break;
+            }
+        }
+        else Console.WriteLine("  You dive aside — the blast scorches the ground!");
+    }
 
     // ── SPELL GOBLIN ENEMY SPELL ──────────────────────────────────────────
 
