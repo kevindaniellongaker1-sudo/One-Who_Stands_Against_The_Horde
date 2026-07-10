@@ -96,6 +96,12 @@ Enemy casters have pools too (set in BuildGroup from waveNum with the player for
 - Sizes: small = Goblin/gnomes/hobbits (0), large = Ogre/Giant (2), else medium. Small: +1 atk & +1/+2 dodge vs medium (stacks +1 more vs large), -1 melee dmg (+1 weak-spot vs large cancels), -1 MaxHP at creation/spawn. Giant race (+2 melee dmg, +4 HP, +1 move): -2 dodge vs med/small, -1/-2 block+parry. Ogre: flat -2 dmg taken (players +2 ArmorDR, enemies ToughHide 2/2), +2/+3 dmg but -1/-2 atk vs med/small, -1 dodge vs medium.
 - Hooks: DoAttack/PerformAttack, EnemyAttack, block/parry cases, `PDodgeSize()` via `_atkEnemy`, `SizeDodgeRoll` at enemy-dodge sites.
 
+## Artisan & wildlife
+
+- Artisan class (8 HP +1/lvl; Dagger+Axe+Pickaxe+Shortbow/6 arrows). Materials on Player: Wood/Stone/Ore/Hides/Meat (persisted). In-combat: "mine rock"/"cut tree" actions on terrain squares. Post-wave: [6] Gather (ONE of hunt/mine/cut per stop, 1d3 nodes) and [7] Craft (`VisitCrafting`): arrows (price/1 materials), weapons+shields (price/25), armor (price/15, Rune/Scribed need spells or prayers), -1 material per level (min 1); trade gear/materials to allies; sell materials 1d4c × level each. Shop sells raw materials ([6] Materials). Archers craft 5-25 arrows/wave now.
+- Wildlife spawns every wave (`SpawnWildlife`, IsWildlife=true, excluded from victory checks): deer 1d9-1 (1d4-1 antlered fight back when hurt), wolves 1d6-1 (hunt deer, hit-and-run bites within 4 sq), boars 1d5-1 (charge within 5 sq, wheel and re-charge), bears 1d4-1 (den at caves/trees, aggro 3 sq, Fury of Blows bite+4 claws or bear hug grapple). Kills auto-skin: hides 1d9-1, meat 2d6-2. Caves are terrain.
+- Class HP/level: Berserker 4, Archer/Warrior 3, Duelist/MA 2, others 1. Starting HP: Berserker 14, Warrior/Archer 12, Duelist/MA/Musician 10, Priest/Mage/Artisan 8.
+
 ## Economy (Shop static class)
 
 - Copper-based currency (`Player.Copper`; 100c=1s, 100s=1g, 100g=1p; `Shop.Fmt`). Wave loot by race + leftover gear at 80%, split between players. `VisitShop` = option [5] at the between-wave stop: arrows (blunt/barbed/spiral with bow-side effects), weapons (`Shop.Price`, `Shop.TwoHanded` gated on Giant's Strength), shields (equip into OffHandShield slot), armor (`Shop.Armors`: main + under layer; MeleeDR folds into ArmorDamageReduction, `ArmorSpellDR`/`ArmorPrayerDR` typed, `ArmorAbsorbPct` absorbs spells/prayers via `MitigateMagic` — also lightning-vs-metal burns), sell anything at 80%.

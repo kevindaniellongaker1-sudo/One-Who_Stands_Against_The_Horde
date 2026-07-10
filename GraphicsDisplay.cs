@@ -28,6 +28,7 @@ class RenderSnapshot
     public List<GridPos> Walls = new();
     public List<GridPos> Trees = new();
     public List<GridPos> Rocks = new();
+    public List<GridPos> Caves = new();
 }
 
 class SharedGameState
@@ -155,6 +156,14 @@ class GraphicsDisplay
             Raylib.DrawRectangle(sx, sy, Cell, Cell, new Color(115, 80, 48, 255));
             Raylib.DrawRectangleLines(sx, sy, Cell, Cell, new Color(70, 46, 25, 255));
         }
+        foreach (var cv in snap.Caves)
+        {
+            int sx = (cv.X - ox) * Cell;
+            int sy = (cv.Y - oy) * Cell;
+            if (sx < 0 || sy < 0 || sx >= mapPxW || sy >= mapPxH) continue;
+            Raylib.DrawCircle(sx + Cell / 2, sy + Cell / 2, Cell * 0.40f, new Color(45, 40, 38, 255));
+            Raylib.DrawCircle(sx + Cell / 2, sy + Cell / 2 + 4, Cell * 0.24f, new Color(15, 12, 12, 255));
+        }
         foreach (var t in snap.Trees)
         {
             int sx = (t.X - ox) * Cell;
@@ -260,6 +269,10 @@ class GraphicsDisplay
                 "GiantMage"        => "GM",
                 "GiantPriest"      => "GP",
                 "GiantDuelist"     => "GD",
+                "Deer"             => "De",
+                "Wolf"             => "Wf",
+                "Boar"             => "Br",
+                "Bear"             => "BE",
                 _                  => "?"
             };
             Raylib.DrawText(lbl, sx + 4, sy + 10, 18, Color.Black);
@@ -400,6 +413,10 @@ class GraphicsDisplay
         "GiantMage"        => new Color(120,  90, 230, 255),
         "GiantPriest"      => new Color(200, 180, 120, 255),
         "GiantDuelist"     => new Color(220, 140, 180, 255),
+        "Deer"             => new Color(210, 180, 140, 255),
+        "Wolf"             => new Color(150, 150, 160, 255),
+        "Boar"             => new Color(140,  95,  60, 255),
+        "Bear"             => new Color(100,  60,  30, 255),
         _                  => Color.Gray
     };
 }
