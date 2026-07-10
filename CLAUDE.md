@@ -21,16 +21,16 @@ Development branch: `claude/todo-implementation-ymd2ro`
 
 ## Character types
 
-| Type | Starting HP | Weapon | Special |
-|---|---|---|---|
-| Mage | 6 | Wand + Staff | Air Blade, Air Wave |
-| Priest | 6 | Unarmed | Prayers: Healing, Forgiveness, Lord's Prayer |
-| Warrior | 10 | 2× Hand Axe | Bonus actions scale with level |
-| Duelist | 8 | Rapier + daggers | Duelist Points, special actions |
-| Archer | 8 | Bow + Short Sword | 50 arrows, arrow crafting |
-| Martial Artist | 10 | Unarmed | Martial art style, grapple/throw |
-| Berserker | 12 | Great Axe | Whirlwind spin, Rage (survive lethal hits, heal after rage) |
-| Musician | 8 | Short Sword | Instrument + songs buffing the WHOLE party: Slayer (+atk/dmg to melee/ranged/spells/grapple), Wind Song (+dodge/block/parry), Hardstone (damage reduction), DeathTone (fear by HP vs 2d6). Song tokens: 4 + 1 per 2 levels, refresh each wave; bonuses +2 and fear +1d6 every 3rd level; effects linger 1d4 turns after stopping. Wind/Hardstone = reversible stat deltas on every member (`WindBonusReceived`/`StoneBonusReceived`, subtracted in SaveGame); Slayer = `SlayerAtk()`/`SlayerDmg()` summed over all members' active songs |
+| Type | Starting HP | HP/level | Weapon | Special |
+|---|---|---|---|---|
+| Mage | 6 | +1 | Wand + Staff | Air Blade, Air Wave |
+| Priest | 6 | +1 | Mace | Prayers: Healing, Forgiveness, Lord's Prayer |
+| Warrior | 10 | +3 | 2× Hand Axe | Bonus actions scale with level |
+| Duelist | 8 | +2 | Rapier + daggers | Duelist Points, special actions |
+| Archer | 8 | +3 | Bow + Short Sword | 50 arrows, arrow crafting |
+| Martial Artist | 10 | +2 | Unarmed | Martial art style, grapple/throw |
+| Berserker | 12 | +4 | Great Axe | Whirlwind spin, Rage (survive lethal hits, heal after rage) |
+| Musician | 10 | +1 | Short Sword | Instrument + songs buffing the WHOLE party: Slayer (+atk/dmg to melee/ranged/spells/grapple), Wind Song (+dodge/block/parry), Hardstone (damage reduction), DeathTone (fear by HP vs 2d6). Song tokens: 4 + 1 per 2 levels, refresh each wave; bonuses +2 and fear +1d6 every 3rd level; effects linger 1d4 turns after stopping. Wind/Hardstone = reversible stat deltas on every member (`WindBonusReceived`/`StoneBonusReceived`, subtracted in SaveGame); Slayer = `SlayerAtk()`/`SlayerDmg()` summed over all members' active songs |
 
 ## Races
 

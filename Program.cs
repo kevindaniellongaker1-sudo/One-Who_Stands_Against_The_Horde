@@ -503,6 +503,19 @@ void GainXP(int xp)
             string who = allPlayers.Count > 1 ? pl.Name : "You";
             Console.WriteLine($"\n★★★ LEVEL UP! {who} {(allPlayers.Count > 1 ? "is" : "are")} now Level {pl.Level}! ★★★");
 
+            // Class HP per level: Berserker 4, Archer/Warrior 3,
+            // Duelist/Martial Artist 2, Priest/Mage/Musician 1
+            int hpGain = pl.CharacterType switch
+            {
+                "Berserker" => 4,
+                "Archer" or "Warrior" => 3,
+                "Duelist" or "Martial Artist" => 2,
+                _ => 1,
+            };
+            pl.MaxHP += hpGain;
+            pl.HP += hpGain;
+            Console.WriteLine($"  +{hpGain} max HP! ({pl.HP}/{pl.MaxHP})");
+
             if (pl.Level >= 2)
             {
                 pl.SavedStatPoints++;
@@ -1077,13 +1090,20 @@ void SelectCharacterType(Player p)
         "Martial Artist" => 10,
         "Duelist"        => 8,
         "Archer"         => 8,
-        "Musician"       => 8,
+        "Musician"       => 10,   // sturdy as a Martial Artist
         "Priest"         => 6,
         "Mage"           => 6,
         _                => 8,
     };
     p.HP = p.MaxHP;
-    Console.WriteLine($"  Starting HP: {p.HP}");
+    int hpPerLevel = chosen switch
+    {
+        "Berserker" => 4,
+        "Archer" or "Warrior" => 3,
+        "Duelist" or "Martial Artist" => 2,
+        _ => 1,
+    };
+    Console.WriteLine($"  Starting HP: {p.HP}  (+{hpPerLevel} per level)");
 
     // 12 points to spend on stats at character creation
     p.SavedStatPoints = 12;
