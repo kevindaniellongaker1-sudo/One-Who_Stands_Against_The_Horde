@@ -168,6 +168,50 @@ while (true)
 
     groupsDefeated++;
     Console.WriteLine($"\n✓ Group {groupsDefeated} cleared!  HP: {player.HP}/{player.MaxHP}  XP: {player.XP}  Level: {player.Level}");
+
+    // ── Loot the fallen: coin by race, plus leftover gear sold at 80% ──
+    {
+        long lootCopper = 0;
+        foreach (var en in group.Where(en => !en.Alive || en.KnockedOut).Where(en => !en.Fled))
+        {
+            lootCopper += en.Race switch
+            {
+                "Goblin"    => rng.Next(1, 5),                       // 1d4 copper
+                "Hobgoblin" => rng.Next(1, 5) * Shop.Silver,         // 1d4 silver
+                "Orc"       => (rng.Next(1, 5) + rng.Next(1, 5)) * Shop.Silver,   // 2d4 silver
+                "Troll"     => rng.Next(1, 5) * Shop.Gold,           // 1d4 gold
+                "Ogre"      => (rng.Next(1, 4) + rng.Next(1, 4)) * Shop.Gold,     // 2d3 gold
+                "Giant"     => (rng.Next(1, 3) + rng.Next(1, 3) + rng.Next(1, 3) + rng.Next(1, 3)) * Shop.Gold, // 4d2 gold
+                _           => 0,
+            };
+        }
+        long gearCopper = session.LeftoverGearCopper();
+        if (gearCopper > 0)
+            Console.WriteLine($"  You strip the battlefield of gear worth {Shop.Fmt(gearCopper)} (sold at 80%).");
+        lootCopper += gearCopper;
+        if (lootCopper > 0)
+        {
+            long share = lootCopper / allPlayers.Count;
+            foreach (var pl in allPlayers) pl.Copper += share;
+            Console.WriteLine($"  Loot: {Shop.Fmt(lootCopper)} — {Shop.Fmt(share)} per player." +
+                (allPlayers.Count > 1 ? " (split evenly, rounded down)" : ""));
+        }
+
+        // Gather unbroken arrows from the battlefield
+        foreach (var pl in allPlayers)
+        {
+            int recTotal = pl.RecoverRegular + pl.RecoverBlunt + pl.RecoverBarbed + pl.RecoverSpiral;
+            if (recTotal > 0)
+            {
+                pl.ArrowCount += pl.RecoverRegular;
+                pl.BluntArrows += pl.RecoverBlunt;
+                pl.BarbedArrows += pl.RecoverBarbed;
+                pl.SpiralArrows += pl.RecoverSpiral;
+                Console.WriteLine($"  {pl.Name} gathers {recTotal} unbroken arrow(s) from the field.");
+                pl.RecoverRegular = pl.RecoverBlunt = pl.RecoverBarbed = pl.RecoverSpiral = 0;
+            }
+        }
+    }
     if (allPlayers.Count > 1)
         foreach (var pl in allPlayers.Skip(1))
             Console.WriteLine($"  {pl.Name}: XP {pl.XP}  Level {pl.Level}");
@@ -199,14 +243,24 @@ while (true)
     if (!allPlayers.Any()) break;
     player = allPlayers[0];
 
-    // Each player decides: move forward, rest, go home, or craft arrows
+    // Each player decides: move forward, rest, shop, go home, or craft arrows
     var goingHome = new List<Player>();
     foreach (var pl in allPlayers.ToList())
     {
-        Console.WriteLine($"\n{pl.Name} ({pl.CharacterType}, HP {pl.HP}/{pl.MaxHP}, Lv {pl.Level}):");
-        Console.WriteLine("  [1] Move forward  [2] Rest  [3] Go home" + (pl.CharacterType == "Archer" ? "  [4] Craft arrows" : ""));
+        bool decided = false;
+        while (!decided)
+        {
+        decided = true;
+        Console.WriteLine($"\n{pl.Name} ({pl.CharacterType}, HP {pl.HP}/{pl.MaxHP}, Lv {pl.Level}, Purse {Shop.Fmt(pl.Copper)}):");
+        Console.WriteLine("  [1] Move forward  [2] Rest  [3] Go home  [5] Shop" + (pl.CharacterType == "Archer" ? "  [4] Craft arrows" : ""));
         Console.Write("  Choice: ");
         string next = (Console.ReadLine() ?? "1").Trim().ToLower();
+        if (next is "5" or "shop" or "buy")
+        {
+            VisitShop(pl);
+            decided = false;   // shopping doesn't end the stop — choose again
+            continue;
+        }
         if (next is "3" or "home" or "quit" or "q" or "go home")
         {
             Console.WriteLine($"  {pl.Name} heads home. Well done!");
@@ -234,6 +288,7 @@ while (true)
         else if (next is "4" or "craft" or "arrows")
         {
             if (pl.CharacterType == "Archer") { pl.ArrowCount += 50; Console.WriteLine($"  {pl.Name} crafts 50 arrows. Total: {pl.ArrowCount}."); }
+        }
         }
     }
     foreach (var pl in goingHome) allPlayers.Remove(pl);
@@ -1027,6 +1082,161 @@ void SelectCharacterType(Player p)
     SpendStatPoints(p);
 }
 
+// ── The travelling merchant: visits the party after every group ────────────
+void VisitShop(Player pl)
+{
+    while (true)
+    {
+        Console.WriteLine($"\n═══ TRAVELLING MERCHANT ═══  Purse: {Shop.Fmt(pl.Copper)}");
+        Console.WriteLine("  [1] Arrows   [2] Weapons   [3] Shields   [4] Sell your gear   [5] Leave");
+        Console.Write("  Browse: ");
+        string c = (Console.ReadLine() ?? "5").Trim().ToLower();
+        if (c is "5" or "leave" or "exit" or "x" or "") break;
+
+        if (c is "1" or "arrows")
+        {
+            Console.WriteLine($"  [1] Arrow — 1c each          (you have {pl.ArrowCount})");
+            Console.WriteLine($"  [2] Blunt Arrow — 2 for 1c, non-lethal   (you have {pl.BluntArrows})");
+            Console.WriteLine($"  [3] Barbed Arrow — 1s, +1d4 damage       (you have {pl.BarbedArrows})");
+            Console.WriteLine($"  [4] Spiral Arrow — 3s, +1d4 atk & +1d4 dmg (you have {pl.SpiralArrows})");
+            Console.Write("  Which (or Enter to go back): ");
+            string ac = (Console.ReadLine() ?? "").Trim();
+            if (ac is not ("1" or "2" or "3" or "4")) continue;
+            Console.Write("  How many: ");
+            if (!int.TryParse(Console.ReadLine()?.Trim(), out int n) || n <= 0) continue;
+            long cost = ac switch
+            {
+                "1" => n,
+                "2" => (n + 1) / 2,          // 2 per copper
+                "3" => n * Shop.Silver,
+                _   => n * 3 * Shop.Silver,
+            };
+            if (cost > pl.Copper) { Console.WriteLine($"  Not enough coin ({Shop.Fmt(cost)})."); continue; }
+            pl.Copper -= cost;
+            switch (ac)
+            {
+                case "1": pl.ArrowCount += n; break;
+                case "2": pl.BluntArrows += n; break;
+                case "3": pl.BarbedArrows += n; break;
+                case "4": pl.SpiralArrows += n; break;
+            }
+            Console.WriteLine($"  Bought {n} for {Shop.Fmt(cost)}. Purse: {Shop.Fmt(pl.Copper)}");
+        }
+        else if (c is "2" or "weapons")
+        {
+            var stock = new[] { "Dagger", "Club", "Quarterstaff", "Staff", "Short Sword", "Hand Axe",
+                                "Mace", "Sword", "Long Staff", "Rapier Sword", "Long Sword", "Bow",
+                                "Halberd", "Great Sword", "Battle Axe", "War Mace", "Axe", "Pike",
+                                "Claymore", "Great Axe", "Warhammer", "Wand" };
+            for (int i = 0; i < stock.Length; i++)
+            {
+                string w = stock[i];
+                string th = Shop.TwoHanded.Contains(w) ? " [2H]" : "";
+                Console.WriteLine($"  [{i + 1,2}] {w,-13}{th} — {Shop.Fmt(Shop.Price[w])}");
+            }
+            Console.WriteLine("  ([2H] = two-handed; needs Giant's Strength to wield in one hand)");
+            Console.Write("  Buy # (or Enter to go back): ");
+            if (!int.TryParse(Console.ReadLine()?.Trim(), out int wi) || wi < 1 || wi > stock.Length) continue;
+            string wname = stock[wi - 1];
+            long wcost = Shop.Price[wname];
+            if (wcost > pl.Copper) { Console.WriteLine($"  Not enough coin ({Shop.Fmt(wcost)})."); continue; }
+            // Where does it go?
+            if (pl.HeldWeapon == null) { pl.HeldWeapon = wname; Console.WriteLine($"  You wield the {wname}."); }
+            else if (pl.SecondaryWeapon == null) { pl.SecondaryWeapon = wname; Console.WriteLine($"  You stow the {wname} as your secondary weapon."); }
+            else
+            {
+                Console.Write($"  Hands full! Trade in [H]eld {pl.HeldWeapon} or [S]econdary {pl.SecondaryWeapon} at 80%? ([N]o): ");
+                string tr = (Console.ReadLine() ?? "n").Trim().ToLower();
+                if (tr.StartsWith("h"))
+                {
+                    long tradeIn = Shop.Sell(pl.HeldWeapon);
+                    pl.Copper += tradeIn;
+                    Console.WriteLine($"  Sold your {pl.HeldWeapon} for {Shop.Fmt(tradeIn)}.");
+                    pl.HeldWeapon = wname;
+                }
+                else if (tr.StartsWith("s"))
+                {
+                    long tradeIn = Shop.Sell(pl.SecondaryWeapon!);
+                    pl.Copper += tradeIn;
+                    Console.WriteLine($"  Sold your {pl.SecondaryWeapon} for {Shop.Fmt(tradeIn)}.");
+                    pl.SecondaryWeapon = wname;
+                }
+                else continue;
+            }
+            pl.Copper -= wcost;
+            if (Shop.TwoHanded.Contains(wname) && !pl.HasFeat("Giant's Strength"))
+                Console.WriteLine($"  (The {wname} takes both hands — Giant's Strength would free your off-hand.)");
+            Console.WriteLine($"  Purse: {Shop.Fmt(pl.Copper)}");
+        }
+        else if (c is "3" or "shields")
+        {
+            var shields = Shop.Shields.Keys.ToArray();
+            for (int i = 0; i < shields.Length; i++)
+            {
+                var st = Shop.Shields[shields[i]];
+                Console.WriteLine($"  [{i + 1}] {shields[i],-12} — {Shop.Fmt(Shop.Price[shields[i]])}  (+{st.Block} block{(st.Def > 0 ? $", -{st.Def} dmg taken" : "")})");
+            }
+            Console.WriteLine("  (Shields also block ranged attacks.)");
+            Console.Write("  Buy # (or Enter to go back): ");
+            if (!int.TryParse(Console.ReadLine()?.Trim(), out int si) || si < 1 || si > shields.Length) continue;
+            string sname = shields[si - 1];
+            long scost = Shop.Price[sname];
+            if (scost > pl.Copper) { Console.WriteLine($"  Not enough coin ({Shop.Fmt(scost)})."); continue; }
+            // Replace any current shield (removing its bonuses, trading it in at 80%)
+            if (pl.OffHandShieldName != null)
+            {
+                long tradeIn = Shop.Sell(pl.OffHandShieldName);
+                pl.Copper += tradeIn;
+                pl.ArmorDamageReduction -= pl.OffHandShieldDefense;
+                pl.MaxBlock -= pl.OffHandShieldBlock;
+                Console.WriteLine($"  Traded in your {pl.OffHandShieldName} for {Shop.Fmt(tradeIn)}.");
+            }
+            var stats = Shop.Shields[sname];
+            pl.Copper -= scost;
+            pl.OffHandShieldName = sname;
+            pl.OffHandShieldBlock = stats.Block;
+            pl.OffHandShieldDefense = stats.Def;
+            pl.MaxBlock += stats.Block;
+            pl.ArmorDamageReduction += stats.Def;
+            Console.WriteLine($"  You strap on the {sname}! Block {pl.MinBlock}-{pl.MaxBlock}" +
+                (stats.Def > 0 ? $", -{stats.Def} damage taken" : "") + $".  Purse: {Shop.Fmt(pl.Copper)}");
+        }
+        else if (c is "4" or "sell")
+        {
+            var sellable = new List<(string Label, string Item, Action Remove)>();
+            if (pl.HeldWeapon != null)
+            {
+                string hw = pl.HeldWeapon;
+                sellable.Add(($"Held: {hw}", hw, () => pl.HeldWeapon = null));
+            }
+            if (pl.SecondaryWeapon != null)
+            {
+                string sw = pl.SecondaryWeapon;
+                sellable.Add(($"Secondary: {sw}", sw, () => pl.SecondaryWeapon = null));
+            }
+            if (pl.OffHandShieldName != null)
+            {
+                string sh = pl.OffHandShieldName;
+                sellable.Add(($"Shield: {sh}", sh, () =>
+                {
+                    pl.ArmorDamageReduction -= pl.OffHandShieldDefense;
+                    pl.MaxBlock -= pl.OffHandShieldBlock;
+                    pl.OffHandShieldName = null; pl.OffHandShieldBlock = 0; pl.OffHandShieldDefense = 0;
+                }));
+            }
+            if (!sellable.Any()) { Console.WriteLine("  Nothing to sell."); continue; }
+            for (int i = 0; i < sellable.Count; i++)
+                Console.WriteLine($"  [{i + 1}] {sellable[i].Label} — sells for {Shop.Fmt(Shop.Sell(sellable[i].Item))}");
+            Console.Write("  Sell # (or Enter to go back): ");
+            if (!int.TryParse(Console.ReadLine()?.Trim(), out int gi) || gi < 1 || gi > sellable.Count) continue;
+            long val = Shop.Sell(sellable[gi - 1].Item);
+            sellable[gi - 1].Remove();
+            pl.Copper += val;
+            Console.WriteLine($"  Sold for {Shop.Fmt(val)}. Purse: {Shop.Fmt(pl.Copper)}");
+        }
+    }
+}
+
 string GameSaveDir()
 {
     string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
@@ -1091,6 +1301,10 @@ void SaveGame(Player p, int groups)
         $"SongTokens={p.SongTokens}",
         $"PrayerUses={p.PrayerUses}",
         $"SpellUses={p.SpellUses}",
+        $"Copper={p.Copper}",
+        $"BluntArrows={p.BluntArrows}",
+        $"BarbedArrows={p.BarbedArrows}",
+        $"SpiralArrows={p.SpiralArrows}",
         $"HeldWeapon={p.HeldWeapon ?? ""}",
         $"SecondaryWeapon={p.SecondaryWeapon ?? ""}",
         $"Race={p.Race}",
@@ -1172,6 +1386,10 @@ bool TryLoadGame(Player p, string filePath)
         // Older saves lack use pools — grant full pools to classes that had the ability
         p.PrayerUses = dict.ContainsKey("PrayerUses") ? I("PrayerUses") : (p.CharacterType == "Priest" ? p.MaxPrayerUses() : 0);
         p.SpellUses  = dict.ContainsKey("SpellUses")  ? I("SpellUses")  : (p.KnownSpells.Any() ? p.MaxSpellUses() : 0);
+        p.Copper = long.TryParse(G("Copper"), out long cop) ? cop : 0;
+        p.BluntArrows = I("BluntArrows");
+        p.BarbedArrows = I("BarbedArrows");
+        p.SpiralArrows = I("SpiralArrows");
         if (dict.ContainsKey("HeldWeapon"))
             p.HeldWeapon = G("HeldWeapon") is { Length: > 0 } hw ? hw : null;
         else
@@ -1366,6 +1584,60 @@ static class SizeRules
     }
 }
 
+// ── Economy: all money stored in copper. 100c = 1s, 100s = 1g, 100g = 1p ──
+static class Shop
+{
+    public const long Silver = 100, Gold = 10_000, Platinum = 1_000_000;
+
+    // Buy prices in copper
+    public static readonly Dictionary<string, long> Price = new()
+    {
+        // ammo
+        ["Arrow"] = 1, ["Blunt Arrow"] = 1,          // blunt: 2 per copper (sold in pairs)
+        ["Barbed Arrow"] = Silver, ["Spiral Arrow"] = 3 * Silver,
+        // weapons
+        ["Dagger"] = 50, ["Club"] = 50, ["Quarterstaff"] = 75,
+        ["Staff"] = 3 * Silver, ["Short Sword"] = 10 * Silver, ["Hand Axe"] = 12 * Silver,
+        ["Sword"] = 25 * Silver, ["Long Staff"] = 25 * Silver, ["Mace"] = 20 * Silver,
+        ["Rapier Sword"] = 30 * Silver, ["Long Sword"] = 45 * Silver, ["Bow"] = 50 * Silver,
+        ["Halberd"] = 75 * Silver, ["Great Sword"] = Gold, ["Battle Axe"] = 3 * Gold,
+        ["War Mace"] = 3 * Gold + 50 * Silver, ["Axe"] = 4 * Gold, ["Pike"] = 4 * Gold,
+        ["Claymore"] = 5 * Gold, ["Great Axe"] = 5 * Gold, ["Warhammer"] = 4 * Gold,
+        ["Wand"] = 50 * Silver,
+        // enemy gear (sellable loot)
+        ["Goblin Dagger"] = 40, ["Orc Longsword"] = 40 * Silver, ["Troll Axe"] = 2 * Gold,
+        ["Bastard Sword"] = 60 * Silver, ["Kukuri"] = 25 * Silver, ["Ogre Club"] = 2 * Gold,
+        // shields
+        ["Buckler"] = 75, ["Round Shield"] = 25 * Silver, ["Shield"] = 35 * Silver,
+        ["Kite Shield"] = 45 * Silver, ["Tower Shield"] = 2 * Gold,
+    };
+
+    // Two-handed weapons: one-handed only with Giant's Strength
+    public static readonly HashSet<string> TwoHanded = new()
+    { "Great Sword", "War Mace", "Battle Axe", "Ogre Club", "Great Axe", "Claymore",
+      "Staff", "Long Staff", "Halberd", "Pike" };
+
+    // Shield stats: (block bonus, damage reduction)
+    public static readonly Dictionary<string, (int Block, int Def)> Shields = new()
+    {
+        ["Buckler"] = (1, 0), ["Round Shield"] = (2, 0), ["Shield"] = (2, 0),
+        ["Kite Shield"] = (2, 1), ["Tower Shield"] = (3, 1),
+    };
+
+    public static long Sell(string item) => Price.TryGetValue(item, out long p) ? p * 8 / 10 : 0;
+
+    public static string Fmt(long c)
+    {
+        if (c <= 0) return "0c";
+        var parts = new List<string>();
+        if (c >= Platinum) { parts.Add($"{c / Platinum}p"); c %= Platinum; }
+        if (c >= Gold)     { parts.Add($"{c / Gold}g");     c %= Gold; }
+        if (c >= Silver)   { parts.Add($"{c / Silver}s");   c %= Silver; }
+        if (c > 0)         parts.Add($"{c}c");
+        return string.Join(" ", parts);
+    }
+}
+
 class Player
 {
     public string Name = "The Lone Warrior";
@@ -1405,6 +1677,12 @@ class Player
     public Enemy? GrappledBy = null;
     public GridPos Position = new(-1, -1);   // per-player battlefield position
     public bool Climbed = false;             // on top of a tree/rock (high ground)
+    public long Copper = 0;                  // purse (100c=1s, 100s=1g, 100g=1p)
+    public int BluntArrows = 0;              // non-lethal
+    public int BarbedArrows = 0;             // +1d4 damage
+    public int SpiralArrows = 0;             // +1d4 attack, +1d4 damage
+    // Unbroken arrows awaiting end-of-wave recovery (combat-scoped)
+    public int RecoverRegular = 0, RecoverBlunt = 0, RecoverBarbed = 0, RecoverSpiral = 0;
     public List<string> Feats = new();
     public Dictionary<string, int> FeatStacks = new();
     public Dictionary<string, int> GearCounts = new();
@@ -2365,7 +2643,11 @@ class CombatSession
         P = p; AllPlayers = allPlayers; ActivePlayers = allPlayers.ToList();
         Active = enemies; Rng = rng; XpThreshold = xpFn; GainXP = gainXp;
         foreach (var pl in allPlayers) pl.Position = playerStart;   // party starts together
-        foreach (var pl in allPlayers) pl.Climbed = false;
+        foreach (var pl in allPlayers)
+        {
+            pl.Climbed = false;
+            pl.RecoverRegular = pl.RecoverBlunt = pl.RecoverBarbed = pl.RecoverSpiral = 0;
+        }
         GenerateTerrain();
         _displayState = displayState;
         _waveNum = waveNum;
@@ -2419,6 +2701,9 @@ class CombatSession
         string s = string.Concat(parts.Take(2).Select(w => char.ToUpper(w[0])));
         return s.Length > 0 ? s : "?";
     }
+
+    // 80% of shop value for every weapon still lying on the battlefield
+    public long LeftoverGearCopper() => GroundWeapons.Sum(w => Shop.Sell(w.Type));
 
     void PushDisplay()
     {
@@ -3565,7 +3850,6 @@ class CombatSession
                     Console.WriteLine($"  Throw {P.HeldWeapon}! ({throwFeet:F0}ft) Roll {thrAtk} vs {throwTarget.Name}'s dodge {thrDdg}.");
                     string thrWeap = P.HeldWeapon!;
                     P.HeldWeapon = null;
-                    GridPos thrLand;
                     if (thrAtk >= thrDdg && !EnemyBlocks(throwTarget, thrAtk, isRanged: true))
                     {
                         int thrDmg = Rng.Next(thrDmgMin, thrDmgMax + 1) + SlayerDmg();
@@ -3573,15 +3857,13 @@ class CombatSession
                         Console.WriteLine($"  HIT! {thrDmg} dmg → {throwTarget.Name} HP:{throwTarget.HP - thrDmg}/{throwTarget.MaxHP}");
                         throwTarget.HP -= thrDmg;
                         if (!throwTarget.Alive) HandleKill(throwTarget);
-                        thrLand = RandomAdjacent(throwTarget.Position);
+                        ResolveThrownLanding(true, throwTarget, thrWeap, thrDmgMin, thrDmgMax);
                     }
                     else
                     {
                         Console.WriteLine("  MISS!");
-                        thrLand = RandomAdjacent(throwTarget.Position);
+                        ResolveThrownLanding(false, throwTarget, thrWeap, thrDmgMin, thrDmgMax);
                     }
-                    GroundWeapons.Add((thrLand, thrWeap));
-                    Console.WriteLine($"  {thrWeap} lands at ({thrLand.X},{thrLand.Y}).");
                     justBlocked = false;
                     break;
                 }
@@ -3600,7 +3882,6 @@ class CombatSession
                     int tdDdg = Rng.Next(throwTarget.MinDodge, throwTarget.MaxDodge + 1) + SizeDodgeRoll(throwTarget.Race, P.Race) - throwTarget.DodgePenalty;
                     Console.WriteLine($"  Throw dagger! ({thrDaggerFeet:F0}ft) Roll {tdAtk} vs {throwTarget.Name}'s dodge {tdDdg}. ({P.DaggerCount - 1} daggers left)");
                     P.DaggerCount--;
-                    GridPos tdLand;
                     if (tdAtk >= tdDdg && !EnemyBlocks(throwTarget, tdAtk, isRanged: true))
                     {
                         int tdDmg = Rng.Next(1, 7) + SlayerDmg();
@@ -3608,15 +3889,13 @@ class CombatSession
                         Console.WriteLine($"  HIT! {tdDmg} dmg → {throwTarget.Name} HP:{throwTarget.HP - tdDmg}/{throwTarget.MaxHP}");
                         throwTarget.HP -= tdDmg;
                         if (!throwTarget.Alive) HandleKill(throwTarget);
-                        tdLand = RandomAdjacent(throwTarget.Position);
+                        ResolveThrownLanding(true, throwTarget, "Goblin Dagger", 1, 6);
                     }
                     else
                     {
                         Console.WriteLine("  MISS!");
-                        tdLand = RandomAdjacent(throwTarget.Position);
+                        ResolveThrownLanding(false, throwTarget, "Goblin Dagger", 1, 6);
                     }
-                    GroundWeapons.Add((tdLand, "Goblin Dagger"));
-                    Console.WriteLine($"  Dagger lands at ({tdLand.X},{tdLand.Y}).");
                     // Double Tap: second dagger throw
                     if (P.HasFeat("Double Tap") && P.DaggerCount > 0 && throwTarget.Alive)
                     {
@@ -3625,7 +3904,6 @@ class CombatSession
                         int tdDdg2 = Rng.Next(throwTarget.MinDodge, throwTarget.MaxDodge + 1) + SizeDodgeRoll(throwTarget.Race, P.Race) - throwTarget.DodgePenalty;
                         Console.WriteLine($"  Throw dagger! ({thrDaggerFeet:F0}ft) Roll {tdAtk2} vs dodge {tdDdg2}. ({P.DaggerCount - 1} daggers left)");
                         P.DaggerCount--;
-                        GridPos tdLand2;
                         if (tdAtk2 >= tdDdg2 && !EnemyBlocks(throwTarget, tdAtk2, isRanged: true))
                         {
                             int tdDmg2 = Rng.Next(1, 7) + SlayerDmg();
@@ -3633,15 +3911,13 @@ class CombatSession
                             Console.WriteLine($"  HIT! {tdDmg2} dmg → {throwTarget.Name} HP:{throwTarget.HP - tdDmg2}/{throwTarget.MaxHP}");
                             throwTarget.HP -= tdDmg2;
                             if (!throwTarget.Alive) HandleKill(throwTarget);
-                            tdLand2 = RandomAdjacent(throwTarget.Position);
+                            ResolveThrownLanding(true, throwTarget, "Goblin Dagger", 1, 6);
                         }
                         else
                         {
                             Console.WriteLine("  MISS!");
-                            tdLand2 = RandomAdjacent(throwTarget.Position);
+                            ResolveThrownLanding(false, throwTarget, "Goblin Dagger", 1, 6);
                         }
-                        GroundWeapons.Add((tdLand2, "Goblin Dagger"));
-                        Console.WriteLine($"  Dagger lands at ({tdLand2.X},{tdLand2.Y}).");
                     }
                     justBlocked = false;
                     break;
@@ -3661,7 +3937,6 @@ class CombatSession
                     int taDdg = Rng.Next(throwTarget.MinDodge, throwTarget.MaxDodge + 1) + SizeDodgeRoll(throwTarget.Race, P.Race) - throwTarget.DodgePenalty;
                     Console.WriteLine($"  Throw axe! ({thrAxeFeet:F0}ft) Roll {taAtk} vs {throwTarget.Name}'s dodge {taDdg}. ({P.AxeCount - 1} axes left)");
                     P.AxeCount--;
-                    GridPos taLand;
                     if (taAtk >= taDdg && !EnemyBlocks(throwTarget, taAtk, isRanged: true))
                     {
                         int taDmg = Rng.Next(2, 9) + SlayerDmg();
@@ -3669,15 +3944,13 @@ class CombatSession
                         Console.WriteLine($"  HIT! {taDmg} dmg → {throwTarget.Name} HP:{throwTarget.HP - taDmg}/{throwTarget.MaxHP}");
                         throwTarget.HP -= taDmg;
                         if (!throwTarget.Alive) HandleKill(throwTarget);
-                        taLand = RandomAdjacent(throwTarget.Position);
+                        ResolveThrownLanding(true, throwTarget, "Hand Axe", 2, 8);
                     }
                     else
                     {
                         Console.WriteLine("  MISS!");
-                        taLand = RandomAdjacent(throwTarget.Position);
+                        ResolveThrownLanding(false, throwTarget, "Hand Axe", 2, 8);
                     }
-                    GroundWeapons.Add((taLand, "Hand Axe"));
-                    Console.WriteLine($"  Axe lands at ({taLand.X},{taLand.Y}).");
                     // Double Tap: second throw
                     if (P.HasFeat("Double Tap") && P.AxeCount > 0 && throwTarget.Alive)
                     {
@@ -3686,7 +3959,6 @@ class CombatSession
                         int taDdg2 = Rng.Next(throwTarget.MinDodge, throwTarget.MaxDodge + 1) + SizeDodgeRoll(throwTarget.Race, P.Race) - throwTarget.DodgePenalty;
                         Console.WriteLine($"  Throw axe! ({thrAxeFeet:F0}ft) Roll {taAtk2} vs dodge {taDdg2}. ({P.AxeCount - 1} axes left)");
                         P.AxeCount--;
-                        GridPos taLand2;
                         if (taAtk2 >= taDdg2 && !EnemyBlocks(throwTarget, taAtk2, isRanged: true))
                         {
                             int taDmg2 = Rng.Next(2, 9) + SlayerDmg();
@@ -3694,15 +3966,13 @@ class CombatSession
                             Console.WriteLine($"  HIT! {taDmg2} dmg → {throwTarget.Name} HP:{throwTarget.HP - taDmg2}/{throwTarget.MaxHP}");
                             throwTarget.HP -= taDmg2;
                             if (!throwTarget.Alive) HandleKill(throwTarget);
-                            taLand2 = RandomAdjacent(throwTarget.Position);
+                            ResolveThrownLanding(true, throwTarget, "Hand Axe", 2, 8);
                         }
                         else
                         {
                             Console.WriteLine("  MISS!");
-                            taLand2 = RandomAdjacent(throwTarget.Position);
+                            ResolveThrownLanding(false, throwTarget, "Hand Axe", 2, 8);
                         }
-                        GroundWeapons.Add((taLand2, "Hand Axe"));
-                        Console.WriteLine($"  Axe lands at ({taLand2.X},{taLand2.Y}).");
                     }
                     justBlocked = false;
                     break;
@@ -3961,6 +4231,50 @@ class CombatSession
         if (!P.IsGrappled && !P.Climbed && IsClimbable(PlayerPos)) o.Add("climb");
         if (P.Climbed) { o.Add("climb down"); o.Add("jump down"); }
         return o;
+    }
+
+    // ── AMMO BREAKAGE ─────────────────────────────────────────────────────
+    // Hit: 25% break. Miss: 20% chance to strike someone adjacent (35% break
+    // there); hitting nobody = 50% break. Unbroken arrows are gathered by
+    // their owner at the end of the wave; thrown weapons land on the ground.
+
+    Enemy? Bystander(Enemy target) =>
+        Active.FirstOrDefault(a => a.Alive && a != target && a.Position.IsCardinalAdjacent(target.Position));
+
+    void RecoverArrowLater(string type)
+    {
+        switch (type)
+        {
+            case "blunt":  P.RecoverBlunt++;  break;
+            case "barbed": P.RecoverBarbed++; break;
+            case "spiral": P.RecoverSpiral++; break;
+            default:       P.RecoverRegular++; break;
+        }
+    }
+
+    void ResolveThrownLanding(bool hit, Enemy target, string weaponType, int dmgMin, int dmgMax)
+    {
+        if (hit)
+        {
+            if (Rng.Next(100) < 25) { Console.WriteLine($"  The {weaponType} breaks on impact!"); return; }
+        }
+        else
+        {
+            var stray = Bystander(target);
+            if (stray != null && Rng.Next(100) < 20)
+            {
+                int d = Rng.Next(dmgMin, dmgMax + 1);
+                d = ReduceByToughHide(stray, d);
+                stray.HP -= d;
+                Console.WriteLine($"  The stray {weaponType} hits {stray.Name} for {d}! HP:{stray.HP}/{stray.MaxHP}");
+                if (!stray.Alive) HandleKill(stray);
+                if (Rng.Next(100) < 35) { Console.WriteLine($"  The {weaponType} breaks!"); return; }
+            }
+            else if (Rng.Next(100) < 50) { Console.WriteLine($"  The {weaponType} shatters on the ground!"); return; }
+        }
+        var land = RandomAdjacent(target.Position);
+        GroundWeapons.Add((land, weaponType));
+        Console.WriteLine($"  {weaponType} lands at ({land.X},{land.Y}).");
     }
 
     // ── HIGH GROUND & SIZE HELPERS ────────────────────────────────────────
@@ -4383,7 +4697,7 @@ class CombatSession
     // Non-lethal weapons: unarmed, staff, club, mace, warhammer. These KO living
     // enemies, but deal regular (lethal) damage to undead.
     bool IsNonLethalAttack() =>
-        P.HeldWeapon is null or "Staff" or "Ogre Club" or "Mace" or "War Mace" or "Warhammer";
+        P.HeldWeapon is null or "Staff" or "Ogre Club" or "Mace" or "War Mace" or "Warhammer" or "Club" or "Quarterstaff";
 
     // Resolve a downed enemy: KO if the hit was non-lethal and the target is living,
     // otherwise a regular kill (undead are always killed by non-lethal damage).
@@ -4410,16 +4724,7 @@ class CombatSession
                 if (t != null) FreeAttack(t);
             }
         }
-        // Arrow recovery from enemy body
-        if (P.CharacterType == "Archer" && e.ArrowsInBody > 0)
-        {
-            int recovered = 0;
-            for (int ai = 0; ai < e.ArrowsInBody; ai++)
-                if (Rng.Next(4) > 0) recovered++; // 3/4 chance each
-            if (recovered > 0) { P.ArrowCount += recovered; Console.WriteLine($"  Recovered {recovered} arrow(s). Total: {P.ArrowCount}."); }
-            if (recovered < e.ArrowsInBody) Console.WriteLine($"  {e.ArrowsInBody - recovered} arrow(s) broke.");
-            e.ArrowsInBody = 0;
-        }
+        // (Arrow recovery now happens at the end of the wave — see breakage rules)
 
         // ── Shield drop ─────────────────────────────────────────────────────
         if (e.HasShield && !e.ShieldLost)
@@ -4662,12 +4967,22 @@ class CombatSession
         "Battle Axe"     => (3, 9, 4, 12),
         "War Mace"       => (3, 9, 4, 14),
         "Mace"           => (1, 6, 2, 8),
-        "Great Axe"      => (2, 9, 1, 9),
+        "Great Axe"      => (2, 9, 4, 12),   // 4d3
         "Staff"          => (1, 6, 2, 6),
         "Kukuri"         => (2, 8, 2, 8),
         "Wand"           => (1, 6, 3, 4),
         "Long Sword"     => (2, 9, 2, 10),
         "Ogre Club"      => (2, 14, 4, 16),
+        "Sword"          => (1, 7, 2, 8),
+        "Great Sword"    => (2, 9, 4, 12),
+        "Claymore"       => (2, 9, 4, 16),   // 4d4
+        "Axe"            => (2, 8, 3, 12),   // 3d4
+        "Club"           => (1, 6, 1, 6),    // non-lethal
+        "Quarterstaff"   => (1, 6, 1, 6),    // non-lethal, monk weapon
+        "Long Staff"     => (1, 7, 1, 10),   // monk weapon
+        "Halberd"        => (2, 8, 2, 10),   // reach
+        "Pike"           => (2, 8, 2, 12),   // reach
+        "Warhammer"      => (2, 8, 3, 12),   // non-lethal
         _ => (0, 0, 0, 0)
     };
 
@@ -4695,7 +5010,47 @@ class CombatSession
 
     void DoBowAttack(Enemy target)
     {
-        if (P.ArrowCount <= 0) { Console.WriteLine("  Out of arrows!"); return; }
+        if (P.ArrowCount + P.BluntArrows + P.BarbedArrows + P.SpiralArrows <= 0) { Console.WriteLine("  Out of arrows!"); return; }
+
+        // Choose arrow type when specials are stocked
+        string arrowType = "regular";
+        if (P.BluntArrows > 0 || P.BarbedArrows > 0 || P.SpiralArrows > 0)
+        {
+            var opts2 = new List<string>();
+            if (P.ArrowCount > 0)   opts2.Add($"[R]egular x{P.ArrowCount}");
+            if (P.BluntArrows > 0)  opts2.Add($"[B]lunt x{P.BluntArrows}");
+            if (P.BarbedArrows > 0) opts2.Add($"bar[E]d x{P.BarbedArrows}");
+            if (P.SpiralArrows > 0) opts2.Add($"[S]piral x{P.SpiralArrows}");
+            Console.Write($"  Arrow? {string.Join("  ", opts2)}: ");
+            string apick = (Console.ReadLine() ?? "r").Trim().ToLower();
+            arrowType = apick switch
+            {
+                "b" or "blunt" when P.BluntArrows > 0   => "blunt",
+                "e" or "barbed" when P.BarbedArrows > 0 => "barbed",
+                "s" or "spiral" when P.SpiralArrows > 0 => "spiral",
+                _ => P.ArrowCount > 0 ? "regular"
+                     : P.BluntArrows > 0 ? "blunt" : P.BarbedArrows > 0 ? "barbed" : "spiral",
+            };
+        }
+        int arrowAtkBonus = arrowType == "spiral" ? Rng.Next(1, 5) : 0;
+        int arrowDmgBonus = arrowType switch
+        {
+            "barbed" => Rng.Next(1, 5),
+            "spiral" => Rng.Next(1, 5),
+            _ => 0,
+        };
+        if (arrowType != "regular")
+            Console.WriteLine($"  [{char.ToUpper(arrowType[0])}{arrowType[1..]} arrow]{(arrowAtkBonus > 0 ? $" +{arrowAtkBonus} atk" : "")}{(arrowDmgBonus > 0 ? $" +{arrowDmgBonus} dmg" : "")}{(arrowType == "blunt" ? " (non-lethal)" : "")}");
+        void SpendArrow()
+        {
+            switch (arrowType)
+            {
+                case "blunt": P.BluntArrows--; break;
+                case "barbed": P.BarbedArrows--; break;
+                case "spiral": P.SpiralArrows--; break;
+                default: P.ArrowCount--; break;
+            }
+        }
         float feet = PlayerPos.Feet(target.Position);
         if (feet < 4f) { Console.WriteLine($"  Too close to use bow! ({feet:F1}ft, min 4ft)"); return; }
         if (feet > 60f) { Console.WriteLine($"  Too far! ({feet:F1}ft, max 60ft)"); return; }
@@ -4704,21 +5059,43 @@ class CombatSession
         else if (feet <= 45f) { dmgMin = 2; dmgMax = 10; }
         else { dmgMin = 1; dmgMax = 5; }
         dmgMin += P.MinRangedDmgBonus; dmgMax += P.MinRangedDmgBonus + P.MaxRangedDmgBonus;
-        int atkRoll = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 1) + SlayerAtk() + HighGround();
+        int atkRoll = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 1) + SlayerAtk() + HighGround() + arrowAtkBonus;
         int ddg = Rng.Next(target.MinDodge, target.MaxDodge + 1) + SizeDodgeRoll(target.Race, P.Race) - target.DodgePenalty;
         Console.WriteLine($"  BOW ({feet:F0}ft, dmg {dmgMin}-{dmgMax})! Roll {atkRoll} vs {target.Name}'s dodge {ddg}.");
-        P.ArrowCount--;
-        Console.WriteLine($"  Arrows remaining: {P.ArrowCount}");
+        SpendArrow();
+        Console.WriteLine($"  Arrows remaining: {P.ArrowCount} regular{(P.BluntArrows + P.BarbedArrows + P.SpiralArrows > 0 ? $" +{P.BluntArrows}b/{P.BarbedArrows}bar/{P.SpiralArrows}s" : "")}");
         if (atkRoll >= ddg && !EnemyBlocks(target, atkRoll, isRanged: true))
         {
-            int dmg = Rng.Next(dmgMin, dmgMax + 1) + SlayerDmg();
+            int dmg = Rng.Next(dmgMin, dmgMax + 1) + SlayerDmg() + arrowDmgBonus;
             dmg = ReduceByToughHide(target, dmg);
             Console.WriteLine($"  Arrow HIT! {dmg} dmg → {target.Name} HP:{target.HP - dmg}/{target.MaxHP}");
             target.HP -= dmg;
             target.ArrowsInBody++;
-            if (!target.Alive) HandleKill(target);
+            if (Rng.Next(100) < 25) Console.WriteLine("  The arrow snaps in the wound!");
+            else RecoverArrowLater(arrowType);
+            if (!target.Alive)
+            {
+                if (arrowType == "blunt" && !target.IsUndead) KnockOut(target);
+                else HandleKill(target);
+            }
         }
-        else if (atkRoll < ddg) Console.WriteLine("  Arrow MISS!");
+        else if (atkRoll < ddg)
+        {
+            Console.WriteLine("  Arrow MISS!");
+            var stray = Bystander(target);
+            if (stray != null && Rng.Next(100) < 20)
+            {
+                int strayDmg = Rng.Next(dmgMin, dmgMax + 1);
+                strayDmg = ReduceByToughHide(stray, strayDmg);
+                stray.HP -= strayDmg;
+                Console.WriteLine($"  The stray arrow strikes {stray.Name} for {strayDmg}! HP:{stray.HP}/{stray.MaxHP}");
+                if (!stray.Alive) HandleKill(stray);
+                if (Rng.Next(100) < 35) Console.WriteLine("  The arrow breaks.");
+                else RecoverArrowLater(arrowType);
+            }
+            else if (Rng.Next(100) < 50) Console.WriteLine("  The arrow shatters against the ground.");
+            else RecoverArrowLater(arrowType);
+        }
 
         // Double Tap: second arrow
         if (P.HasFeat("Double Tap") && P.ArrowCount > 0 && target.Alive)
@@ -4741,9 +5118,16 @@ class CombatSession
                 Console.WriteLine($"  Arrow HIT! {dmg2} dmg → {target.Name} HP:{target.HP - dmg2}/{target.MaxHP}");
                 target.HP -= dmg2;
                 target.ArrowsInBody++;
+                if (Rng.Next(100) < 25) Console.WriteLine("  The arrow snaps in the wound!");
+                else RecoverArrowLater("regular");
                 if (!target.Alive) HandleKill(target);
             }
-            else Console.WriteLine("  Arrow MISS!");
+            else
+            {
+                Console.WriteLine("  Arrow MISS!");
+                if (Rng.Next(100) < 50) Console.WriteLine("  The arrow shatters against the ground.");
+                else RecoverArrowLater("regular");
+            }
         }
     }
 
