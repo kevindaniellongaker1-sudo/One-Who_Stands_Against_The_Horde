@@ -1014,6 +1014,21 @@ void SelectRace(Player p)
         p.HP = Math.Min(p.HP, p.MaxHP);
         Console.WriteLine($"  [Size] Small frame: -1 max HP ({p.MaxHP}). Bonus attack/dodge vs bigger foes.");
     }
+
+    SelectAppearance(p);
+}
+
+// Gender and a player-chosen variant, so the on-screen sprite feels like theirs.
+void SelectAppearance(Player p)
+{
+    Console.Write("\nGender: [1] Male  [2] Female  [3] Neutral (default): ");
+    string g = (GameIO.ReadLine() ?? "").Trim().ToLower();
+    p.Gender = g switch { "1" or "m" or "male" => "male", "2" or "f" or "female" => "female", _ => "neutral" };
+
+    Console.Write("Choose an appearance variant (1-9, default 1): ");
+    string v = (GameIO.ReadLine() ?? "").Trim();
+    p.Variant = int.TryParse(v, out int vi) && vi >= 1 && vi <= 9 ? vi : 1;
+    Console.WriteLine($"  {p.Gender} {p.Race} {p.CharacterType}, look #{p.Variant}.");
 }
 
 void SelectCharacterType(Player p)
@@ -1971,6 +1986,7 @@ void SaveGame(Player p, int groups)
         $"SpiralArrows={p.SpiralArrows}",
         $"Wood={p.Wood}", $"Stone={p.Stone}", $"Ore={p.Ore}", $"Hides={p.Hides}", $"Meat={p.Meat}",
         $"CarryCap={p.CarryCap}", $"BagUpgrades={p.BagUpgrades}",
+        $"Gender={p.Gender}", $"Variant={p.Variant}",
         $"WeaponSpec={string.Join("|", p.WeaponSpec.Select(kv => $"{kv.Key}:{kv.Value}"))}",
         $"PotionsBoost={p.PotionsBoost}", $"PotionsHeal={p.PotionsHeal}",
         $"PotionsPoison={p.PotionsPoison}", $"PotionsRestore={p.PotionsRestore}",
@@ -2069,6 +2085,8 @@ bool TryLoadGame(Player p, string filePath)
         p.Wood = I("Wood"); p.Stone = I("Stone"); p.Ore = I("Ore"); p.Hides = I("Hides"); p.Meat = I("Meat");
         p.CarryCap = dict.ContainsKey("CarryCap") ? I("CarryCap") : (p.CharacterType == "Artisan" ? 50 : 8);
         p.BagUpgrades = I("BagUpgrades");
+        p.Gender = G("Gender") is { Length: > 0 } gd ? gd : "neutral";
+        p.Variant = dict.ContainsKey("Variant") ? Math.Max(1, I("Variant")) : 1;
         p.WeaponSpec = G("WeaponSpec").Split('|', StringSplitOptions.RemoveEmptyEntries)
             .Select(s => s.Split(':'))
             .Where(a => a.Length == 2 && int.TryParse(a[1], out _))
@@ -2395,6 +2413,8 @@ class Player
     public Enemy? GrappledBy = null;
     public GridPos Position = new(-1, -1);   // per-player battlefield position
     public bool Climbed = false;             // on top of a tree/rock (high ground)
+    public string Gender = "neutral";        // male / female / neutral (sprite key)
+    public int Variant = 1;                  // player-chosen appearance variant
     public long Copper = 0;                  // purse (100c=1s, 100s=1g, 100g=1p)
     public int BluntArrows = 0;              // non-lethal
     public int BarbedArrows = 0;             // +1d4 damage
@@ -3506,6 +3526,13 @@ class CombatSession
             (used < squares ? $"  ({squares - used} square(s) unused)" : ""));
     }
 
+    // Compact sprite descriptor: race|class|gender|variant, lowercased & squished.
+    static string SpriteDesc(Player pl)
+    {
+        static string Slug(string s) => new string(s.ToLower().Where(char.IsLetterOrDigit).ToArray());
+        return $"{Slug(pl.Race)}|{Slug(pl.CharacterType)}|{Slug(pl.Gender)}|{pl.Variant}";
+    }
+
     static string PlayerInitials(string name)
     {
         var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -3528,8 +3555,9 @@ class CombatSession
                             .Select(e => (e.Position, e.GetType().Name, e.HP, e.MaxHP))
                             .ToList(),
             OtherPlayers = ActivePlayers.Where(pl => pl != P && pl.HP > 0)
-                                        .Select(pl => (pl.Position, PlayerInitials(pl.Name)))
+                                        .Select(pl => (pl.Position, PlayerInitials(pl.Name), SpriteDesc(pl)))
                                         .ToList(),
+            PlayerSprite = SpriteDesc(P),
             Party = AllPlayers.Select(pl => new PartyStat
             {
                 Name = pl.Name, HP = pl.HP, MaxHP = pl.MaxHP, Level = pl.Level,

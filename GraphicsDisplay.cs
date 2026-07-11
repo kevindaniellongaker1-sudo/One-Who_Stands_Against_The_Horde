@@ -22,7 +22,8 @@ class RenderSnapshot
     public GridPos PlayerPos;
     public int PlayerHP, PlayerMaxHP, PlayerLevel, WaveNum;
     public List<(GridPos Pos, string TypeName, int HP, int MaxHP)> Enemies = new();
-    public List<(GridPos Pos, string Initials)> OtherPlayers = new();
+    public List<(GridPos Pos, string Initials, string Sprite)> OtherPlayers = new();
+    public string PlayerSprite = "";   // race|class|gender|variant of the acting player
     public List<PartyStat> Party = new();
     public List<GridPos> GroundWeapons = new();
     public List<GridPos> Walls = new();
@@ -182,7 +183,7 @@ class GraphicsDisplay
         var names = new[] { "Ogre", "OrcBarbarian", "OrcMonk", "OrcPriestess", "OrcRanger",
                             "Troll", "NecromancerTroll", "Orc",
                             "Hobgoblin", "HobgoblinFighter", "HobgoblinThief", "HobgoblinCleric",
-                            "Goblin", "SpellGoblin", "RogueGoblin", "Player",
+                            "Goblin", "SpellGoblin", "RogueGoblin",
                             "Deer", "Wolf", "Boar", "Bear" };
         foreach (var n in names)
         {
@@ -219,6 +220,44 @@ class GraphicsDisplay
             if (File.Exists(path))
                 _tex[key] = Raylib.LoadTexture(path);
         }
+
+        // Player sprites: load every player*.png present, keyed by filename stem
+        // (e.g. "player_orc_warrior_male_1"). The fallback chain below picks the
+        // most specific one that exists for a given character.
+        if (Directory.Exists(assetDir))
+            foreach (var f in Directory.GetFiles(assetDir, "player*.png"))
+            {
+                string stem = Path.GetFileNameWithoutExtension(f).ToLower();
+                if (!_tex.ContainsKey(stem)) _tex[stem] = Raylib.LoadTexture(f);
+            }
+    }
+
+    // Best available player sprite for "race|class|gender|variant", most specific
+    // to least. Returns null if not even a generic player.png exists.
+    Texture2D? PlayerTexture(string desc)
+    {
+        if (string.IsNullOrEmpty(desc)) desc = "|||1";
+        var parts = desc.Split('|');
+        string r = parts.Length > 0 ? parts[0] : "";
+        string c = parts.Length > 1 ? parts[1] : "";
+        string g = parts.Length > 2 ? parts[2] : "";
+        string v = parts.Length > 3 ? parts[3] : "1";
+        var chain = new[]
+        {
+            $"player_{r}_{c}_{g}_{v}",
+            $"player_{r}_{c}_{g}",
+            $"player_{r}_{c}_{v}",
+            $"player_{r}_{c}",
+            $"player_{r}_{g}",
+            $"player_{r}",
+            $"player_{c}_{g}",
+            $"player_{c}",
+            $"player_{g}",
+            "player",
+        };
+        foreach (var key in chain)
+            if (_tex.TryGetValue(key, out var t)) return t;
+        return null;
     }
 
     // ── Map rendering ──────────────────────────────────────────────────────
@@ -300,26 +339,35 @@ class GraphicsDisplay
             DrawEntity(sx, sy, type, hp, maxHp);
         }
 
-        // Other party members (blue tile, black initials)
-        foreach (var (pos, initials) in snap.OtherPlayers)
+        // Other party members: their own sprite, or a blue tile with initials
+        foreach (var (pos, initials, sprite) in snap.OtherPlayers)
         {
             int sx = (pos.X - ox) * Cell;
             int sy = (pos.Y - oy) * Cell;
             if (sx < 0 || sy < 0 || sx >= mapPxW || sy >= mapPxH) continue;
-            Raylib.DrawRectangle(sx + 1, sy + 1, Cell - 2, Cell - 2, new Color(30, 110, 255, 255));
-            Raylib.DrawText(initials, sx + 6, sy + 10, 18, Color.Black);
+            var tex = PlayerTexture(sprite);
+            if (tex is Texture2D at)
+            {
+                Raylib.DrawTexturePro(at, new Rectangle(0, 0, at.Width, at.Height),
+                    new Rectangle(sx, sy, Cell, Cell), Vector2.Zero, 0, Color.White);
+                Raylib.DrawRectangleLines(sx, sy, Cell, Cell, new Color(30, 110, 255, 255));
+            }
+            else
+            {
+                Raylib.DrawRectangle(sx + 1, sy + 1, Cell - 2, Cell - 2, new Color(30, 110, 255, 255));
+                Raylib.DrawText(initials, sx + 6, sy + 10, 18, Color.Black);
+            }
         }
 
         // Player (always at the viewport center)
         {
             int sx = (snap.PlayerPos.X - ox) * Cell;
             int sy = (snap.PlayerPos.Y - oy) * Cell;
-            if (_tex.TryGetValue("Player", out var ptex))
+            var ptex = PlayerTexture(snap.PlayerSprite);
+            if (ptex is Texture2D pt)
             {
-                var dst = new Rectangle(sx, sy, Cell, Cell);
-                Raylib.DrawTexturePro(ptex,
-                    new Rectangle(0, 0, ptex.Width, ptex.Height),
-                    dst, Vector2.Zero, 0, Color.White);
+                Raylib.DrawTexturePro(pt, new Rectangle(0, 0, pt.Width, pt.Height),
+                    new Rectangle(sx, sy, Cell, Cell), Vector2.Zero, 0, Color.White);
             }
             else
             {
