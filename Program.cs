@@ -1018,17 +1018,48 @@ void SelectRace(Player p)
     SelectAppearance(p);
 }
 
-// Gender and a player-chosen variant, so the on-screen sprite feels like theirs.
+// Gender and full layered appearance, so the on-screen character is theirs.
 void SelectAppearance(Player p)
 {
+    string Pick(string label, string[] opts, int dflt)
+    {
+        Console.Write($"\n{label}: ");
+        for (int i = 0; i < opts.Length; i++) Console.Write($"[{i + 1}]{opts[i]}  ");
+        Console.Write($"(default {opts[dflt]}): ");
+        string r = (GameIO.ReadLine() ?? "").Trim();
+        if (int.TryParse(r, out int idx) && idx >= 1 && idx <= opts.Length) return opts[idx - 1].ToLower();
+        var m = opts.FirstOrDefault(o => o.StartsWith(r, StringComparison.OrdinalIgnoreCase) && r.Length > 0);
+        return (m ?? opts[dflt]).ToLower();
+    }
+
     Console.Write("\nGender: [1] Male  [2] Female  [3] Neutral (default): ");
     string g = (GameIO.ReadLine() ?? "").Trim().ToLower();
     p.Gender = g switch { "1" or "m" or "male" => "male", "2" or "f" or "female" => "female", _ => "neutral" };
 
-    Console.Write("Choose an appearance variant (1-9, default 1): ");
-    string v = (GameIO.ReadLine() ?? "").Trim();
-    p.Variant = int.TryParse(v, out int vi) && vi >= 1 && vi <= 9 ? vi : 1;
-    Console.WriteLine($"  {p.Gender} {p.Race} {p.CharacterType}, look #{p.Variant}.");
+    p.HairColor  = Pick("Hair color", new[] { "Black", "Blonde", "Brown", "Red", "White" }, 0);
+    p.HairLength = Pick("Hair length", new[] { "Bald", "Short", "Medium Short", "Medium", "Medium Long", "Long" }, 1);
+    p.EyeColor   = Pick("Eye color", new[] { "Black", "Blue", "Green", "Brown", "Hazel", "Red" }, 3);
+
+    // Headwear is class-restricted; hood / top hat / nothing are universal
+    var heads = new List<string>();
+    if (p.CharacterType is "Duelist" or "Archer" or "Musician") heads.Add("Fedora");
+    if (p.CharacterType == "Mage") heads.Add("Pointy Hat");
+    if (p.CharacterType is "Berserker" or "Warrior" or "Martial Artist" or "Duelist") heads.Add("Mask");
+    heads.Add("Hood");
+    if (p.CharacterType is "Priest" or "Warrior" or "Artisan") heads.Add("Circlet");
+    heads.Add("Top Hat");
+    heads.Add("Nothing");
+    p.Headwear = Pick("Headwear", heads.ToArray(), heads.Count - 1);
+
+    p.ClothingColor = Pick("Clothing color",
+        new[] { "Black", "Blue", "Red", "Green", "Yellow", "Purple", "Brown", "Turquoise", "White" }, 0);
+
+    p.FacialHair = p.Gender == "male"
+        ? Pick("Facial hair", new[] { "None", "Beard", "Goatee", "Mustache", "Fu Manchu", "Handlebars", "Soul Patch" }, 0)
+        : "none";
+
+    Console.WriteLine($"\n  {p.Gender} {p.Race} {p.CharacterType}: {p.HairLength} {p.HairColor} hair, {p.EyeColor} eyes, " +
+        $"{p.ClothingColor} clothes, {p.Headwear}" + (p.FacialHair != "none" ? $", {p.FacialHair}" : "") + ".");
 }
 
 void SelectCharacterType(Player p)
@@ -1987,6 +2018,8 @@ void SaveGame(Player p, int groups)
         $"Wood={p.Wood}", $"Stone={p.Stone}", $"Ore={p.Ore}", $"Hides={p.Hides}", $"Meat={p.Meat}",
         $"CarryCap={p.CarryCap}", $"BagUpgrades={p.BagUpgrades}",
         $"Gender={p.Gender}", $"Variant={p.Variant}",
+        $"HairColor={p.HairColor}", $"HairLength={p.HairLength}", $"EyeColor={p.EyeColor}",
+        $"Headwear={p.Headwear}", $"ClothingColor={p.ClothingColor}", $"FacialHair={p.FacialHair}",
         $"WeaponSpec={string.Join("|", p.WeaponSpec.Select(kv => $"{kv.Key}:{kv.Value}"))}",
         $"PotionsBoost={p.PotionsBoost}", $"PotionsHeal={p.PotionsHeal}",
         $"PotionsPoison={p.PotionsPoison}", $"PotionsRestore={p.PotionsRestore}",
@@ -2087,6 +2120,12 @@ bool TryLoadGame(Player p, string filePath)
         p.BagUpgrades = I("BagUpgrades");
         p.Gender = G("Gender") is { Length: > 0 } gd ? gd : "neutral";
         p.Variant = dict.ContainsKey("Variant") ? Math.Max(1, I("Variant")) : 1;
+        p.HairColor = G("HairColor") is { Length: > 0 } appHc ? appHc : "black";
+        p.HairLength = G("HairLength") is { Length: > 0 } appHl ? appHl : "short";
+        p.EyeColor = G("EyeColor") is { Length: > 0 } appEc ? appEc : "brown";
+        p.Headwear = G("Headwear") is { Length: > 0 } appHw ? appHw : "nothing";
+        p.ClothingColor = G("ClothingColor") is { Length: > 0 } appCc ? appCc : "black";
+        p.FacialHair = G("FacialHair") is { Length: > 0 } appFh ? appFh : "none";
         p.WeaponSpec = G("WeaponSpec").Split('|', StringSplitOptions.RemoveEmptyEntries)
             .Select(s => s.Split(':'))
             .Where(a => a.Length == 2 && int.TryParse(a[1], out _))
@@ -2415,6 +2454,13 @@ class Player
     public bool Climbed = false;             // on top of a tree/rock (high ground)
     public string Gender = "neutral";        // male / female / neutral (sprite key)
     public int Variant = 1;                  // player-chosen appearance variant
+    // Layered appearance (rendered by the future compositor; saved now)
+    public string HairColor = "black";       // black/blonde/brown/red/white
+    public string HairLength = "short";      // bald/short/medium short/medium/medium long/long
+    public string EyeColor = "brown";        // black/blue/green/brown/hazel/red
+    public string Headwear = "nothing";      // fedora/pointy hat/mask/hood/circlet/top hat/nothing
+    public string ClothingColor = "black";   // 9 colors
+    public string FacialHair = "none";       // males: beard/goatee/mustache/fu manchu/handlebars/soul patch/none
     public long Copper = 0;                  // purse (100c=1s, 100s=1g, 100g=1p)
     public int BluntArrows = 0;              // non-lethal
     public int BarbedArrows = 0;             // +1d4 damage
