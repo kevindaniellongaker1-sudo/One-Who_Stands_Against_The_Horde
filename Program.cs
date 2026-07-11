@@ -697,9 +697,9 @@ void SpendStatPoints(Player p)
             Console.WriteLine($"  [36] Base Ranged Atk→{p.MinRangedAtk+1}  [37] Base Ranged Dmg→{p.MinRangedDmgBonus+1}");
         }
         if (p.SavedStatPoints >= 3)
-            Console.WriteLine("  ── 3 points: [24] Extra action/turn   [25] Gear point   [26] Keep saving (exit)");
+            Console.WriteLine("  ── 3 points: [25] Gear point   [26] Keep saving (exit)");
         if (p.SavedStatPoints >= 4)
-            Console.WriteLine("  ── 4 points: [27] Pick a feat");
+            Console.WriteLine("  ── 4 points: [24] Extra action/turn   [27] Pick a feat");
         Console.Write("  Choice ([S]ave all for later): ");
         string raw = (Console.ReadLine() ?? "s").Trim().ToLower();
         if (raw == "s" || raw == "save") break;
@@ -740,7 +740,7 @@ void SpendStatPoints(Player p)
             case 35 when p.SavedStatPoints >= 2: p.MinSpellDmgBonus++; p.SavedStatPoints -= 2; Console.WriteLine($"  Base Spell Dmg bonus → {p.MinSpellDmgBonus}"); break;
             case 36 when p.SavedStatPoints >= 2: p.MinRangedAtk++;     p.SavedStatPoints -= 2; Console.WriteLine($"  Base Ranged Atk → {p.MinRangedAtk}"); break;
             case 37 when p.SavedStatPoints >= 2: p.MinRangedDmgBonus++;p.SavedStatPoints -= 2; Console.WriteLine($"  Base Ranged Dmg bonus → {p.MinRangedDmgBonus}"); break;
-            case 24 when p.SavedStatPoints >= 3: p.AdditionalActions++; p.SavedStatPoints -= 3; Console.WriteLine($"  +1 action/turn! Bonus actions: {p.AdditionalActions}"); break;
+            case 24 when p.SavedStatPoints >= 4: p.AdditionalActions++; p.SavedStatPoints -= 4; Console.WriteLine($"  +1 action/turn! Bonus actions: {p.AdditionalActions}"); break;
             case 25 when p.SavedStatPoints >= 3: p.GearPointsAvailable++; p.SavedStatPoints -= 3; Console.WriteLine("  Gear point gained!"); SpendGearPoints(p); break;
             case 26 when p.SavedStatPoints >= 3: exitLoop = true; break;
             case 27 when p.SavedStatPoints >= 4: p.SavedStatPoints -= 4; p.PendingFeats++; SelectFeats(p); break;
@@ -2361,6 +2361,7 @@ abstract class Enemy
     public int SprintPenalty = 0;
     public bool IsPlayerAlly = false;
     public bool IsWildlife = false;   // neutral beasts: don't block wave victory
+    public int SlideDir = 0;          // wall-following direction while pathing
     public int AllyTurnsLeft = 0;
     // Caster resource pools — scaled to wave level at spawn (same formulas as players)
     public int Level = 1;
@@ -6308,7 +6309,7 @@ class CombatSession
             }
 
             // Stand up if knocked down
-            int actions = (e is Hobgoblin || e is Orc || e is Troll) ? 3 : 2;
+            int actions = 3;   // every NPC acts three times per turn
             if (e.KnockedDown)
             {
                 Console.WriteLine($"  {e.Name} stands up (1 action used).");
@@ -6408,7 +6409,7 @@ class CombatSession
                             else Console.WriteLine($"  Grapple attempt failed!");
                             actions--;
                         }
-                        MoveTowardPlayer(e, ref actions);
+                        AdvanceOnPlayer(e, ref actions);
                         for (int i = 0; i < actions && P.HP > 0; i++) EnemyAttack(e);
                     }
                     continue;
@@ -6434,7 +6435,7 @@ class CombatSession
                     else
                     {
                         // In melee range or out of daggers — attack
-                        MoveTowardPlayer(e, ref actions);
+                        AdvanceOnPlayer(e, ref actions);
                         for (int i = 0; i < actions && P.HP > 0; i++) EnemyAttack(e);
                     }
                     continue;
@@ -6468,7 +6469,7 @@ class CombatSession
                     else Console.WriteLine($"  Grapple attempt failed!");
                     actions--;
                 }
-                MoveTowardPlayer(e, ref actions);
+                AdvanceOnPlayer(e, ref actions);
                 for (int i = 0; i < actions && P.HP > 0; i++)
                     EnemyAttack(e);
 
@@ -6536,8 +6537,8 @@ class CombatSession
                     actions--;
                 }
 
-                // HP >= 6: move if needed, then attack/maintain grapple
-                MoveTowardPlayer(e, ref actions);
+                // HP >= 6: close the distance, then attack/maintain grapple
+                AdvanceOnPlayer(e, ref actions);
                 for (int i = 0; i < actions && P.HP > 0; i++)
                 {
                     if (P.IsGrappled && P.GrappledBy == e)
@@ -7203,7 +7204,7 @@ class CombatSession
             // ── Goblin Warrior AI ──────────────────────────────────────────
             if (e is GoblinWarrior)
             {
-                MoveTowardPlayer(e, ref actions);
+                AdvanceOnPlayer(e, ref actions);
                 for (int i = 0; i < actions && P.HP > 0; i++)
                     EnemyAttack(e);
                 continue;
@@ -7226,8 +7227,8 @@ class CombatSession
                 continue;
             }
 
-            // Normal goblin: move if needed, then attack
-            MoveTowardPlayer(e, ref actions);
+            // Normal goblin: close the distance, then attack
+            AdvanceOnPlayer(e, ref actions);
             for (int i = 0; i < actions && P.HP > 0; i++)
                 EnemyAttack(e);
         }
@@ -7738,24 +7739,62 @@ class CombatSession
         }
     }
 
-    GridPos StepToward(GridPos from, GridPos target)
+    GridPos StepToward(GridPos from, GridPos target, Enemy? mover = null, HashSet<(int, int)>? occupied = null)
     {
+        bool Blocked(int x, int y) => IsWall(x, y) || (occupied != null && occupied.Contains((x, y)));
         int dx = Math.Sign(target.X - from.X);
         int dy = Math.Sign(target.Y - from.Y);
         int adx = Math.Abs(target.X - from.X);
         int ady = Math.Abs(target.Y - from.Y);
+        if (adx == 0 && ady == 0) return from;
 
-        // Candidate steps in order of preference; walls are impassable, so
-        // creatures sidestep them square by square (through camp gates etc.)
-        var cand = new List<GridPos>();
-        void Add(int cx, int cy) { if (cx != 0 || cy != 0) cand.Add(new GridPos(Math.Clamp(from.X + cx, 0, 49), Math.Clamp(from.Y + cy, 0, 49))); }
-        if (adx >= ady) { Add(dx, 0); Add(0, dy != 0 ? dy : 1); Add(0, dy != 0 ? -dy : -1); }
-        else            { Add(0, dy); Add(dx != 0 ? dx : 1, 0); Add(dx != 0 ? -dx : -1, 0); }
+        // Preferred step: close the larger gap first
+        (int cx, int cy) primary = (adx >= ady && dx != 0) ? (dx, 0) : (0, dy);
+        if (primary == (0, 0)) primary = (dx, 0);
+        var pCell = new GridPos(Math.Clamp(from.X + primary.cx, 0, 49), Math.Clamp(from.Y + primary.cy, 0, 49));
+        if (!pCell.SameAs(from) && !Blocked(pCell.X, pCell.Y))
+        {
+            if (mover != null) mover.SlideDir = 0;
+            return pCell;
+        }
 
-        foreach (var c in cand)
-            if (!IsWall(c.X, c.Y) && !c.SameAs(from))
-                return c;
-        return from;   // boxed in — stay put
+        // Primary blocked: wall-follow along the perpendicular axis with a
+        // remembered direction, so creatures walk around obstacles (and out
+        // through camp gates) instead of oscillating in place.
+        bool primaryIsX = primary.cx != 0;
+        int slide = mover?.SlideDir ?? 0;
+        if (slide == 0)
+            slide = primaryIsX ? (dy != 0 ? dy : (Rng.Next(2) == 0 ? 1 : -1))
+                               : (dx != 0 ? dx : (Rng.Next(2) == 0 ? 1 : -1));
+        for (int attempt = 0; attempt < 2; attempt++)
+        {
+            var sCell = primaryIsX
+                ? new GridPos(from.X, Math.Clamp(from.Y + slide, 0, 49))
+                : new GridPos(Math.Clamp(from.X + slide, 0, 49), from.Y);
+            if (!sCell.SameAs(from) && !Blocked(sCell.X, sCell.Y))
+            {
+                if (mover != null) mover.SlideDir = slide;
+                return sCell;
+            }
+            slide = -slide;   // hit a corner — reverse along the wall
+        }
+
+        // Boxed in on both sides: try backing off the wall
+        var back = new GridPos(Math.Clamp(from.X - primary.cx, 0, 49), Math.Clamp(from.Y - primary.cy, 0, 49));
+        if (!back.SameAs(from) && !Blocked(back.X, back.Y)) return back;
+        return from;
+    }
+
+    // Spend as many actions as needed closing on the player (leaving at least
+    // the remaining actions for attacks once adjacent).
+    void AdvanceOnPlayer(Enemy e, ref int actions)
+    {
+        while (actions > 0 && !e.Position.IsCardinalAdjacent(PlayerPos))
+        {
+            var before = e.Position;
+            MoveTowardPlayer(e, ref actions);
+            if (e.Position.SameAs(before)) break;   // boxed in — stop burning actions
+        }
     }
 
     void MoveTowardPlayer(Enemy e, ref int actions, bool suppressCost = false)
@@ -7772,21 +7811,16 @@ class CombatSession
         if (doSprint)
         {
             // First step
-            var s1 = StepToward(e.Position, PlayerPos);
-            if (!occupied.Contains((s1.X, s1.Y))) { occupied.Remove((e.Position.X, e.Position.Y)); e.Position = s1; occupied.Add((e.Position.X, e.Position.Y)); }
+            e.Position = StepToward(e.Position, PlayerPos, e, occupied);
             // Second step
             if (!e.Position.IsCardinalAdjacent(PlayerPos))
-            {
-                var s2 = StepToward(e.Position, PlayerPos);
-                if (!occupied.Contains((s2.X, s2.Y))) e.Position = s2;
-            }
+                e.Position = StepToward(e.Position, PlayerPos, e, occupied);
             e.SprintPenalty = 2;
             Console.WriteLine($"  {e.Name} sprints! (-2 to next action roll)");
         }
         else
         {
-            var newPos = StepToward(e.Position, PlayerPos);
-            if (!occupied.Contains((newPos.X, newPos.Y))) e.Position = newPos;
+            e.Position = StepToward(e.Position, PlayerPos, e, occupied);
         }
         if (!suppressCost) actions--;
         if (e.Position.IsCardinalAdjacent(PlayerPos))
