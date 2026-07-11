@@ -182,7 +182,8 @@ class GraphicsDisplay
         var names = new[] { "Ogre", "OrcBarbarian", "OrcMonk", "OrcPriestess", "OrcRanger",
                             "Troll", "NecromancerTroll", "Orc",
                             "Hobgoblin", "HobgoblinFighter", "HobgoblinThief", "HobgoblinCleric",
-                            "Goblin", "SpellGoblin", "RogueGoblin", "Player" };
+                            "Goblin", "SpellGoblin", "RogueGoblin", "Player",
+                            "Deer", "Wolf", "Boar", "Bear" };
         foreach (var n in names)
         {
             string path = Path.Combine(assetDir, n.ToLower() + ".png");
@@ -207,6 +208,10 @@ class GraphicsDisplay
             ("OgreBerserker", "bersekerogre.png"),
             ("OgreDuelist", "duelistogre.png"),
             ("OgreWarrior", "warriorogre.png"),
+            ("GiantEnemy", "giant.png"),
+            ("GiantMage", "magegiant.png"),
+            ("GiantPriest", "priestgiant.png"),
+            ("GiantDuelist", "duelistgiant.png"),
         };
         foreach (var (key, file) in custom)
         {
