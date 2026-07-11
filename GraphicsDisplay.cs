@@ -191,7 +191,22 @@ class GraphicsDisplay
         }
 
         // Assets with non-standard filenames
-        var custom = new[] { ("GoblinWarrior", "wariorgoblin.png"), ("GoblinShaman", "shammangoblin.png") };
+        var custom = new[]
+        {
+            ("GoblinWarrior", "wariorgoblin.png"),
+            ("GoblinShaman", "shammangoblin.png"),
+            ("OrcMonk", "monkorc.png"),
+            ("OrcPriestess", "priestessorc.png"),
+            ("OrcRanger", "rangerorc.png"),
+            ("HobgoblinFighter", "fighterhobgoblin.png"),
+            ("HobgoblinCleric", "clerichobgoblin.png"),
+            ("HobgoblinThief", "thiefhobgoblin.png"),
+            ("TrollWarrior", "warriortroll.png"),
+            ("TrollPriest", "priesttroll.png"),
+            ("TrollMusician", "musiciantroll.png"),
+            ("OgreBerserker", "bersekerogre.png"),
+            ("OgreDuelist", "duelistogre.png"),
+        };
         foreach (var (key, file) in custom)
         {
             string path = Path.Combine(assetDir, file);
