@@ -96,6 +96,15 @@ Enemy casters have pools too (set in BuildGroup from waveNum with the player for
 - Sizes: small = Goblin/gnomes/hobbits (0), large = Ogre/Giant (2), else medium. Small: +1 atk & +1/+2 dodge vs medium (stacks +1 more vs large), -1 melee dmg (+1 weak-spot vs large cancels), -1 MaxHP at creation/spawn. Giant race (+2 melee dmg, +4 HP, +1 move): -2 dodge vs med/small, -1/-2 block+parry. Ogre: flat -2 dmg taken (players +2 ArmorDR, enemies ToughHide 2/2), +2/+3 dmg but -1/-2 atk vs med/small, -1 dodge vs medium.
 - Hooks: DoAttack/PerformAttack, EnemyAttack, block/parry cases, `PDodgeSize()` via `_atkEnemy`, `SizeDodgeRoll` at enemy-dodge sites.
 
+## Actions, packs, feats (second expansion)
+
+- Players get 3 base actions (+AdditionalActions). Goblin race +1 action / -1 attack (players AND NPC goblins); Ogre race -1 action (both sides). Extra action stat costs 4 points.
+- Pack capacity: `CarryCap` (8, Artisan 50) limits total materials; shop sells +4 space (2c, +2c each), Artisan Bag +8 (Hunter/Gatherer only), Bag of Holding = limitless. Artisan crafts bags: +4 (+10 for artisans) costing hides = cap/2 (cap/10 artisans). Workshop asks who to craft FOR (`craftFor`).
+- Rest = full HP + all pools (rage/duelist/prayers/spells/songs), loops the stop menu.
+- Feats: Hunter (tiers: hunt → all deer → +boar → +wolves → +bears; needs dagger/knife), Gatherer (tiers: mine/cut → ALL one kind → both → +1d4 extra; grants pickaxe), Alchemist (brew 2 potions/action: boost/heal/poison AoE/restore; use potion drinks or throws 40ft), Multishot/Split Shot/Piercing Shot/Folly of Arrows (bow shot modes in DoBowAttack), Magic Crafting (returning ammo, rune/scribed armor, Mirror Shield reflect 35%, Bag of Holding), Flurry of Blows (5 attacks, req Fury of Blows), Weapon Specialist (stacking +1d4 atk/dmg per chosen weapon, `WeaponSpec` dict).
+- Shop: [8] bag space, [9] magic shop (base+3g), [10] potions (1g x level). New weapons: Pickaxe (2d6, -2 hit), Shortbow, Hunting Bow (+2 hit, 2d3).
+- Wildlife HP dice: deer 2d4, wolves 3d4, boars 4d3, bears 8d2.
+
 ## Artisan & wildlife
 
 - Artisan class (8 HP +1/lvl; Dagger+Axe+Pickaxe+Shortbow/6 arrows). Materials on Player: Wood/Stone/Ore/Hides/Meat (persisted). In-combat: "mine rock"/"cut tree" actions on terrain squares. Post-wave: [6] Gather (ONE of hunt/mine/cut per stop, 1d3 nodes) and [7] Craft (`VisitCrafting`): arrows (price/1 materials), weapons+shields (price/25), armor (price/15, Rune/Scribed need spells or prayers), -1 material per level (min 1); trade gear/materials to allies; sell materials 1d4c × level each. Shop sells raw materials ([6] Materials). Archers craft 5-25 arrows/wave now.

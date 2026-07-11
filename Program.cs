@@ -254,9 +254,11 @@ while (true)
         {
         decided = true;
         Console.WriteLine($"\n{pl.Name} ({pl.CharacterType}, HP {pl.HP}/{pl.MaxHP}, Lv {pl.Level}, Purse {Shop.Fmt(pl.Copper)}):");
+        bool canGather = pl.CharacterType == "Artisan" || pl.HasFeat("Hunter") || pl.HasFeat("Gatherer");
         Console.WriteLine("  [1] Move forward  [2] Rest  [3] Go home  [5] Shop" +
             (pl.CharacterType == "Archer" ? "  [4] Craft arrows" : "") +
-            (pl.CharacterType == "Artisan" ? "  [6] Gather  [7] Craft" : ""));
+            (canGather ? "  [6] Gather" : "") +
+            (pl.CharacterType == "Artisan" ? "  [7] Craft" : ""));
         Console.Write("  Choice: ");
         string next = (Console.ReadLine() ?? "1").Trim().ToLower();
         if (next is "5" or "shop" or "buy")
@@ -265,7 +267,7 @@ while (true)
             decided = false;   // shopping doesn't end the stop — choose again
             continue;
         }
-        if (next is "6" or "gather" && pl.CharacterType == "Artisan")
+        if (next is "6" or "gather" && canGather)
         {
             if (gatheredThisStop.Contains(pl))
                 Console.WriteLine("  You've already gathered this stop — hunt, mine, OR cut, not all three.");
@@ -291,21 +293,25 @@ while (true)
         }
         else if (next is "2" or "rest" or "heal")
         {
-            int dice = 1 + pl.GetFeatStacks("Potion Brewer");
-            int recovered = 0;
-            for (int d = 0; d < dice; d++) recovered += rng.Next(pl.MinPotionHeal, pl.MaxPotionHeal + 1);
-            recovered = Math.Min(recovered, pl.MaxHP - pl.HP);
-            pl.HP += recovered;
-            Console.WriteLine($"  {pl.Name} rests and recovers {recovered} HP. ({pl.HP}/{pl.MaxHP})");
+            // A proper rest: everything comes back
+            pl.HP = pl.MaxHP;
+            Console.WriteLine($"  {pl.Name} rests fully — HP restored to {pl.HP}/{pl.MaxHP}.");
             if (pl.CharacterType == "Duelist")
             {
                 int maxPts = pl.Level < 2 ? 0 : (pl.Level <= 20 ? (pl.Level - 2) / 3 + 1 : 7 + 2 * ((pl.Level - 20) / 3));
                 pl.DuelistPoints = maxPts;
                 Console.WriteLine($"  Duelist Points restored to {maxPts}.");
             }
+            if (pl.CharacterType == "Berserker")
+            {
+                int maxRage = 1 + (pl.Level >= 2 ? (pl.Level - 2) / 4 + 1 : 0);
+                pl.RagePoints = maxRage;
+                Console.WriteLine($"  Rage points restored to {maxRage}.");
+            }
             if (pl.CanPray)     { pl.PrayerUses = pl.MaxPrayerUses(); Console.WriteLine($"  Prayers restored to {pl.PrayerUses}."); }
             if (pl.KnownSpells.Any()) { pl.SpellUses = pl.MaxSpellUses(); Console.WriteLine($"  Spell casts restored to {pl.SpellUses}."); }
             if (pl.CanSing)     { pl.SongTokens = pl.MaxSongTokens(); Console.WriteLine($"  Song tokens restored to {pl.SongTokens}."); }
+            decided = false;   // rested and refreshed — keep choosing (shop, craft, gather...)
         }
         else if (next is "4" or "craft" or "arrows")
         {
@@ -476,6 +482,12 @@ List<Enemy> BuildGroup(int waveNum, Random r)
         {
             e.MaxHP = Math.Max(1, e.MaxHP - 1);
             e.HP = Math.Min(e.HP, e.MaxHP);
+        }
+        // Goblins are quick but wild: -1 to attack (they gain +1 action in combat)
+        if (e.Race == "Goblin")
+        {
+            e.MinAttack = Math.Max(1, e.MinAttack - 1);
+            e.MaxAttack = Math.Max(1, e.MaxAttack - 1);
         }
     }
     return g;
@@ -670,6 +682,24 @@ void SelectFeats(Player p)
                     if (p.HeldWeapon == null) { p.HeldWeapon = "Wand"; Console.WriteLine("  You receive a Wand (3-4 dmg, 20-50ft)."); }
                     else if (p.SecondaryWeapon == null) { p.SecondaryWeapon = "Wand"; Console.WriteLine("  You receive a Wand (3-4 dmg, 20-50ft, stowed)."); }
                 }
+            }
+            if (f.Name == "Gatherer" && p.GetFeatStacks("Gatherer") == 1)
+            {
+                if (p.HeldWeapon == null) p.HeldWeapon = "Pickaxe";
+                else if (p.SecondaryWeapon == null) p.SecondaryWeapon = "Pickaxe";
+                Console.WriteLine("  You receive a pickaxe and an axe — the wilds are yours to strip.");
+            }
+            if (f.Name == "Hunter" && p.GetFeatStacks("Hunter") == 1)
+                Console.WriteLine("  You can now hunt at each wave's end (carry a dagger or knife to skin).");
+            if (f.Name == "Alchemist")
+                Console.WriteLine("  You can now brew potions in combat: boost, healing, poison, and restoration.");
+            if (f.Name == "Weapon Specialist")
+            {
+                Console.Write("  Specialize in which weapon (exact name, e.g. Long Sword): ");
+                string spec = (Console.ReadLine() ?? "").Trim();
+                if (spec.Length == 0) spec = p.HeldWeapon ?? "Unarmed";
+                p.WeaponSpec[spec] = p.WeaponSpec.GetValueOrDefault(spec) + 1;
+                Console.WriteLine($"  Weapon Specialist: {spec} x{p.WeaponSpec[spec]} (+1d4 atk & dmg per stack).");
             }
         }
         else Console.WriteLine("Invalid. Try again.");
@@ -911,7 +941,10 @@ void SelectRace(Player p)
         case "Goblin":
             p.MaxDodge += 1;
             p.MovementBonus = 1;
-            Console.WriteLine("  [Race] Goblin: +1 dodge, +1 movement per roll.");
+            p.AdditionalActions += 1;
+            p.MinAttack = Math.Max(1, p.MinAttack - 1);
+            p.MaxAttack -= 1;
+            Console.WriteLine("  [Race] Goblin: +1 dodge, +1 movement per roll, +1 action per turn, -1 to attack.");
             break;
         case "Troll":
             p.RegenPerTurn = 2;
@@ -951,8 +984,9 @@ void SelectRace(Player p)
             p.MaxDodge = Math.Max(1, p.MaxDodge / 2);
             p.MovementBonus -= 1;
             p.ArmorDamageReduction += 2;
+            p.AdditionalActions -= 1;
             p.AddFeat("Giant's Strength");
-            Console.WriteLine($"  [Race] Ogre: +2 damage ({p.MinDamage}-{p.MaxDamage}), HP doubled to {p.MaxHP}, dodge halved ({p.MinDodge}-{p.MaxDodge}), -1 movement.");
+            Console.WriteLine($"  [Race] Ogre: +2 damage ({p.MinDamage}-{p.MaxDamage}), HP doubled to {p.MaxHP}, dodge halved ({p.MinDodge}-{p.MaxDodge}), -1 movement, -1 action per turn.");
             Console.WriteLine("  [Race] Ogre tough skin: -2 incoming damage. +2/+3 dmg but -1/-2 attack and worse dodge vs medium/small foes.");
             Console.WriteLine("  [Race] Giant's Strength (free feat): wield the Ogre Club and two-handed weapons in one hand.");
             break;
@@ -1110,6 +1144,7 @@ void SelectCharacterType(Player p)
         p.HeldWeapon = "Dagger";
         p.SecondaryWeapon = "Axe";
         p.ArrowCount = 6;
+        p.CarryCap = 50;
         Console.WriteLine("  Starting kit: Dagger + Axe + Pickaxe + Shortbow (6 arrows)");
         Console.WriteLine("  After each wave, pick ONE: hunt, mine, or cut wood — gathering materials.");
         Console.WriteLine("  Craft arrows, weapons, shields and armor from wood/stone/ore/hides after combat.");
@@ -1154,10 +1189,101 @@ void VisitShop(Player pl)
     {
         Console.WriteLine($"\n═══ TRAVELLING MERCHANT ═══  Purse: {Shop.Fmt(pl.Copper)}");
         Console.WriteLine($"  Wearing: {pl.MainArmor}{(pl.UnderArmor.Length > 0 ? $" over {pl.UnderArmor}" : "")}");
-        Console.WriteLine("  [1] Arrows   [2] Weapons   [3] Shields   [4] Sell your gear   [5] Armor   [6] Materials   [7] Leave");
+        Console.WriteLine("  [1] Arrows   [2] Weapons   [3] Shields   [4] Sell gear   [5] Armor   [6] Materials");
+        Console.WriteLine("  [8] Bag space   [9] Magic shop   [10] Potion shop   [7] Leave");
         Console.Write("  Browse: ");
         string c = (Console.ReadLine() ?? "7").Trim().ToLower();
         if (c is "7" or "leave" or "exit" or "x" or "") break;
+
+        if (c is "8" or "bag" or "bags")
+        {
+            long bcost = 2 + 2 * pl.BagUpgrades;
+            Console.WriteLine($"  [1] Loose sack — +4 pack space for {Shop.Fmt(bcost)} (price climbs 2c per purchase)");
+            bool bagGate = pl.HasFeat("Hunter") || pl.HasFeat("Gatherer");
+            if (bagGate) Console.WriteLine("  [2] Artisan Bag — +8 pack space for 20c (Hunter/Gatherer only)");
+            Console.Write("  Buy (or Enter to go back): ");
+            string bc = (Console.ReadLine() ?? "").Trim();
+            if (bc == "1")
+            {
+                if (bcost > pl.Copper) { Console.WriteLine("  Not enough coin."); continue; }
+                pl.Copper -= bcost; pl.BagUpgrades++; pl.CarryCap += 4;
+                Console.WriteLine($"  Pack space is now {pl.CarryCap}. Purse: {Shop.Fmt(pl.Copper)}");
+            }
+            else if (bc == "2" && bagGate)
+            {
+                if (20 > pl.Copper) { Console.WriteLine("  Not enough coin."); continue; }
+                pl.Copper -= 20; pl.CarryCap += 8;
+                Console.WriteLine($"  A proper artisan bag! Pack space is now {pl.CarryCap}. Purse: {Shop.Fmt(pl.Copper)}");
+            }
+            continue;
+        }
+
+        if (c is "9" or "magic")
+        {
+            Console.WriteLine("  Magic-crafted wares (base price + 3 gold):");
+            Console.WriteLine($"  [1] Returning Quiver — {Shop.Fmt(Shop.Price["Returning Quiver"] + 3 * Shop.Gold)}  (your ammo flies back unbroken)");
+            Console.WriteLine($"  [2] Mirror Shield    — {Shop.Fmt(Shop.Price["Mirror Shield"] + 3 * Shop.Gold)}  (+2 block; reflects spells/prayers 35%)");
+            Console.WriteLine($"  [3] Bag of Holding   — {Shop.Fmt(Shop.Price["Bag of Holding"] + 3 * Shop.Gold)}  (carry everything, forever)");
+            Console.Write("  Buy (or Enter to go back): ");
+            string mg = (Console.ReadLine() ?? "").Trim();
+            long mcost2 = mg switch
+            {
+                "1" => Shop.Price["Returning Quiver"] + 3 * Shop.Gold,
+                "2" => Shop.Price["Mirror Shield"] + 3 * Shop.Gold,
+                "3" => Shop.Price["Bag of Holding"] + 3 * Shop.Gold,
+                _ => -1,
+            };
+            if (mcost2 < 0) continue;
+            if (mcost2 > pl.Copper) { Console.WriteLine($"  Not enough coin ({Shop.Fmt(mcost2)})."); continue; }
+            pl.Copper -= mcost2;
+            switch (mg)
+            {
+                case "1":
+                    pl.HasReturningAmmo = true;
+                    Console.WriteLine("  Your arrows and thrown weapons now return to your hand, unbroken!");
+                    break;
+                case "2":
+                    if (pl.OffHandShieldName != null)
+                    {
+                        pl.Copper += Shop.Sell(pl.OffHandShieldName);
+                        pl.ArmorDamageReduction -= pl.OffHandShieldDefense;
+                        pl.MaxBlock -= pl.OffHandShieldBlock;
+                        Console.WriteLine($"  Traded in your {pl.OffHandShieldName}.");
+                    }
+                    pl.OffHandShieldName = "Mirror Shield";
+                    pl.OffHandShieldBlock = 2; pl.OffHandShieldDefense = 0;
+                    pl.MaxBlock += 2;
+                    Console.WriteLine("  The Mirror Shield gleams — spells and prayers may bounce back at their casters!");
+                    break;
+                case "3":
+                    pl.CarryCap = 99999;
+                    Console.WriteLine("  The Bag of Holding swallows everything you own with room to spare. Carry capacity: limitless.");
+                    break;
+            }
+            Console.WriteLine($"  Purse: {Shop.Fmt(pl.Copper)}");
+            continue;
+        }
+
+        if (c is "10" or "potion" or "potions")
+        {
+            long pcost = pl.Level * Shop.Gold;
+            Console.WriteLine($"  Potions ({Shop.Fmt(pcost)} each — brewed to your level {pl.Level}):");
+            Console.WriteLine($"  [1] Boost x{pl.PotionsBoost}   [2] Heal x{pl.PotionsHeal}   [3] Poison x{pl.PotionsPoison}   [4] Restore x{pl.PotionsRestore}");
+            Console.Write("  Buy (or Enter to go back): ");
+            string pp = (Console.ReadLine() ?? "").Trim();
+            if (pp is not ("1" or "2" or "3" or "4")) continue;
+            if (pcost > pl.Copper) { Console.WriteLine($"  Not enough coin ({Shop.Fmt(pcost)})."); continue; }
+            pl.Copper -= pcost;
+            switch (pp)
+            {
+                case "1": pl.PotionsBoost++; break;
+                case "2": pl.PotionsHeal++; break;
+                case "3": pl.PotionsPoison++; break;
+                default: pl.PotionsRestore++; break;
+            }
+            Console.WriteLine($"  Bought. Purse: {Shop.Fmt(pl.Copper)}");
+            continue;
+        }
 
         if (c is "6" or "materials")
         {
@@ -1170,6 +1296,12 @@ void VisitShop(Player pl)
             if (mc is not ("1" or "2" or "3" or "4")) continue;
             Console.Write("  How many: ");
             if (!int.TryParse(Console.ReadLine()?.Trim(), out int mq) || mq <= 0) continue;
+            if (mq > pl.PackRoom)
+            {
+                mq = pl.PackRoom;
+                if (mq <= 0) { Console.WriteLine("  Your pack is full!"); continue; }
+                Console.WriteLine($"  Your pack only fits {mq} more.");
+            }
             long unit = mc switch { "1" => 5, "2" => 8, "3" => 25, _ => 20 };
             long mcost = unit * mq;
             if (mcost > pl.Copper) { Console.WriteLine($"  Not enough coin ({Shop.Fmt(mcost)})."); continue; }
@@ -1262,7 +1394,7 @@ void VisitShop(Player pl)
             var stock = new[] { "Dagger", "Club", "Quarterstaff", "Staff", "Short Sword", "Hand Axe",
                                 "Mace", "Sword", "Long Staff", "Rapier Sword", "Long Sword", "Bow",
                                 "Halberd", "Great Sword", "Battle Axe", "War Mace", "Axe", "Pike",
-                                "Claymore", "Great Axe", "Warhammer", "Wand" };
+                                "Claymore", "Great Axe", "Warhammer", "Wand", "Pickaxe", "Shortbow", "Hunting Bow" };
             for (int i = 0; i < stock.Length; i++)
             {
                 string w = stock[i];
@@ -1372,14 +1504,74 @@ void VisitShop(Player pl)
     }
 }
 
-// ── Artisan: post-wave gathering (pick ONE of hunt / mine / cut) ────────────
+// ── Post-wave gathering: Artisans, Hunters, and Gatherers (pick ONE) ────────
 void GatherAfterWave(Player pl)
 {
-    Console.WriteLine("  Gather: [1] Hunt animals  [2] Mine rocks  [3] Cut trees");
+    bool isArt = pl.CharacterType == "Artisan";
+    int huntTier = pl.GetFeatStacks("Hunter") + (isArt ? 1 : 0);
+    int gathTier = pl.GetFeatStacks("Gatherer") + (isArt ? 1 : 0);
+    bool hasKnife = isArt
+        || (pl.HeldWeapon ?? "").Contains("Dagger") || (pl.SecondaryWeapon ?? "").Contains("Dagger")
+        || (pl.HeldWeapon ?? "").Contains("Knife") || (pl.SecondaryWeapon ?? "").Contains("Knife");
+
+    var gopts = new List<string>();
+    if (huntTier > 0) gopts.Add("[1] Hunt animals");
+    if (gathTier > 0) { gopts.Add("[2] Mine rocks"); gopts.Add("[3] Cut trees"); }
+    if (gathTier >= 3) gopts.Add("[4] Mine AND cut");
+    if (!gopts.Any()) { Console.WriteLine("  You have no gathering skills (Hunter or Gatherer feats grant them)."); return; }
+    Console.WriteLine($"  Gather: {string.Join("  ", gopts)}");
     Console.Write("  Choice: ");
     string gc = (Console.ReadLine() ?? "").Trim().ToLower();
-    int count = rng.Next(1, 4);
-    if (gc is "1" or "hunt")
+
+    if (gc is "1" or "hunt" && huntTier > 0 && !hasKnife)
+    {
+        Console.WriteLine("  You need a dagger or knife to skin your kills!");
+        return;
+    }
+    if (gc is "1" or "hunt" && huntTier >= 2)
+    {
+        // Tiered hunts: all deer → +boar → +wolves → +bears
+        int animals = rng.Next(1, 10) - 1;                       // all the deer
+        string bag = $"{animals} deer";
+        if (huntTier >= 3) { int b = rng.Next(1, 6) - 1; animals += b; bag += $", {b} boar"; }
+        if (huntTier >= 4) { int wv = rng.Next(1, 7) - 1; animals += wv; bag += $", {wv} wolves"; }
+        if (huntTier >= 5) { int br = rng.Next(1, 5) - 1; animals += br; bag += $", {br} bears"; }
+        int hHides = 0, hMeat = 0;
+        for (int i = 0; i < animals; i++)
+        {
+            hHides += rng.Next(1, 10) - 1;
+            hMeat += Math.Max(0, rng.Next(1, 7) + rng.Next(1, 7) - 2);
+        }
+        hHides = Math.Min(hHides, pl.PackRoom); pl.Hides += hHides;
+        hMeat = Math.Min(hMeat, pl.PackRoom); pl.Meat += hMeat;
+        Console.WriteLine($"  Great hunt! You bring down {bag}: +{hHides} hides, +{hMeat} meat." +
+            (pl.PackRoom == 0 ? "  [Pack FULL]" : ""));
+        return;
+    }
+    if (gc is "4" or "both" && gathTier >= 3)
+    {
+        int nodes = rng.Next(1, 7) + 4;      // every rock
+        int trees2 = rng.Next(1, 7) + 4;     // every tree
+        int extra = gathTier >= 4 ? 1 : 0;   // +1d4 bonus per node at final tier
+        int tOre = 0, tStone = 0, tWood = 0;
+        for (int i = 0; i < nodes; i++)
+        {
+            tOre += rng.Next(1, 6) - 1 + (extra > 0 ? rng.Next(1, 5) : 0);
+            tStone += rng.Next(1, 5) + rng.Next(1, 5) - 1 + (extra > 0 ? rng.Next(1, 5) : 0);
+        }
+        for (int i = 0; i < trees2; i++)
+            tWood += rng.Next(1, 4) + rng.Next(1, 4) + rng.Next(1, 4) + (extra > 0 ? rng.Next(1, 5) : 0);
+        tOre = Math.Min(tOre, pl.PackRoom); pl.Ore += tOre;
+        tStone = Math.Min(tStone, pl.PackRoom); pl.Stone += tStone;
+        tWood = Math.Min(tWood, pl.PackRoom); pl.Wood += tWood;
+        Console.WriteLine($"  You strip the land bare: {nodes} rocks and {trees2} trees — +{tOre} ore, +{tStone} stone, +{tWood} wood." +
+            (pl.PackRoom == 0 ? "  [Pack FULL]" : ""));
+        return;
+    }
+    int count = gathTier >= 2 && gc is "2" or "3" or "mine" or "cut" ? rng.Next(1, 7) + 4   // ALL of one kind
+              : rng.Next(1, 4);
+    int extraYield = gathTier >= 4 ? 1 : 0;
+    if (gc is "1" or "hunt" && huntTier > 0)
     {
         int hides = 0, meat = 0;
         for (int i = 0; i < count; i++)
@@ -1387,27 +1579,32 @@ void GatherAfterWave(Player pl)
             hides += rng.Next(1, 10) - 1;
             meat += Math.Max(0, rng.Next(1, 7) + rng.Next(1, 7) - 2);
         }
-        pl.Hides += hides; pl.Meat += meat;
-        Console.WriteLine($"  You bring down {count} animal(s): +{hides} hides, +{meat} meat. (Hides {pl.Hides}, Meat {pl.Meat})");
+        hides = Math.Min(hides, pl.PackRoom); pl.Hides += hides;
+        meat = Math.Min(meat, pl.PackRoom); pl.Meat += meat;
+        Console.WriteLine($"  You bring down {count} animal(s): +{hides} hides, +{meat} meat. (Hides {pl.Hides}, Meat {pl.Meat})" +
+            (pl.PackRoom == 0 ? "  [Pack FULL]" : ""));
     }
-    else if (gc is "2" or "mine")
+    else if (gc is "2" or "mine" && gathTier > 0)
     {
         int ore = 0, stone = 0;
         for (int i = 0; i < count; i++)
         {
-            ore += rng.Next(1, 6) - 1;
-            stone += rng.Next(1, 5) + rng.Next(1, 5) - 1;
+            ore += rng.Next(1, 6) - 1 + (extraYield > 0 ? rng.Next(1, 5) : 0);
+            stone += rng.Next(1, 5) + rng.Next(1, 5) - 1 + (extraYield > 0 ? rng.Next(1, 5) : 0);
         }
-        pl.Ore += ore; pl.Stone += stone;
-        Console.WriteLine($"  You break down {count} rock(s): +{ore} ore, +{stone} stone. (Ore {pl.Ore}, Stone {pl.Stone})");
+        ore = Math.Min(ore, pl.PackRoom); pl.Ore += ore;
+        stone = Math.Min(stone, pl.PackRoom); pl.Stone += stone;
+        Console.WriteLine($"  You break down {count} rock(s): +{ore} ore, +{stone} stone. (Ore {pl.Ore}, Stone {pl.Stone})" +
+            (pl.PackRoom == 0 ? "  [Pack FULL]" : ""));
     }
-    else if (gc is "3" or "cut")
+    else if (gc is "3" or "cut" && gathTier > 0)
     {
         int wood = 0;
         for (int i = 0; i < count; i++)
-            wood += rng.Next(1, 4) + rng.Next(1, 4) + rng.Next(1, 4);
-        pl.Wood += wood;
-        Console.WriteLine($"  You fell {count} tree(s): +{wood} wood. (Wood {pl.Wood})");
+            wood += rng.Next(1, 4) + rng.Next(1, 4) + rng.Next(1, 4) + (extraYield > 0 ? rng.Next(1, 5) : 0);
+        wood = Math.Min(wood, pl.PackRoom); pl.Wood += wood;
+        Console.WriteLine($"  You fell {count} tree(s): +{wood} wood. (Wood {pl.Wood})" +
+            (pl.PackRoom == 0 ? "  [Pack FULL]" : ""));
     }
     else Console.WriteLine("  You decide to save your strength.");
 }
@@ -1432,13 +1629,82 @@ void VisitCrafting(Player pl)
         return true;
     }
 
+    // The artisan chooses who receives each crafted item
+    Player craftFor = pl;
+    if (allPlayers.Count > 1)
+    {
+        for (int i = 0; i < allPlayers.Count; i++) Console.Write($"[{i + 1}]{allPlayers[i].Name}{(allPlayers[i] == pl ? " (you)" : "")}  ");
+        Console.Write("\n  Craft for whom (Enter = yourself): ");
+        if (int.TryParse(Console.ReadLine()?.Trim(), out int cf) && cf >= 1 && cf <= allPlayers.Count)
+            craftFor = allPlayers[cf - 1];
+        Console.WriteLine($"  Crafting for {craftFor.Name}.");
+    }
+
     while (true)
     {
-        Console.WriteLine($"\n═══ ARTISAN WORKSHOP ═══  Wood {pl.Wood}  Stone {pl.Stone}  Ore {pl.Ore}  Hides {pl.Hides}  Meat {pl.Meat}");
-        Console.WriteLine("  [1] Craft arrows  [2] Craft weapon  [3] Craft shield  [4] Craft armor  [5] Trade to ally  [6] Sell materials  [7] Leave");
+        Console.WriteLine($"\n═══ ARTISAN WORKSHOP ═══  Wood {pl.Wood}  Stone {pl.Stone}  Ore {pl.Ore}  Hides {pl.Hides}  Meat {pl.Meat}" +
+            (craftFor != pl ? $"  (crafting for {craftFor.Name})" : ""));
+        Console.WriteLine("  [1] Craft arrows  [2] Craft weapon  [3] Craft shield  [4] Craft armor  [5] Trade to ally  [6] Sell materials  [7] Craft bag" +
+            (pl.HasFeat("Magic Crafting") ? "  [8] Magic crafting" : "") + "  [9] Leave");
         Console.Write("  Choice: ");
-        string c = (Console.ReadLine() ?? "7").Trim().ToLower();
-        if (c is "7" or "leave" or "x" or "") break;
+        string c = (Console.ReadLine() ?? "9").Trim().ToLower();
+        if (c is "9" or "leave" or "x" or "") break;
+
+        if (c is "7" or "bag")
+        {
+            bool artisanTarget = craftFor.CharacterType == "Artisan";
+            int gain = artisanTarget ? 10 : 4;
+            int cost = Math.Max(2, craftFor.CarryCap / (artisanTarget ? 10 : 2));
+            Console.WriteLine($"  Bag for {craftFor.Name}: +{gain} pack space, costs {cost} hide(s). (You have {pl.Hides}.)");
+            Console.Write("  Craft it? (y/n): ");
+            if (!(Console.ReadLine() ?? "n").Trim().ToLower().StartsWith("y")) continue;
+            if (pl.Hides < cost) { Console.WriteLine("  Not enough hides."); continue; }
+            pl.Hides -= cost;
+            craftFor.CarryCap += gain;
+            Console.WriteLine($"  Stitched and strapped! {craftFor.Name}'s pack space is now {craftFor.CarryCap}.");
+            continue;
+        }
+
+        if (c is "8" or "magic" && pl.HasFeat("Magic Crafting"))
+        {
+            Console.WriteLine("  Magic crafting (materials = price/15, -1 per level):");
+            Console.WriteLine("  [1] Returning Quiver (ammo flies back)   [2] Mirror Shield (reflects spells 35%)   [3] Bag of Holding (limitless)");
+            Console.Write("  Craft (or Enter to go back): ");
+            string mci = (Console.ReadLine() ?? "").Trim();
+            (string Name, long BasePrice) mdef = mci switch
+            {
+                "1" => ("Returning Quiver", Shop.Price["Returning Quiver"]),
+                "2" => ("Mirror Shield", Shop.Price["Mirror Shield"]),
+                "3" => ("Bag of Holding", Shop.Price["Bag of Holding"]),
+                _ => ("", 0),
+            };
+            if (mdef.Name == "") continue;
+            if (!TryCraft(mdef.Name, mdef.BasePrice, 15, 20, 20, 40, 20)) continue;
+            switch (mdef.Name)
+            {
+                case "Returning Quiver":
+                    craftFor.HasReturningAmmo = true;
+                    Console.WriteLine($"  {craftFor.Name}'s ammo now returns unbroken!");
+                    break;
+                case "Mirror Shield":
+                    if (craftFor.OffHandShieldName != null)
+                    {
+                        craftFor.ArmorDamageReduction -= craftFor.OffHandShieldDefense;
+                        craftFor.MaxBlock -= craftFor.OffHandShieldBlock;
+                        Console.WriteLine($"  {craftFor.Name} sets aside the {craftFor.OffHandShieldName}.");
+                    }
+                    craftFor.OffHandShieldName = "Mirror Shield";
+                    craftFor.OffHandShieldBlock = 2; craftFor.OffHandShieldDefense = 0;
+                    craftFor.MaxBlock += 2;
+                    Console.WriteLine($"  {craftFor.Name} raises the gleaming Mirror Shield!");
+                    break;
+                case "Bag of Holding":
+                    craftFor.CarryCap = 99999;
+                    Console.WriteLine($"  {craftFor.Name}'s Bag of Holding is bottomless. Carry capacity: limitless.");
+                    break;
+            }
+            continue;
+        }
 
         if (c is "1" or "arrows")
         {
@@ -1464,12 +1730,12 @@ void VisitCrafting(Player pl)
             {
                 switch (def.Name)
                 {
-                    case "Blunt Arrow": pl.BluntArrows += made; break;
-                    case "Barbed Arrow": pl.BarbedArrows += made; break;
-                    case "Spiral Arrow": pl.SpiralArrows += made; break;
-                    default: pl.ArrowCount += made; break;
+                    case "Blunt Arrow": craftFor.BluntArrows += made; break;
+                    case "Barbed Arrow": craftFor.BarbedArrows += made; break;
+                    case "Spiral Arrow": craftFor.SpiralArrows += made; break;
+                    default: craftFor.ArrowCount += made; break;
                 }
-                Console.WriteLine($"  Crafted {made}x {def.Name}!");
+                Console.WriteLine($"  Crafted {made}x {def.Name} for {craftFor.Name}!");
             }
         }
         else if (c is "2" or "weapon")
@@ -1484,16 +1750,16 @@ void VisitCrafting(Player pl)
             if (!int.TryParse(Console.ReadLine()?.Trim(), out int wi) || wi < 1 || wi > stock.Length) continue;
             string wname = stock[wi - 1];
             if (!TryCraft(wname, Shop.Price[wname], 25, 15, 0, 60, 25)) continue;
-            if (pl.HeldWeapon == null) { pl.HeldWeapon = wname; Console.WriteLine($"  You forge and wield the {wname}!"); }
-            else if (pl.SecondaryWeapon == null) { pl.SecondaryWeapon = wname; Console.WriteLine($"  You forge the {wname} and stow it."); }
+            if (craftFor.HeldWeapon == null) { craftFor.HeldWeapon = wname; Console.WriteLine($"  {craftFor.Name} wields the freshly forged {wname}!"); }
+            else if (craftFor.SecondaryWeapon == null) { craftFor.SecondaryWeapon = wname; Console.WriteLine($"  {craftFor.Name} stows the forged {wname}."); }
             else
             {
-                Console.Write($"  Hands full! Scrap [H]eld {pl.HeldWeapon} or [S]econdary {pl.SecondaryWeapon}? ([N]either cancels the forging): ");
+                Console.Write($"  {craftFor.Name}'s hands are full! Scrap [H]eld {craftFor.HeldWeapon} or [S]econdary {craftFor.SecondaryWeapon}? ([N]either cancels): ");
                 string sc = (Console.ReadLine() ?? "n").Trim().ToLower();
-                if (sc.StartsWith("h")) { Console.WriteLine($"  You scrap the {pl.HeldWeapon}."); pl.HeldWeapon = wname; }
-                else if (sc.StartsWith("s")) { Console.WriteLine($"  You scrap the {pl.SecondaryWeapon}."); pl.SecondaryWeapon = wname; }
+                if (sc.StartsWith("h")) { Console.WriteLine($"  The {craftFor.HeldWeapon} is scrapped."); craftFor.HeldWeapon = wname; }
+                else if (sc.StartsWith("s")) { Console.WriteLine($"  The {craftFor.SecondaryWeapon} is scrapped."); craftFor.SecondaryWeapon = wname; }
                 else { Console.WriteLine("  The materials are set aside... and honestly, lost in the pile."); }
-                Console.WriteLine($"  You now carry: {pl.HeldWeapon} + {pl.SecondaryWeapon}.");
+                Console.WriteLine($"  {craftFor.Name} now carries: {craftFor.HeldWeapon} + {craftFor.SecondaryWeapon}.");
             }
         }
         else if (c is "3" or "shield")
@@ -1505,19 +1771,19 @@ void VisitCrafting(Player pl)
             if (!int.TryParse(Console.ReadLine()?.Trim(), out int si) || si < 1 || si > shields.Length) continue;
             string sname = shields[si - 1];
             if (!TryCraft(sname, Shop.Price[sname], 25, 50, 0, 30, 20)) continue;
-            if (pl.OffHandShieldName != null)
+            if (craftFor.OffHandShieldName != null)
             {
-                pl.ArmorDamageReduction -= pl.OffHandShieldDefense;
-                pl.MaxBlock -= pl.OffHandShieldBlock;
-                Console.WriteLine($"  You set aside your {pl.OffHandShieldName}.");
+                craftFor.ArmorDamageReduction -= craftFor.OffHandShieldDefense;
+                craftFor.MaxBlock -= craftFor.OffHandShieldBlock;
+                Console.WriteLine($"  {craftFor.Name} sets aside the {craftFor.OffHandShieldName}.");
             }
             var st = Shop.Shields[sname];
-            pl.OffHandShieldName = sname;
-            pl.OffHandShieldBlock = st.Block;
-            pl.OffHandShieldDefense = st.Def;
-            pl.MaxBlock += st.Block;
-            pl.ArmorDamageReduction += st.Def;
-            Console.WriteLine($"  You craft and strap on the {sname}! Block {pl.MinBlock}-{pl.MaxBlock}.");
+            craftFor.OffHandShieldName = sname;
+            craftFor.OffHandShieldBlock = st.Block;
+            craftFor.OffHandShieldDefense = st.Def;
+            craftFor.MaxBlock += st.Block;
+            craftFor.ArmorDamageReduction += st.Def;
+            Console.WriteLine($"  {craftFor.Name} straps on the crafted {sname}! Block {craftFor.MinBlock}-{craftFor.MaxBlock}.");
         }
         else if (c is "4" or "armor" or "armour")
         {
@@ -1531,31 +1797,31 @@ void VisitCrafting(Player pl)
             Console.Write("  Craft # (or Enter to go back): ");
             if (!int.TryParse(Console.ReadLine()?.Trim(), out int ai) || ai < 1 || ai > alist.Length) continue;
             string aname = alist[ai - 1];
-            if (aname is "Rune Armor" or "Scribed Robes" && !pl.KnownSpells.Any() && !pl.CanPray)
+            if (aname is "Rune Armor" or "Scribed Robes" && !pl.KnownSpells.Any() && !pl.CanPray && !pl.HasFeat("Magic Crafting"))
             {
-                Console.WriteLine("  Rune-work demands magic or prayers you do not have.");
+                Console.WriteLine("  Rune-work demands magic, prayers, or the Magic Crafting feat.");
                 continue;
             }
             var adef = Shop.Armors[aname];
             if (!TryCraft(aname, adef.Cost, 15, 10, 25, 40, 25)) continue;
-            string oldA = adef.Under ? pl.UnderArmor : pl.MainArmor;
+            string oldA = adef.Under ? craftFor.UnderArmor : craftFor.MainArmor;
             if (oldA.Length > 0 && oldA != "Cloth" && Shop.Armors.TryGetValue(oldA, out var oldDef))
             {
-                pl.ArmorDamageReduction -= oldDef.MeleeDR;
-                pl.ArmorSpellDR -= oldDef.SpellDR;
-                pl.ArmorPrayerDR -= oldDef.PrayerDR;
-                Console.WriteLine($"  You set aside your {oldA}.");
+                craftFor.ArmorDamageReduction -= oldDef.MeleeDR;
+                craftFor.ArmorSpellDR -= oldDef.SpellDR;
+                craftFor.ArmorPrayerDR -= oldDef.PrayerDR;
+                Console.WriteLine($"  {craftFor.Name} sets aside the {oldA}.");
             }
-            if (adef.Under) pl.UnderArmor = aname; else pl.MainArmor = aname;
-            pl.ArmorDamageReduction += adef.MeleeDR;
-            pl.ArmorSpellDR += adef.SpellDR;
-            pl.ArmorPrayerDR += adef.PrayerDR;
-            int pM = Shop.Armors.TryGetValue(pl.MainArmor, out var am2) ? am2.AbsorbPct : 0;
-            int pU = Shop.Armors.TryGetValue(pl.UnderArmor, out var au2) ? au2.AbsorbPct : 0;
-            pl.ArmorAbsorbPct = 100 - (100 - pM) * (100 - pU) / 100;
-            pl.ArmorMetal = (Shop.Armors.TryGetValue(pl.MainArmor, out var mm) && mm.Metal)
-                         || (Shop.Armors.TryGetValue(pl.UnderArmor, out var mu) && mu.Metal);
-            Console.WriteLine($"  You craft and don the {aname}!");
+            if (adef.Under) craftFor.UnderArmor = aname; else craftFor.MainArmor = aname;
+            craftFor.ArmorDamageReduction += adef.MeleeDR;
+            craftFor.ArmorSpellDR += adef.SpellDR;
+            craftFor.ArmorPrayerDR += adef.PrayerDR;
+            int pM = Shop.Armors.TryGetValue(craftFor.MainArmor, out var am2) ? am2.AbsorbPct : 0;
+            int pU = Shop.Armors.TryGetValue(craftFor.UnderArmor, out var au2) ? au2.AbsorbPct : 0;
+            craftFor.ArmorAbsorbPct = 100 - (100 - pM) * (100 - pU) / 100;
+            craftFor.ArmorMetal = (Shop.Armors.TryGetValue(craftFor.MainArmor, out var mm) && mm.Metal)
+                         || (Shop.Armors.TryGetValue(craftFor.UnderArmor, out var mu) && mu.Metal);
+            Console.WriteLine($"  {craftFor.Name} dons the crafted {aname}!");
         }
         else if (c is "5" or "trade")
         {
@@ -1700,6 +1966,11 @@ void SaveGame(Player p, int groups)
         $"BarbedArrows={p.BarbedArrows}",
         $"SpiralArrows={p.SpiralArrows}",
         $"Wood={p.Wood}", $"Stone={p.Stone}", $"Ore={p.Ore}", $"Hides={p.Hides}", $"Meat={p.Meat}",
+        $"CarryCap={p.CarryCap}", $"BagUpgrades={p.BagUpgrades}",
+        $"WeaponSpec={string.Join("|", p.WeaponSpec.Select(kv => $"{kv.Key}:{kv.Value}"))}",
+        $"PotionsBoost={p.PotionsBoost}", $"PotionsHeal={p.PotionsHeal}",
+        $"PotionsPoison={p.PotionsPoison}", $"PotionsRestore={p.PotionsRestore}",
+        $"HasReturningAmmo={p.HasReturningAmmo}",
         $"MainArmor={p.MainArmor}",
         $"UnderArmor={p.UnderArmor}",
         $"ArmorSpellDR={p.ArmorSpellDR}",
@@ -1792,6 +2063,15 @@ bool TryLoadGame(Player p, string filePath)
         p.BarbedArrows = I("BarbedArrows");
         p.SpiralArrows = I("SpiralArrows");
         p.Wood = I("Wood"); p.Stone = I("Stone"); p.Ore = I("Ore"); p.Hides = I("Hides"); p.Meat = I("Meat");
+        p.CarryCap = dict.ContainsKey("CarryCap") ? I("CarryCap") : (p.CharacterType == "Artisan" ? 50 : 8);
+        p.BagUpgrades = I("BagUpgrades");
+        p.WeaponSpec = G("WeaponSpec").Split('|', StringSplitOptions.RemoveEmptyEntries)
+            .Select(s => s.Split(':'))
+            .Where(a => a.Length == 2 && int.TryParse(a[1], out _))
+            .ToDictionary(a => a[0], a => int.Parse(a[1]));
+        p.PotionsBoost = I("PotionsBoost"); p.PotionsHeal = I("PotionsHeal");
+        p.PotionsPoison = I("PotionsPoison"); p.PotionsRestore = I("PotionsRestore");
+        p.HasReturningAmmo = B("HasReturningAmmo");
         p.MainArmor = G("MainArmor") is { Length: > 0 } ma ? ma : "Cloth";
         p.UnderArmor = G("UnderArmor");
         p.ArmorSpellDR = I("ArmorSpellDR");
@@ -2011,7 +2291,10 @@ static class Shop
         ["Halberd"] = 75 * Silver, ["Great Sword"] = Gold, ["Battle Axe"] = 3 * Gold,
         ["War Mace"] = 3 * Gold + 50 * Silver, ["Axe"] = 4 * Gold, ["Pike"] = 4 * Gold,
         ["Claymore"] = 5 * Gold, ["Great Axe"] = 5 * Gold, ["Warhammer"] = 4 * Gold,
-        ["Wand"] = 50 * Silver,
+        ["Wand"] = 50 * Silver, ["Pickaxe"] = 15 * Silver, ["Shortbow"] = 30 * Silver,
+        ["Hunting Bow"] = 75 * Silver,
+        // Magic-crafted goods (base prices; the magic shop adds 3 gold)
+        ["Mirror Shield"] = 35 * Silver, ["Returning Quiver"] = 60 * Silver, ["Bag of Holding"] = 5 * Gold,
         // enemy gear (sellable loot)
         ["Goblin Dagger"] = 40, ["Orc Longsword"] = 40 * Silver, ["Troll Axe"] = 2 * Gold,
         ["Bastard Sword"] = 60 * Silver, ["Kukuri"] = 25 * Silver, ["Ogre Club"] = 2 * Gold,
@@ -2116,6 +2399,14 @@ class Player
     public int RecoverRegular = 0, RecoverBlunt = 0, RecoverBarbed = 0, RecoverSpiral = 0;
     // Crafting materials (Artisan economy)
     public int Wood = 0, Stone = 0, Ore = 0, Hides = 0, Meat = 0;
+    public int CarryCap = 8;        // material capacity (Artisan 50; bags add more)
+    public int BagUpgrades = 0;     // shop upgrades bought (price climbs 2c each)
+    public Dictionary<string, int> WeaponSpec = new();   // Weapon Specialist stacks per weapon
+    public int PotionsBoost = 0, PotionsHeal = 0, PotionsPoison = 0, PotionsRestore = 0;
+    public int PotionAtkBoost = 0, PotionBoostTurns = 0;
+    public bool HasReturningAmmo = false;   // Magic Crafting: ammo flies back unbroken
+    public int MaterialLoad => Wood + Stone + Ore + Hides + Meat;
+    public int PackRoom => Math.Max(0, CarryCap - MaterialLoad);
     // Armor: one main suit + one under-layer. Cloth = unarmored.
     public string MainArmor = "Cloth";
     public string UnderArmor = "";
@@ -2879,7 +3170,7 @@ class Deer : Enemy
     public Deer(Random rng, string name, bool antlered) : base(name, "Deer")
     {
         IsWildlife = true; Antlered = antlered;
-        MaxHP = 8; HP = MaxHP;
+        MaxHP = rng.Next(1, 5) + rng.Next(1, 5); HP = MaxHP;   // 2d4
         MinAttack = 2; MaxAttack = 8;    // antlers 2d4
         MinDamage = 2; MaxDamage = 12;   // antlers 2d6
         MinDodge = 3; MaxDodge = 10;
@@ -2893,7 +3184,7 @@ class Wolf : Enemy
     public Wolf(Random rng, string name) : base(name, "Wolf")
     {
         IsWildlife = true;
-        MaxHP = 12; HP = MaxHP;
+        MaxHP = rng.Next(1, 5) + rng.Next(1, 5) + rng.Next(1, 5); HP = MaxHP;   // 3d4
         MinAttack = 3; MaxAttack = 12;   // bite 3d4
         MinDamage = 2; MaxDamage = 8;    // bite 2d4
         MinDodge = 2; MaxDodge = 9;
@@ -2908,7 +3199,7 @@ class Boar : Enemy
     public Boar(Random rng, string name) : base(name, "Boar")
     {
         IsWildlife = true;
-        MaxHP = 14; HP = MaxHP;
+        MaxHP = rng.Next(1, 4) + rng.Next(1, 4) + rng.Next(1, 4) + rng.Next(1, 4); HP = MaxHP;   // 4d3
         MinAttack = 2; MaxAttack = 6;    // tusks 2d3
         MinDamage = 3; MaxDamage = 12;   // tusks 3d4
         MinDodge = 1; MaxDodge = 7;
@@ -2922,7 +3213,7 @@ class Bear : Enemy
     public Bear(Random rng, string name) : base(name, "Bear")
     {
         IsWildlife = true;
-        MaxHP = 30; HP = MaxHP;
+        MaxHP = 0; for (int d = 0; d < 8; d++) MaxHP += rng.Next(1, 3); HP = MaxHP;   // 8d2
         MinAttack = 3; MaxAttack = 12;   // bite 3d4
         MinDamage = 2; MaxDamage = 8;    // bite 2d4
         MinDodge = 1; MaxDodge = 6;
@@ -3075,6 +3366,16 @@ class FeatDef
         new("War Song", "Party song: +1 dodge, +1 all attacks, +1 grapple, +2 healing while playing. Grants songs + an instrument."),
         new("Silence Song", "No spells, prayers or songs can be used by ANYONE for 1d4 turns. Grants songs + an instrument."),
         new("Song of the Redeemer", "Heals all allies 1d4 per 3 levels. Grants songs + an instrument."),
+        new("Hunter", "Hunt animals at wave end (dagger/knife to skin). Stacks: gain hunting → ALL deer → ALL boar → ALL wolves → ALL bears.", null, true, 5),
+        new("Gatherer", "Gain pickaxe + axe; mine/cut at wave end. Stacks: gain gathering → ALL of one kind → mine AND cut everything → +1d4 extra yield.", null, true, 4),
+        new("Alchemist", "Craft 2 potions per action (boost / heal / poison AoE / restore uses); throw 40ft or drink."),
+        new("Multishot", "Fire or throw 4 arrows/weapons at one target, rolling attack and damage for each."),
+        new("Split Shot", "Shoot two targets at once, spending two arrows or throwing weapons."),
+        new("Piercing Shot", "Your arrow punches through, hitting every target in a line 20ft past the first."),
+        new("Folly of Arrows", "Loose 4d4 arrows skyward, raining on the target and everything within a 4x4 area."),
+        new("Magic Crafting", "Craft returning ammo, Rune/Scribed armor, the spell-reflecting Mirror Shield, and the Bag of Holding."),
+        new("Flurry of Blows", "Five attacks with your melee or thrown weapon in one action.", "Fury of Blows"),
+        new("Weapon Specialist", "+1d4 attack and +1d4 damage with a chosen weapon. Take multiple times.", null, true),
         new("Giant's Strength", "Can pick up and wield Ogre Club (club sweep 2 squares). +2 min damage, +1 max damage on all non-club weapons."),
         new("Giant's Grip", "Wield two-handed weapons as though they are one-handed, allowing dual-wielding of two-handed weapons."),
         new("Spell Focus", "Spells gain +2 to hit (min and max spell attack rolls)."),
@@ -3525,6 +3826,13 @@ class CombatSession
             }
         }
 
+        // Boost potion countdown
+        if (P.PotionBoostTurns > 0)
+        {
+            P.PotionBoostTurns--;
+            if (P.PotionBoostTurns <= 0) { P.PotionAtkBoost = 0; Console.WriteLine("  [The boost potion wears off]"); }
+        }
+
         // Mass Blessings countdown
         if (P.BlessTurns > 0)
         {
@@ -3560,7 +3868,7 @@ class CombatSession
 
         if (P.IsRaging)
             Console.WriteLine($"  [RAGING — {P.RageTurnsLeft} turn(s) left, +{P.RagePointsSpent*2}d4 dmg/hit]");
-        int actLeft = 2 + P.AdditionalActions;
+        int actLeft = 3 + P.AdditionalActions;
         if (P.HasFeat("Chidia")) actLeft += 2;
 
         // Tier 2 grapple style: deduct actions pre-paid for breaking free on enemy's turn
@@ -4050,21 +4358,24 @@ class CombatSession
 
                 case "mine rock":
                 {
-                    int oreGot = Rng.Next(1, 6) - 1;
-                    int stoneGot = Rng.Next(1, 5) + Rng.Next(1, 5) - 1;
-                    P.Ore += oreGot; P.Stone += stoneGot;
+                    int oreGot = Math.Min(Rng.Next(1, 6) - 1, P.PackRoom);
+                    P.Ore += oreGot;
+                    int stoneGot = Math.Min(Rng.Next(1, 5) + Rng.Next(1, 5) - 1, P.PackRoom);
+                    P.Stone += stoneGot;
                     Rocks.Remove((PlayerPos.X, PlayerPos.Y));
-                    Console.WriteLine($"  Your pickaxe shatters the rock: +{oreGot} ore, +{stoneGot} stone. (Ore {P.Ore}, Stone {P.Stone})");
+                    Console.WriteLine($"  Your pickaxe shatters the rock: +{oreGot} ore, +{stoneGot} stone. (Ore {P.Ore}, Stone {P.Stone})" +
+                        (P.PackRoom == 0 ? "  [Pack FULL]" : ""));
                     justBlocked = false;
                     break;
                 }
 
                 case "cut tree":
                 {
-                    int woodGot = Rng.Next(1, 4) + Rng.Next(1, 4) + Rng.Next(1, 4);
+                    int woodGot = Math.Min(Rng.Next(1, 4) + Rng.Next(1, 4) + Rng.Next(1, 4), P.PackRoom);
                     P.Wood += woodGot;
                     Trees.Remove((PlayerPos.X, PlayerPos.Y));
-                    Console.WriteLine($"  Your axe fells the tree: +{woodGot} wood. (Wood {P.Wood})");
+                    Console.WriteLine($"  Your axe fells the tree: +{woodGot} wood. (Wood {P.Wood})" +
+                        (P.PackRoom == 0 ? "  [Pack FULL]" : ""));
                     justBlocked = false;
                     break;
                 }
@@ -4077,6 +4388,81 @@ class CombatSession
                     Console.WriteLine($"  You leap down! {fall} falling damage. HP:{P.HP}/{P.MaxHP}");
                     if (P.IsRaging && P.HP < 0) { P.HP = 0; Console.WriteLine("  RAGE keeps you standing!"); }
                     continue;   // jumping is a free action
+                }
+
+                case "brew potion":
+                {
+                    Console.WriteLine("  Brew: [1] Boost (+1d4/lvl attack, 3 turns)  [2] Heal (1d6/lvl)  [3] Poison (AoE)  [4] Restore (uses)");
+                    Console.Write("  Which (brews TWO): ");
+                    string bp = (Console.ReadLine() ?? "").Trim();
+                    switch (bp)
+                    {
+                        case "1": P.PotionsBoost += 2; Console.WriteLine($"  Brewed 2 Boost potions. ({P.PotionsBoost})"); break;
+                        case "2": P.PotionsHeal += 2; Console.WriteLine($"  Brewed 2 Healing potions. ({P.PotionsHeal})"); break;
+                        case "3": P.PotionsPoison += 2; Console.WriteLine($"  Brewed 2 Poison flasks. ({P.PotionsPoison})"); break;
+                        case "4": P.PotionsRestore += 2; Console.WriteLine($"  Brewed 2 Restoration potions. ({P.PotionsRestore})"); break;
+                        default: Console.WriteLine("  The mixture fizzles — nothing brewed."); continue;
+                    }
+                    justBlocked = false;
+                    break;
+                }
+
+                case "use potion":
+                {
+                    var pOpts = new List<string>();
+                    if (P.PotionsBoost > 0)   pOpts.Add($"[1] Boost x{P.PotionsBoost}");
+                    if (P.PotionsHeal > 0)    pOpts.Add($"[2] Heal x{P.PotionsHeal}");
+                    if (P.PotionsPoison > 0)  pOpts.Add($"[3] Poison x{P.PotionsPoison}");
+                    if (P.PotionsRestore > 0) pOpts.Add($"[4] Restore x{P.PotionsRestore}");
+                    Console.WriteLine($"  Potions: {string.Join("  ", pOpts)}");
+                    Console.Write("  Use which: ");
+                    string up = (Console.ReadLine() ?? "").Trim();
+                    if (up == "1" && P.PotionsBoost > 0)
+                    {
+                        P.PotionsBoost--;
+                        int boost = 0; for (int d = 0; d < P.Level; d++) boost += Rng.Next(1, 5);
+                        P.PotionAtkBoost = boost; P.PotionBoostTurns = 3;
+                        Console.WriteLine($"  You drink the boost potion: +{boost} to attack rolls for 3 turns!");
+                    }
+                    else if (up == "2" && P.PotionsHeal > 0)
+                    {
+                        P.PotionsHeal--;
+                        int heal = 0; for (int d = 0; d < P.Level; d++) heal += Rng.Next(1, 7);
+                        heal = Math.Min(heal, P.MaxHP - P.HP);
+                        P.HP += heal;
+                        Console.WriteLine($"  You drink the healing potion: +{heal} HP. ({P.HP}/{P.MaxHP})");
+                    }
+                    else if (up == "3" && P.PotionsPoison > 0)
+                    {
+                        var inRange = alive.Where(en => PlayerPos.Feet(en.Position) <= 40f).ToList();
+                        if (!inRange.Any()) { Console.WriteLine("  No enemy within 40ft to splash!"); continue; }
+                        var pt = inRange.Count == 1 ? inRange[0] : PickTarget(inRange);
+                        if (pt == null) continue;
+                        P.PotionsPoison--;
+                        int perTurn = Rng.Next(1, 5) + Math.Max(1, P.Level / 2);
+                        var splash = alive.Where(en => Math.Abs(en.Position.X - pt.Position.X) <= 1
+                                                    && Math.Abs(en.Position.Y - pt.Position.Y) <= 1).ToList();
+                        Console.WriteLine($"  The poison flask SHATTERS on {pt.Name}! {perTurn}/turn poison seeps into {splash.Count} target(s).");
+                        foreach (var sp in splash) sp.BleedDmg += perTurn;
+                        justBlocked = false;
+                        break;
+                    }
+                    else if (up == "4" && P.PotionsRestore > 0)
+                    {
+                        P.PotionsRestore--;
+                        Console.Write("  Restore: [1] Spells  [2] Rage  [3] Prayers  [4] Duelist points: ");
+                        string rp = (Console.ReadLine() ?? "").Trim();
+                        switch (rp)
+                        {
+                            case "2": P.RagePoints += P.Level; Console.WriteLine($"  +{P.Level} rage points ({P.RagePoints})."); break;
+                            case "3": P.PrayerUses += P.Level; Console.WriteLine($"  +{P.Level} prayer uses ({P.PrayerUses})."); break;
+                            case "4": P.DuelistPoints += P.Level; Console.WriteLine($"  +{P.Level} duelist points ({P.DuelistPoints})."); break;
+                            default: P.SpellUses += P.Level; Console.WriteLine($"  +{P.Level} spell casts ({P.SpellUses})."); break;
+                        }
+                    }
+                    else continue;
+                    justBlocked = false;
+                    break;
                 }
 
                 case "bard song":
@@ -4765,11 +5151,13 @@ class CombatSession
         if (P.SongPlaying) o.Add("stop song");
         if (!P.IsGrappled && !P.Climbed && IsClimbable(PlayerPos)) o.Add("climb");
         if (P.Climbed) { o.Add("climb down"); o.Add("jump down"); }
-        if (P.CharacterType == "Artisan" && !P.IsGrappled && !P.Climbed)
+        if ((P.CharacterType == "Artisan" || P.HasFeat("Gatherer")) && !P.IsGrappled && !P.Climbed)
         {
             if (Rocks.Contains((PlayerPos.X, PlayerPos.Y))) o.Add("mine rock");
             if (Trees.Contains((PlayerPos.X, PlayerPos.Y))) o.Add("cut tree");
         }
+        if (P.HasFeat("Alchemist") && !P.IsGrappled) o.Add("brew potion");
+        if (P.PotionsBoost + P.PotionsHeal + P.PotionsPoison + P.PotionsRestore > 0) o.Add("use potion");
         return o;
     }
 
@@ -4791,6 +5179,14 @@ class CombatSession
             if (channel == "spell") P.SpellUses++;
             else P.PrayerUses++;
             Console.WriteLine($"  Your armor's runes ABSORB the {channel}! (+1 {channel} use)");
+            return 0;
+        }
+        // Mirror Shield: 35% chance to hurl the magic back at its caster
+        if (P.OffHandShieldName == "Mirror Shield" && _atkEnemy != null && Rng.Next(100) < 35)
+        {
+            _atkEnemy.HP -= dmg;
+            Console.WriteLine($"  Your Mirror Shield REFLECTS the {channel} back at {_atkEnemy.Name} for {dmg}! HP:{_atkEnemy.HP}/{_atkEnemy.MaxHP}");
+            if (!_atkEnemy.Alive) HandleKill(_atkEnemy);
             return 0;
         }
         if (channel == "spell" && element == "lightning" && P.ArmorMetal)
@@ -4817,6 +5213,18 @@ class CombatSession
 
     void ResolveThrownLanding(bool hit, Enemy target, string weaponType, int dmgMin, int dmgMax)
     {
+        if (P.HasReturningAmmo)
+        {
+            // Magic-crafted: the weapon whips back to the thrower's hand
+            Console.WriteLine($"  The {weaponType} whirls back to your hand!");
+            switch (weaponType)
+            {
+                case "Goblin Dagger": P.DaggerCount++; break;
+                case "Hand Axe": P.AxeCount++; break;
+                default: if (P.HeldWeapon == null) P.HeldWeapon = weaponType; break;
+            }
+            return;
+        }
         if (hit)
         {
             if (Rng.Next(100) < 25) { Console.WriteLine($"  The {weaponType} breaks on impact!"); return; }
@@ -4908,7 +5316,7 @@ class CombatSession
 
     void DoAttack(Enemy target)
     {
-        if (P.HeldWeapon == "Bow") { DoBowAttack(target); return; }
+        if (P.HeldWeapon is "Bow" or "Shortbow" or "Hunting Bow") { DoBowAttack(target); return; }
         if (P.HeldWeapon == "Wand") { DoWandAttack(target); return; }
         if (P.HeldWeapon == "Mace") { DoMaceAttack(target); return; }
         // Modifiers
@@ -5000,14 +5408,33 @@ class CombatSession
         if (sizeAtk != 0 || sizeDmg != 0)
             Console.WriteLine($"  [Size] {sizeAtk:+0;-0} attack, {sizeDmg:+0;-0} damage vs {(target.Race.Length > 0 ? target.Race : "foe")}.");
         if (P.Climbed) Console.WriteLine("  [High ground] +2 attack!");
+        int specStacks = P.WeaponSpec.GetValueOrDefault(P.HeldWeapon ?? "Unarmed");
+        int specAtk = 0;
+        if (specStacks > 0)
+        {
+            int specDmg = 0;
+            for (int s = 0; s < specStacks; s++) { specAtk += Rng.Next(1, 5); specDmg += Rng.Next(1, 5); }
+            dmgBonus += specDmg;
+            Console.WriteLine($"  [Weapon Specialist x{specStacks}] +{specAtk} attack, +{specDmg} damage!");
+        }
+        if (P.PotionBoostTurns > 0)
+        {
+            specAtk += P.PotionAtkBoost;
+            Console.WriteLine($"  [Potion] +{P.PotionAtkBoost} attack!");
+        }
 
         // Duelist Flurry: 3 attacks this action
         int flurryCount = (P.CharacterType == "Duelist" && P.DuelistEffectTurns.GetValueOrDefault("Duelist Flurry") > 0) ? 3 : 1;
+        if (flurryCount == 1 && P.HasFeat("Flurry of Blows"))
+        {
+            Console.Write("  [Flurry of Blows] Unleash five attacks? (y/n): ");
+            if ((Console.ReadLine() ?? "n").Trim().ToLower().StartsWith("y")) flurryCount = 5;
+        }
         for (int fi = 0; fi < flurryCount && target.Alive; fi++)
         {
             if (fi > 0) Console.WriteLine($"  [Flurry hit {fi + 1}]");
             int rawRoll = Rng.Next(minAtk, maxAtk + 1);
-            PerformAttack(target, rawRoll + atkPen + warriorAtkBonus - brokenArmPenalty + trueSightAtkBonus + songAtkBonus + sizeAtk + HighGround(), minDmg, maxDmg, fi == 0 ? dmgBonus : 0, useSunder, useDisarm, fi == 0 && useSap, rawRoll == maxAtk, rawRoll == minAtk);
+            PerformAttack(target, rawRoll + atkPen + warriorAtkBonus - brokenArmPenalty + trueSightAtkBonus + songAtkBonus + sizeAtk + specAtk + HighGround(), minDmg, maxDmg, fi == 0 ? dmgBonus : 0, useSunder, useDisarm, fi == 0 && useSap, rawRoll == maxAtk, rawRoll == minAtk);
         }
 
         // Off-hand (Double Tap)
@@ -5279,10 +5706,12 @@ class CombatSession
         // Felled wildlife is skinned on the spot: hides 1d9-1, meat 2d6-2
         if (e.IsWildlife)
         {
-            int hides = Rng.Next(1, 10) - 1;
-            int meat = Math.Max(0, Rng.Next(1, 7) + Rng.Next(1, 7) - 2);
-            P.Hides += hides; P.Meat += meat;
-            Console.WriteLine($"  You skin the {e.TypeName}: +{hides} hide(s), +{meat} meat.");
+            int hides = Math.Min(Rng.Next(1, 10) - 1, P.PackRoom);
+            P.Hides += hides;
+            int meat = Math.Min(Math.Max(0, Rng.Next(1, 7) + Rng.Next(1, 7) - 2), P.PackRoom);
+            P.Meat += meat;
+            Console.WriteLine($"  You skin the {e.TypeName}: +{hides} hide(s), +{meat} meat." +
+                (P.PackRoom == 0 ? "  [Pack FULL]" : ""));
         }
         if (P.IsGrappled && P.GrappledBy == e) { P.IsGrappled = false; P.GrappledBy = null; Console.WriteLine("  You are no longer grappled."); }
         var others = Active.Where(x => x.Alive && x != e).ToList();
@@ -5555,7 +5984,7 @@ class CombatSession
         "Pike"           => (2, 8, 2, 12),   // reach
         "Warhammer"      => (2, 8, 3, 12),   // non-lethal
         "Dagger"         => (1, 6, 1, 6),
-        "Pickaxe"        => (1, 6, 2, 8),
+        "Pickaxe"        => (1, 4, 2, 12),   // 2d6 damage, -2 to hit
         "Shortbow"       => (1, 6, 1, 6),
         _ => (0, 0, 0, 0)
     };
@@ -5628,12 +6057,116 @@ class CombatSession
         float feet = PlayerPos.Feet(target.Position);
         if (feet < 4f) { Console.WriteLine($"  Too close to use bow! ({feet:F1}ft, min 4ft)"); return; }
         if (feet > 60f) { Console.WriteLine($"  Too far! ({feet:F1}ft, max 60ft)"); return; }
+        bool huntingBow = P.HeldWeapon == "Hunting Bow";
+
+        bool HasAmmo() => arrowType switch
+        {
+            "blunt" => P.BluntArrows > 0,
+            "barbed" => P.BarbedArrows > 0,
+            "spiral" => P.SpiralArrows > 0,
+            _ => P.ArrowCount > 0,
+        };
+
+        // A single quick shot at any target (used by the special shot feats)
+        void QuickShot(Enemy tgt, bool costsArrow)
+        {
+            float f2 = PlayerPos.Feet(tgt.Position);
+            if (f2 > 60f) { Console.WriteLine($"  {tgt.Name} is beyond bow range."); return; }
+            if (costsArrow) { if (!HasAmmo()) return; SpendArrow(); }
+            int dMin, dMax;
+            if (f2 <= 14f) { dMin = 4; dMax = 12; }
+            else if (f2 <= 45f) { dMin = 2; dMax = 10; }
+            else { dMin = 1; dMax = 5; }
+            if (huntingBow) { dMin = 2; dMax = 6; }
+            dMin += P.MinRangedDmgBonus; dMax += P.MinRangedDmgBonus + P.MaxRangedDmgBonus;
+            int a2 = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 1) + SlayerAtk() + HighGround() + arrowAtkBonus + (huntingBow ? 2 : 0);
+            int d2 = Rng.Next(tgt.MinDodge, tgt.MaxDodge + 1) + SizeDodgeRoll(tgt.Race, P.Race) - tgt.DodgePenalty;
+            Console.WriteLine($"  Arrow at {tgt.Name} ({f2:F0}ft): {a2} vs dodge {d2}.");
+            if (a2 >= d2 && !EnemyBlocks(tgt, a2, isRanged: true))
+            {
+                int dm = Rng.Next(dMin, dMax + 1) + SlayerDmg() + arrowDmgBonus;
+                dm = ReduceByToughHide(tgt, dm);
+                tgt.HP -= dm;
+                Console.WriteLine($"  HIT! {dm} dmg → {tgt.Name} HP:{tgt.HP}/{tgt.MaxHP}");
+                if (!P.HasReturningAmmo && Rng.Next(100) < 25) Console.WriteLine("  The arrow snaps!");
+                else RecoverArrowLater(arrowType);
+                if (!tgt.Alive)
+                {
+                    if (arrowType == "blunt" && !tgt.IsUndead) KnockOut(tgt);
+                    else HandleKill(tgt);
+                }
+            }
+            else
+            {
+                Console.WriteLine("  MISS!");
+                if (!P.HasReturningAmmo && Rng.Next(100) < 50) Console.WriteLine("  The arrow shatters.");
+                else RecoverArrowLater(arrowType);
+            }
+        }
+
+        // Special shot modes from feats
+        var shotModes = new List<string>();
+        if (P.HasFeat("Multishot")) shotModes.Add("[M]ultishot x4");
+        if (P.HasFeat("Split Shot")) shotModes.Add("s[P]lit 2 targets");
+        if (P.HasFeat("Piercing Shot")) shotModes.Add("p[I]ercing line");
+        if (P.HasFeat("Folly of Arrows")) shotModes.Add("[F]olly 4d4 rain");
+        if (shotModes.Count > 0)
+        {
+            Console.Write($"  Shot? [N]ormal  {string.Join("  ", shotModes)}: ");
+            string sm = (Console.ReadLine() ?? "n").Trim().ToLower();
+            if (sm.StartsWith("m") && P.HasFeat("Multishot"))
+            {
+                for (int i = 0; i < 4 && HasAmmo() && target.Alive; i++) QuickShot(target, costsArrow: true);
+                return;
+            }
+            if (sm.StartsWith("p") && P.HasFeat("Split Shot"))
+            {
+                var others = Active.Where(en => en.Alive && en != target).ToList();
+                QuickShot(target, costsArrow: true);
+                if (others.Any() && HasAmmo())
+                {
+                    var t2 = others.Count == 1 ? others[0] : PickTarget(others);
+                    if (t2 != null) QuickShot(t2, costsArrow: true);
+                }
+                return;
+            }
+            if (sm.StartsWith("i") && P.HasFeat("Piercing Shot"))
+            {
+                QuickShot(target, costsArrow: true);
+                float tDist = PlayerPos.Feet(target.Position);
+                var lineTargets = Active.Where(en => en.Alive && en != target
+                    && target.Position.Feet(en.Position) <= 20f
+                    && PlayerPos.Feet(en.Position) > tDist).ToList();
+                foreach (var lt in lineTargets)
+                {
+                    Console.WriteLine($"  The arrow punches through toward {lt.Name}!");
+                    QuickShot(lt, costsArrow: false);   // same arrow keeps flying
+                }
+                return;
+            }
+            if (sm.StartsWith("f") && P.HasFeat("Folly of Arrows"))
+            {
+                int volley = Rng.Next(1, 5) + Rng.Next(1, 5) + Rng.Next(1, 5) + Rng.Next(1, 5);
+                Console.WriteLine($"  You loose {volley} arrows into the sky above {target.Name}!");
+                for (int i = 0; i < volley && HasAmmo(); i++)
+                {
+                    var area = Active.Where(en => en.Alive
+                        && Math.Abs(en.Position.X - target.Position.X) <= 2
+                        && Math.Abs(en.Position.Y - target.Position.Y) <= 2).ToList();
+                    if (!area.Any()) { Console.WriteLine("  The remaining arrows thud into empty ground."); break; }
+                    QuickShot(area[Rng.Next(area.Count)], costsArrow: true);
+                }
+                return;
+            }
+        }
+
         int dmgMin, dmgMax;
         if (feet <= 14f) { dmgMin = 4; dmgMax = 12; }
         else if (feet <= 45f) { dmgMin = 2; dmgMax = 10; }
         else { dmgMin = 1; dmgMax = 5; }
+        if (huntingBow) { dmgMin = 2; dmgMax = 6; }
         dmgMin += P.MinRangedDmgBonus; dmgMax += P.MinRangedDmgBonus + P.MaxRangedDmgBonus;
-        int atkRoll = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 1) + SlayerAtk() + HighGround() + arrowAtkBonus;
+        int atkRoll = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 1) + SlayerAtk() + HighGround() + arrowAtkBonus + (huntingBow ? 2 : 0);
         int ddg = Rng.Next(target.MinDodge, target.MaxDodge + 1) + SizeDodgeRoll(target.Race, P.Race) - target.DodgePenalty;
         Console.WriteLine($"  BOW ({feet:F0}ft, dmg {dmgMin}-{dmgMax})! Roll {atkRoll} vs {target.Name}'s dodge {ddg}.");
         SpendArrow();
@@ -5645,7 +6178,7 @@ class CombatSession
             Console.WriteLine($"  Arrow HIT! {dmg} dmg → {target.Name} HP:{target.HP - dmg}/{target.MaxHP}");
             target.HP -= dmg;
             target.ArrowsInBody++;
-            if (Rng.Next(100) < 25) Console.WriteLine("  The arrow snaps in the wound!");
+            if (!P.HasReturningAmmo && Rng.Next(100) < 25) Console.WriteLine("  The arrow snaps in the wound!");
             else RecoverArrowLater(arrowType);
             if (!target.Alive)
             {
@@ -5664,10 +6197,10 @@ class CombatSession
                 stray.HP -= strayDmg;
                 Console.WriteLine($"  The stray arrow strikes {stray.Name} for {strayDmg}! HP:{stray.HP}/{stray.MaxHP}");
                 if (!stray.Alive) HandleKill(stray);
-                if (Rng.Next(100) < 35) Console.WriteLine("  The arrow breaks.");
+                if (!P.HasReturningAmmo && Rng.Next(100) < 35) Console.WriteLine("  The arrow breaks.");
                 else RecoverArrowLater(arrowType);
             }
-            else if (Rng.Next(100) < 50) Console.WriteLine("  The arrow shatters against the ground.");
+            else if (!P.HasReturningAmmo && Rng.Next(100) < 50) Console.WriteLine("  The arrow shatters against the ground.");
             else RecoverArrowLater(arrowType);
         }
 
@@ -6309,7 +6842,8 @@ class CombatSession
             }
 
             // Stand up if knocked down
-            int actions = 3;   // every NPC acts three times per turn
+            // NPCs act 3 times per turn; goblins are quick (+1), ogres slow (-1)
+            int actions = 3 + (e.Race == "Goblin" ? 1 : 0) - (e.Race == "Ogre" ? 1 : 0);
             if (e.KnockedDown)
             {
                 Console.WriteLine($"  {e.Name} stands up (1 action used).");
