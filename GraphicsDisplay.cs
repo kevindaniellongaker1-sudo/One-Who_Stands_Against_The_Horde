@@ -206,6 +206,7 @@ class GraphicsDisplay
             ("TrollMusician", "musiciantroll.png"),
             ("OgreBerserker", "bersekerogre.png"),
             ("OgreDuelist", "duelistogre.png"),
+            ("OgreWarrior", "warriorogre.png"),
         };
         foreach (var (key, file) in custom)
         {
