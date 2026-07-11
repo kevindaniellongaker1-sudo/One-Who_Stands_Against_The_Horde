@@ -44,9 +44,12 @@ folder, and you double-click the exe to play.
 
 ## How to play
 
-- The game runs in the **console window** (all prompts and choices) with a
-  **graphics window** alongside showing the battle grid, sprites, HP bars and
-  a legend of enemy types.
+- The game runs in a **graphics window** showing the battle grid, sprites,
+  HP bars, party stats, and an interaction panel with the scene text and
+  **clickable choice buttons** — character creation, combat actions, the
+  shop, and save/retire prompts can all be played by mouse. A **console
+  window** runs alongside; type there for free-text answers (names, amounts)
+  or play entirely from the keyboard if you prefer.
 - Follow the prompts: pick player count, create or load a character (race,
   class, stat points, feats), then fight wave after wave.
 - In combat, type the number or name of an action: `attack`, `move` (step

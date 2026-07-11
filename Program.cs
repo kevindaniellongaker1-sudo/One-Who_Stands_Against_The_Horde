@@ -8,6 +8,10 @@ using System.Threading;
 
 var sharedState = new SharedGameState();
 
+// Mirror all console text into the graphics window and let it inject input
+Console.SetOut(new ConsoleMirror(Console.Out, sharedState));
+GameIO.State = sharedState;
+
 var gameThread = new Thread(() =>
 {
     try   { RunGameLogic(sharedState); }
@@ -46,7 +50,7 @@ ShowHiscores();
 
 Console.Write("\nHow many players? (1-5, default 1): ");
 int numPlayers = 1;
-if (int.TryParse((Console.ReadLine() ?? "").Trim(), out int npInput) && npInput >= 2 && npInput <= 5)
+if (int.TryParse((GameIO.ReadLine() ?? "").Trim(), out int npInput) && npInput >= 2 && npInput <= 5)
     numPlayers = npInput;
 
 for (int pi = 1; pi <= numPlayers; pi++)
@@ -56,7 +60,7 @@ for (int pi = 1; pi <= numPlayers; pi++)
 
     Console.WriteLine("[N]ew character  [L]oad saved character");
     Console.Write("Choice: ");
-    string choice = (Console.ReadLine() ?? "n").Trim().ToLower();
+    string choice = (GameIO.ReadLine() ?? "n").Trim().ToLower();
 
     if (choice.StartsWith("l"))
     {
@@ -72,7 +76,7 @@ for (int pi = 1; pi <= numPlayers; pi++)
             for (int i = 0; i < saves.Count; i++)
                 Console.WriteLine($"  [{i + 1}] {saves[i].name,-22}  Wave {saves[i].wave,3}  Level {saves[i].level}");
             Console.Write("Enter number or name (Enter = new character): ");
-            string pick = (Console.ReadLine() ?? "").Trim();
+            string pick = (GameIO.ReadLine() ?? "").Trim();
             bool loaded = false;
             if (int.TryParse(pick, out int idx) && idx >= 1 && idx <= saves.Count)
                 loaded = TryLoadGame(p, saves[idx - 1].path);
@@ -260,7 +264,7 @@ while (true)
             (canGather ? "  [6] Gather" : "") +
             (pl.CharacterType == "Artisan" ? "  [7] Craft" : ""));
         Console.Write("  Choice: ");
-        string next = (Console.ReadLine() ?? "1").Trim().ToLower();
+        string next = (GameIO.ReadLine() ?? "1").Trim().ToLower();
         if (next is "5" or "shop" or "buy")
         {
             VisitShop(pl);
@@ -612,7 +616,7 @@ void SelectFeats(Player p)
         }
 
         Console.Write($"Select feat (1-{avail.Count}): ");
-        if (int.TryParse(Console.ReadLine()?.Trim(), out int fi) && fi >= 1 && fi <= avail.Count)
+        if (int.TryParse(GameIO.ReadLine()?.Trim(), out int fi) && fi >= 1 && fi <= avail.Count)
         {
             var f = avail[fi - 1];
             p.AddFeat(f.Name);
@@ -629,7 +633,7 @@ void SelectFeats(Player p)
             {
                 Console.WriteLine("  Choose element: [1]holy  [2]negative  [3]air  [4]fire  [5]lightning  [6]frost");
                 Console.Write("  Element: ");
-                string el = (Console.ReadLine() ?? "").Trim().ToLower();
+                string el = (GameIO.ReadLine() ?? "").Trim().ToLower();
                 p.ElementalFocus = el switch { "1" or "holy" => "holy", "2" or "negative" => "negative", "3" or "air" => "air", "4" or "fire" => "fire", "5" or "lightning" => "lightning", "6" or "frost" => "frost", _ => "air" };
                 Console.WriteLine($"  Elemental focus: {p.ElementalFocus}!");
             }
@@ -666,7 +670,7 @@ void SelectFeats(Player p)
                                         "Saxophone", "Bagpipes", "Accordion", "Tambourine", "Harmonica", "Bells" };
                     Console.WriteLine("  Pick your instrument: " + string.Join(", ", insts.Select((s2, i2) => $"[{i2 + 1}]{s2}")));
                     Console.Write("  Choice (1-12 or name): ");
-                    string ir = (Console.ReadLine() ?? "").Trim();
+                    string ir = (GameIO.ReadLine() ?? "").Trim();
                     string pick = "Guitar";
                     if (int.TryParse(ir, out int ii2) && ii2 >= 1 && ii2 <= insts.Length) pick = insts[ii2 - 1];
                     else { var m2 = insts.FirstOrDefault(x => x.StartsWith(ir, StringComparison.OrdinalIgnoreCase)); if (m2 != null) pick = m2; }
@@ -696,7 +700,7 @@ void SelectFeats(Player p)
             if (f.Name == "Weapon Specialist")
             {
                 Console.Write("  Specialize in which weapon (exact name, e.g. Long Sword): ");
-                string spec = (Console.ReadLine() ?? "").Trim();
+                string spec = (GameIO.ReadLine() ?? "").Trim();
                 if (spec.Length == 0) spec = p.HeldWeapon ?? "Unarmed";
                 p.WeaponSpec[spec] = p.WeaponSpec.GetValueOrDefault(spec) + 1;
                 Console.WriteLine($"  Weapon Specialist: {spec} x{p.WeaponSpec[spec]} (+1d4 atk & dmg per stack).");
@@ -731,7 +735,7 @@ void SpendStatPoints(Player p)
         if (p.SavedStatPoints >= 4)
             Console.WriteLine("  ── 4 points: [24] Extra action/turn   [27] Pick a feat");
         Console.Write("  Choice ([S]ave all for later): ");
-        string raw = (Console.ReadLine() ?? "s").Trim().ToLower();
+        string raw = (GameIO.ReadLine() ?? "s").Trim().ToLower();
         if (raw == "s" || raw == "save") break;
         if (!int.TryParse(raw, out int ch)) { Console.WriteLine("  Invalid."); continue; }
         bool exitLoop = false;
@@ -807,7 +811,7 @@ void SpendGearPoints(Player p)
             Console.WriteLine($"  [{i+1}] {avail[i].Key} ({taken}/3) — {avail[i].Desc}");
         }
         Console.Write("  Choose: ");
-        if (int.TryParse(Console.ReadLine()?.Trim(), out int g) && g >= 1 && g <= avail.Count)
+        if (int.TryParse(GameIO.ReadLine()?.Trim(), out int g) && g >= 1 && g <= avail.Count)
         {
             var it = avail[g - 1];
             it.Apply(p);
@@ -829,7 +833,7 @@ void LearnSpell(Player p)
     Console.WriteLine("    Frost Burst      — 2-8 dmg to 2-8 enemies; -2 to -8 on their rolls for 2-6 actions");
     for (int i = 0; i < available.Count; i++) Console.WriteLine($"  [{i+1}] {available[i]}");
     Console.Write("  Learn: ");
-    if (int.TryParse(Console.ReadLine()?.Trim(), out int s) && s >= 1 && s <= available.Count)
+    if (int.TryParse(GameIO.ReadLine()?.Trim(), out int s) && s >= 1 && s <= available.Count)
     { p.KnownSpells.Add(available[s - 1]); Console.WriteLine($"  ✓ Learned: {available[s - 1]}!"); }
     else Console.WriteLine("  Invalid.");
 }
@@ -837,14 +841,14 @@ void LearnSpell(Player p)
 void AskName(Player p)
 {
     Console.Write("\nFirst name (or Enter for 'The Lone Warrior'): ");
-    string first = (Console.ReadLine() ?? "").Trim();
+    string first = (GameIO.ReadLine() ?? "").Trim();
     if (string.IsNullOrEmpty(first)) { SelectRace(p); return; }
 
     Console.Write("Middle name (or Enter to skip): ");
-    string middle = (Console.ReadLine() ?? "").Trim();
+    string middle = (GameIO.ReadLine() ?? "").Trim();
 
     Console.Write("Last name: ");
-    string last = (Console.ReadLine() ?? "").Trim();
+    string last = (GameIO.ReadLine() ?? "").Trim();
 
     p.Name = string.IsNullOrEmpty(middle)
         ? $"{first} {last}".Trim()
@@ -880,7 +884,7 @@ void SelectRace(Player p)
     Console.WriteLine("  [16] Giant              — +2 melee dmg, +4 HP, +1 move, free Giant's Strength; clumsy vs smaller foes");
     Console.WriteLine("  (Size matters: small races get attack/dodge bonuses vs bigger foes; see race notes)");
     Console.Write("  Choice (1-16 or name): ");
-    string raw = (Console.ReadLine() ?? "").Trim();
+    string raw = (GameIO.ReadLine() ?? "").Trim();
     string chosen = "Human";
     if (int.TryParse(raw, out int ridx) && ridx >= 1 && ridx <= races.Length)
         chosen = races[ridx - 1];
@@ -910,7 +914,7 @@ void SelectRace(Player p)
             for (int fi = 0; fi < available.Count; fi++)
                 Console.WriteLine($"    [{fi + 1}] {available[fi].Name} — {available[fi].Desc}");
             Console.Write($"  Choice (1-{available.Count}): ");
-            if (int.TryParse((Console.ReadLine() ?? "").Trim(), out int fc) && fc >= 1 && fc <= available.Count)
+            if (int.TryParse((GameIO.ReadLine() ?? "").Trim(), out int fc) && fc >= 1 && fc <= available.Count)
             {
                 p.AddFeat(available[fc - 1].Name);
                 Console.WriteLine($"  Gained feat: {available[fc - 1].Name}!");
@@ -1026,7 +1030,7 @@ void SelectCharacterType(Player p)
     Console.WriteLine("  [8] Musician       — Pick an instrument; songs buff the whole party (linger 1d4 turns)");
     Console.WriteLine("  [9] Artisan        — Gathers wood/stone/ore/hides; crafts weapons, armor and arrows");
     Console.Write("  Choice (1-9 or name): ");
-    string raw = (Console.ReadLine() ?? "").Trim();
+    string raw = (GameIO.ReadLine() ?? "").Trim();
     string chosen = "Warrior";
     if (int.TryParse(raw, out int cidx) && cidx >= 1 && cidx <= types.Length)
         chosen = types[cidx - 1];
@@ -1095,7 +1099,7 @@ void SelectCharacterType(Player p)
         Console.WriteLine("  [3] Taekwondo  — break limbs of grappled enemies (double damage, effects by limb)");
         Console.WriteLine("  [4] Chidia     — unarmed: +2 actions/turn; all attacks non-lethal (KO)");
         Console.Write("  Choice (1-4 or name): ");
-        string araw = (Console.ReadLine() ?? "").Trim();
+        string araw = (GameIO.ReadLine() ?? "").Trim();
         string art = "Kehon";
         if (int.TryParse(araw, out int aidx) && aidx >= 1 && aidx <= arts.Length) art = arts[aidx - 1];
         else { var am = arts.FirstOrDefault(a => a.StartsWith(araw, StringComparison.OrdinalIgnoreCase)); if (am != null) art = am; }
@@ -1124,7 +1128,7 @@ void SelectCharacterType(Player p)
         for (int ii = 0; ii < instruments.Length; ii++)
             Console.WriteLine($"  [{ii + 1,2}] {instruments[ii]}");
         Console.Write("  Choice (1-12 or name): ");
-        string iraw = (Console.ReadLine() ?? "").Trim();
+        string iraw = (GameIO.ReadLine() ?? "").Trim();
         string inst = "Guitar";
         if (int.TryParse(iraw, out int iidx) && iidx >= 1 && iidx <= instruments.Length) inst = instruments[iidx - 1];
         else { var im = instruments.FirstOrDefault(i => i.StartsWith(iraw, StringComparison.OrdinalIgnoreCase)); if (im != null) inst = im; }
@@ -1192,7 +1196,7 @@ void VisitShop(Player pl)
         Console.WriteLine("  [1] Arrows   [2] Weapons   [3] Shields   [4] Sell gear   [5] Armor   [6] Materials");
         Console.WriteLine("  [8] Bag space   [9] Magic shop   [10] Potion shop   [7] Leave");
         Console.Write("  Browse: ");
-        string c = (Console.ReadLine() ?? "7").Trim().ToLower();
+        string c = (GameIO.ReadLine() ?? "7").Trim().ToLower();
         if (c is "7" or "leave" or "exit" or "x" or "") break;
 
         if (c is "8" or "bag" or "bags")
@@ -1202,7 +1206,7 @@ void VisitShop(Player pl)
             bool bagGate = pl.HasFeat("Hunter") || pl.HasFeat("Gatherer");
             if (bagGate) Console.WriteLine("  [2] Artisan Bag — +8 pack space for 20c (Hunter/Gatherer only)");
             Console.Write("  Buy (or Enter to go back): ");
-            string bc = (Console.ReadLine() ?? "").Trim();
+            string bc = (GameIO.ReadLine() ?? "").Trim();
             if (bc == "1")
             {
                 if (bcost > pl.Copper) { Console.WriteLine("  Not enough coin."); continue; }
@@ -1225,7 +1229,7 @@ void VisitShop(Player pl)
             Console.WriteLine($"  [2] Mirror Shield    — {Shop.Fmt(Shop.Price["Mirror Shield"] + 3 * Shop.Gold)}  (+2 block; reflects spells/prayers 35%)");
             Console.WriteLine($"  [3] Bag of Holding   — {Shop.Fmt(Shop.Price["Bag of Holding"] + 3 * Shop.Gold)}  (carry everything, forever)");
             Console.Write("  Buy (or Enter to go back): ");
-            string mg = (Console.ReadLine() ?? "").Trim();
+            string mg = (GameIO.ReadLine() ?? "").Trim();
             long mcost2 = mg switch
             {
                 "1" => Shop.Price["Returning Quiver"] + 3 * Shop.Gold,
@@ -1270,7 +1274,7 @@ void VisitShop(Player pl)
             Console.WriteLine($"  Potions ({Shop.Fmt(pcost)} each — brewed to your level {pl.Level}):");
             Console.WriteLine($"  [1] Boost x{pl.PotionsBoost}   [2] Heal x{pl.PotionsHeal}   [3] Poison x{pl.PotionsPoison}   [4] Restore x{pl.PotionsRestore}");
             Console.Write("  Buy (or Enter to go back): ");
-            string pp = (Console.ReadLine() ?? "").Trim();
+            string pp = (GameIO.ReadLine() ?? "").Trim();
             if (pp is not ("1" or "2" or "3" or "4")) continue;
             if (pcost > pl.Copper) { Console.WriteLine($"  Not enough coin ({Shop.Fmt(pcost)})."); continue; }
             pl.Copper -= pcost;
@@ -1292,10 +1296,10 @@ void VisitShop(Player pl)
             Console.WriteLine($"  [3] Ore — 25c   (you have {pl.Ore})");
             Console.WriteLine($"  [4] Hide — 20c  (you have {pl.Hides})");
             Console.Write("  Which (or Enter to go back): ");
-            string mc = (Console.ReadLine() ?? "").Trim();
+            string mc = (GameIO.ReadLine() ?? "").Trim();
             if (mc is not ("1" or "2" or "3" or "4")) continue;
             Console.Write("  How many: ");
-            if (!int.TryParse(Console.ReadLine()?.Trim(), out int mq) || mq <= 0) continue;
+            if (!int.TryParse(GameIO.ReadLine()?.Trim(), out int mq) || mq <= 0) continue;
             if (mq > pl.PackRoom)
             {
                 mq = pl.PackRoom;
@@ -1327,7 +1331,7 @@ void VisitShop(Player pl)
             }
             Console.WriteLine("  ([under] pieces layer beneath a main armor — you can wear one of each)");
             Console.Write("  Buy # (or Enter to go back): ");
-            if (!int.TryParse(Console.ReadLine()?.Trim(), out int ai2) || ai2 < 1 || ai2 > alist.Length) continue;
+            if (!int.TryParse(GameIO.ReadLine()?.Trim(), out int ai2) || ai2 < 1 || ai2 > alist.Length) continue;
             string aname = alist[ai2 - 1];
             var def = Shop.Armors[aname];
             if (def.Cost > pl.Copper) { Console.WriteLine($"  Not enough coin ({Shop.Fmt(def.Cost)})."); continue; }
@@ -1367,10 +1371,10 @@ void VisitShop(Player pl)
             Console.WriteLine($"  [3] Barbed Arrow — 1s, +1d4 damage       (you have {pl.BarbedArrows})");
             Console.WriteLine($"  [4] Spiral Arrow — 3s, +1d4 atk & +1d4 dmg (you have {pl.SpiralArrows})");
             Console.Write("  Which (or Enter to go back): ");
-            string ac = (Console.ReadLine() ?? "").Trim();
+            string ac = (GameIO.ReadLine() ?? "").Trim();
             if (ac is not ("1" or "2" or "3" or "4")) continue;
             Console.Write("  How many: ");
-            if (!int.TryParse(Console.ReadLine()?.Trim(), out int n) || n <= 0) continue;
+            if (!int.TryParse(GameIO.ReadLine()?.Trim(), out int n) || n <= 0) continue;
             long cost = ac switch
             {
                 "1" => n,
@@ -1403,7 +1407,7 @@ void VisitShop(Player pl)
             }
             Console.WriteLine("  ([2H] = two-handed; needs Giant's Strength to wield in one hand)");
             Console.Write("  Buy # (or Enter to go back): ");
-            if (!int.TryParse(Console.ReadLine()?.Trim(), out int wi) || wi < 1 || wi > stock.Length) continue;
+            if (!int.TryParse(GameIO.ReadLine()?.Trim(), out int wi) || wi < 1 || wi > stock.Length) continue;
             string wname = stock[wi - 1];
             long wcost = Shop.Price[wname];
             if (wcost > pl.Copper) { Console.WriteLine($"  Not enough coin ({Shop.Fmt(wcost)})."); continue; }
@@ -1413,7 +1417,7 @@ void VisitShop(Player pl)
             else
             {
                 Console.Write($"  Hands full! Trade in [H]eld {pl.HeldWeapon} or [S]econdary {pl.SecondaryWeapon} at 80%? ([N]o): ");
-                string tr = (Console.ReadLine() ?? "n").Trim().ToLower();
+                string tr = (GameIO.ReadLine() ?? "n").Trim().ToLower();
                 if (tr.StartsWith("h"))
                 {
                     long tradeIn = Shop.Sell(pl.HeldWeapon);
@@ -1445,7 +1449,7 @@ void VisitShop(Player pl)
             }
             Console.WriteLine("  (Shields also block ranged attacks.)");
             Console.Write("  Buy # (or Enter to go back): ");
-            if (!int.TryParse(Console.ReadLine()?.Trim(), out int si) || si < 1 || si > shields.Length) continue;
+            if (!int.TryParse(GameIO.ReadLine()?.Trim(), out int si) || si < 1 || si > shields.Length) continue;
             string sname = shields[si - 1];
             long scost = Shop.Price[sname];
             if (scost > pl.Copper) { Console.WriteLine($"  Not enough coin ({Shop.Fmt(scost)})."); continue; }
@@ -1495,7 +1499,7 @@ void VisitShop(Player pl)
             for (int i = 0; i < sellable.Count; i++)
                 Console.WriteLine($"  [{i + 1}] {sellable[i].Label} — sells for {Shop.Fmt(Shop.Sell(sellable[i].Item))}");
             Console.Write("  Sell # (or Enter to go back): ");
-            if (!int.TryParse(Console.ReadLine()?.Trim(), out int gi) || gi < 1 || gi > sellable.Count) continue;
+            if (!int.TryParse(GameIO.ReadLine()?.Trim(), out int gi) || gi < 1 || gi > sellable.Count) continue;
             long val = Shop.Sell(sellable[gi - 1].Item);
             sellable[gi - 1].Remove();
             pl.Copper += val;
@@ -1521,7 +1525,7 @@ void GatherAfterWave(Player pl)
     if (!gopts.Any()) { Console.WriteLine("  You have no gathering skills (Hunter or Gatherer feats grant them)."); return; }
     Console.WriteLine($"  Gather: {string.Join("  ", gopts)}");
     Console.Write("  Choice: ");
-    string gc = (Console.ReadLine() ?? "").Trim().ToLower();
+    string gc = (GameIO.ReadLine() ?? "").Trim().ToLower();
 
     if (gc is "1" or "hunt" && huntTier > 0 && !hasKnife)
     {
@@ -1635,7 +1639,7 @@ void VisitCrafting(Player pl)
     {
         for (int i = 0; i < allPlayers.Count; i++) Console.Write($"[{i + 1}]{allPlayers[i].Name}{(allPlayers[i] == pl ? " (you)" : "")}  ");
         Console.Write("\n  Craft for whom (Enter = yourself): ");
-        if (int.TryParse(Console.ReadLine()?.Trim(), out int cf) && cf >= 1 && cf <= allPlayers.Count)
+        if (int.TryParse(GameIO.ReadLine()?.Trim(), out int cf) && cf >= 1 && cf <= allPlayers.Count)
             craftFor = allPlayers[cf - 1];
         Console.WriteLine($"  Crafting for {craftFor.Name}.");
     }
@@ -1647,7 +1651,7 @@ void VisitCrafting(Player pl)
         Console.WriteLine("  [1] Craft arrows  [2] Craft weapon  [3] Craft shield  [4] Craft armor  [5] Trade to ally  [6] Sell materials  [7] Craft bag" +
             (pl.HasFeat("Magic Crafting") ? "  [8] Magic crafting" : "") + "  [9] Leave");
         Console.Write("  Choice: ");
-        string c = (Console.ReadLine() ?? "9").Trim().ToLower();
+        string c = (GameIO.ReadLine() ?? "9").Trim().ToLower();
         if (c is "9" or "leave" or "x" or "") break;
 
         if (c is "7" or "bag")
@@ -1657,7 +1661,7 @@ void VisitCrafting(Player pl)
             int cost = Math.Max(2, craftFor.CarryCap / (artisanTarget ? 10 : 2));
             Console.WriteLine($"  Bag for {craftFor.Name}: +{gain} pack space, costs {cost} hide(s). (You have {pl.Hides}.)");
             Console.Write("  Craft it? (y/n): ");
-            if (!(Console.ReadLine() ?? "n").Trim().ToLower().StartsWith("y")) continue;
+            if (!(GameIO.ReadLine() ?? "n").Trim().ToLower().StartsWith("y")) continue;
             if (pl.Hides < cost) { Console.WriteLine("  Not enough hides."); continue; }
             pl.Hides -= cost;
             craftFor.CarryCap += gain;
@@ -1670,7 +1674,7 @@ void VisitCrafting(Player pl)
             Console.WriteLine("  Magic crafting (materials = price/15, -1 per level):");
             Console.WriteLine("  [1] Returning Quiver (ammo flies back)   [2] Mirror Shield (reflects spells 35%)   [3] Bag of Holding (limitless)");
             Console.Write("  Craft (or Enter to go back): ");
-            string mci = (Console.ReadLine() ?? "").Trim();
+            string mci = (GameIO.ReadLine() ?? "").Trim();
             (string Name, long BasePrice) mdef = mci switch
             {
                 "1" => ("Returning Quiver", Shop.Price["Returning Quiver"]),
@@ -1710,7 +1714,7 @@ void VisitCrafting(Player pl)
         {
             Console.WriteLine("  [1] Arrow  [2] Blunt  [3] Barbed (needs ore)  [4] Spiral (needs ore)");
             Console.Write("  Type: ");
-            string at = (Console.ReadLine() ?? "").Trim();
+            string at = (GameIO.ReadLine() ?? "").Trim();
             (string Name, long Price, int oPct) def = at switch
             {
                 "2" => ("Blunt Arrow", 1, 0),
@@ -1719,7 +1723,7 @@ void VisitCrafting(Player pl)
                 _ => ("Arrow", 1, 0),
             };
             Console.Write("  How many: ");
-            if (!int.TryParse(Console.ReadLine()?.Trim(), out int n) || n <= 0) continue;
+            if (!int.TryParse(GameIO.ReadLine()?.Trim(), out int n) || n <= 0) continue;
             int made = 0;
             for (int i = 0; i < n; i++)
             {
@@ -1747,7 +1751,7 @@ void VisitCrafting(Player pl)
             for (int i = 0; i < stock.Length; i++)
                 Console.WriteLine($"  [{i + 1,2}] {stock[i],-13} — {Math.Max(1, Shop.Price[stock[i]] / 25 - (pl.Level - 1))} materials");
             Console.Write("  Craft # (or Enter to go back): ");
-            if (!int.TryParse(Console.ReadLine()?.Trim(), out int wi) || wi < 1 || wi > stock.Length) continue;
+            if (!int.TryParse(GameIO.ReadLine()?.Trim(), out int wi) || wi < 1 || wi > stock.Length) continue;
             string wname = stock[wi - 1];
             if (!TryCraft(wname, Shop.Price[wname], 25, 15, 0, 60, 25)) continue;
             if (craftFor.HeldWeapon == null) { craftFor.HeldWeapon = wname; Console.WriteLine($"  {craftFor.Name} wields the freshly forged {wname}!"); }
@@ -1755,7 +1759,7 @@ void VisitCrafting(Player pl)
             else
             {
                 Console.Write($"  {craftFor.Name}'s hands are full! Scrap [H]eld {craftFor.HeldWeapon} or [S]econdary {craftFor.SecondaryWeapon}? ([N]either cancels): ");
-                string sc = (Console.ReadLine() ?? "n").Trim().ToLower();
+                string sc = (GameIO.ReadLine() ?? "n").Trim().ToLower();
                 if (sc.StartsWith("h")) { Console.WriteLine($"  The {craftFor.HeldWeapon} is scrapped."); craftFor.HeldWeapon = wname; }
                 else if (sc.StartsWith("s")) { Console.WriteLine($"  The {craftFor.SecondaryWeapon} is scrapped."); craftFor.SecondaryWeapon = wname; }
                 else { Console.WriteLine("  The materials are set aside... and honestly, lost in the pile."); }
@@ -1768,7 +1772,7 @@ void VisitCrafting(Player pl)
             for (int i = 0; i < shields.Length; i++)
                 Console.WriteLine($"  [{i + 1}] {shields[i],-12} — {Math.Max(1, Shop.Price[shields[i]] / 25 - (pl.Level - 1))} materials");
             Console.Write("  Craft # (or Enter to go back): ");
-            if (!int.TryParse(Console.ReadLine()?.Trim(), out int si) || si < 1 || si > shields.Length) continue;
+            if (!int.TryParse(GameIO.ReadLine()?.Trim(), out int si) || si < 1 || si > shields.Length) continue;
             string sname = shields[si - 1];
             if (!TryCraft(sname, Shop.Price[sname], 25, 50, 0, 30, 20)) continue;
             if (craftFor.OffHandShieldName != null)
@@ -1795,7 +1799,7 @@ void VisitCrafting(Player pl)
                 Console.WriteLine($"  [{i + 1,2}] {alist[i],-14}{(a.Under ? " [under]" : "        ")} — {Math.Max(1, a.Cost / 15 - (pl.Level - 1))} materials{(magicNeeded ? " (needs magic or prayers)" : "")}");
             }
             Console.Write("  Craft # (or Enter to go back): ");
-            if (!int.TryParse(Console.ReadLine()?.Trim(), out int ai) || ai < 1 || ai > alist.Length) continue;
+            if (!int.TryParse(GameIO.ReadLine()?.Trim(), out int ai) || ai < 1 || ai > alist.Length) continue;
             string aname = alist[ai - 1];
             if (aname is "Rune Armor" or "Scribed Robes" && !pl.KnownSpells.Any() && !pl.CanPray && !pl.HasFeat("Magic Crafting"))
             {
@@ -1829,11 +1833,11 @@ void VisitCrafting(Player pl)
             if (!others.Any()) { Console.WriteLine("  No allies to trade with."); continue; }
             for (int i = 0; i < others.Count; i++) Console.Write($"[{i + 1}]{others[i].Name}  ");
             Console.Write("\n  Trade to whom: ");
-            if (!int.TryParse(Console.ReadLine()?.Trim(), out int ti) || ti < 1 || ti > others.Count) continue;
+            if (!int.TryParse(GameIO.ReadLine()?.Trim(), out int ti) || ti < 1 || ti > others.Count) continue;
             var ally = others[ti - 1];
             Console.WriteLine($"  Give: [1] Held ({pl.HeldWeapon ?? "nothing"})  [2] Secondary ({pl.SecondaryWeapon ?? "nothing"})  [3] Arrows  [4] Materials");
             Console.Write("  Choice: ");
-            string tc = (Console.ReadLine() ?? "").Trim();
+            string tc = (GameIO.ReadLine() ?? "").Trim();
             if (tc == "1" && pl.HeldWeapon != null)
             {
                 if (ally.HeldWeapon == null) ally.HeldWeapon = pl.HeldWeapon;
@@ -1853,13 +1857,13 @@ void VisitCrafting(Player pl)
             else if (tc == "3")
             {
                 Console.Write($"  How many arrows (you have {pl.ArrowCount}): ");
-                if (int.TryParse(Console.ReadLine()?.Trim(), out int na) && na > 0 && na <= pl.ArrowCount)
+                if (int.TryParse(GameIO.ReadLine()?.Trim(), out int na) && na > 0 && na <= pl.ArrowCount)
                 { pl.ArrowCount -= na; ally.ArrowCount += na; Console.WriteLine($"  Gave {na} arrows to {ally.Name}."); }
             }
             else if (tc == "4")
             {
                 Console.Write("  Which ([W]ood/[S]tone/[O]re/[H]ides) and how many, e.g. 'w 5': ");
-                var parts = (Console.ReadLine() ?? "").Trim().ToLower().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                var parts = (GameIO.ReadLine() ?? "").Trim().ToLower().Split(' ', StringSplitOptions.RemoveEmptyEntries);
                 if (parts.Length == 2 && int.TryParse(parts[1], out int qm) && qm > 0)
                 {
                     switch (parts[0][0])
@@ -1876,7 +1880,7 @@ void VisitCrafting(Player pl)
         else if (c is "6" or "sell")
         {
             Console.Write("  Sell which ([W]ood/[S]tone/[O]re/[H]ides/[M]eat) and how many, e.g. 'o 3': ");
-            var parts = (Console.ReadLine() ?? "").Trim().ToLower().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var parts = (GameIO.ReadLine() ?? "").Trim().ToLower().Split(' ', StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length != 2 || !int.TryParse(parts[1], out int qs) || qs <= 0) continue;
             ref int stockRef = ref pl.Wood;
             string what = "wood";
@@ -3471,7 +3475,7 @@ class CombatSession
         while (used < squares)
         {
             Console.Write($"  [{used}/{squares} moved] at ({PlayerPos.X},{PlayerPos.Y}) — step: ");
-            string d = (Console.ReadLine() ?? "").Trim().ToLower();
+            string d = (GameIO.ReadLine() ?? "").Trim().ToLower();
             if (d == "" || d == "x" || d == "q" || d == "done" || d == "stop") break;
             bool badInput = false;
             foreach (char c in d)
@@ -3904,7 +3908,7 @@ class CombatSession
                 if (pgbt.Alive)
                 {
                     Console.Write($"  [Tier 4] Free: [G]rapple {pgbt.Name} or [M]ove within 5ft? ");
-                    string t4 = (Console.ReadLine() ?? "").Trim().ToLower();
+                    string t4 = (GameIO.ReadLine() ?? "").Trim().ToLower();
                     if (t4.StartsWith("g")) DoGrapple(pgbt);
                     else if (t4.StartsWith("m"))
                     {
@@ -3938,7 +3942,7 @@ class CombatSession
                 if (P.IsGrappled && P.GrappledBy != null && P.GrappledBy.Alive)
                 {
                     Console.Write($"  [Grapple Style] Free melee on {P.GrappledBy.Name}? (y/n): ");
-                    if ((Console.ReadLine() ?? "").Trim().ToLower().StartsWith("y"))
+                    if ((GameIO.ReadLine() ?? "").Trim().ToLower().StartsWith("y"))
                         DoAttack(P.GrappledBy);
                 }
             }
@@ -3947,7 +3951,7 @@ class CombatSession
             for (int i = 0; i < opts.Count; i++) Console.Write($"[{i + 1}]{opts[i]}  ");
             Console.WriteLine();
             Console.Write("  Action: ");
-            string raw = (Console.ReadLine() ?? "").Trim().ToLower();
+            string raw = (GameIO.ReadLine() ?? "").Trim().ToLower();
 
             string chosen;
             if (int.TryParse(raw, out int n) && n >= 1 && n <= opts.Count) chosen = opts[n - 1];
@@ -4027,7 +4031,7 @@ class CombatSession
                         for (int ci = 0; ci < chargeAlive.Count; ci++) Console.Write($"[{ci+1}]{chargeAlive[ci].Name}  ");
                         Console.WriteLine();
                         Console.Write("  Charge target #: ");
-                        if (!int.TryParse(Console.ReadLine()?.Trim(), out int cti) || cti < 1 || cti > chargeAlive.Count)
+                        if (!int.TryParse(GameIO.ReadLine()?.Trim(), out int cti) || cti < 1 || cti > chargeAlive.Count)
                         { Console.WriteLine("  Invalid."); continue; }
                         chargeTarget = chargeAlive[cti - 1];
                     }
@@ -4045,7 +4049,7 @@ class CombatSession
                     if (PlayerPos.IsCardinalAdjacent(chargeTarget.Position) && chargeTarget.Alive)
                     {
                         Console.Write($"  In range! Free [A]ttack or [G]rapple on {chargeTarget.Name}? ");
-                        string cAct = (Console.ReadLine() ?? "").Trim().ToLower();
+                        string cAct = (GameIO.ReadLine() ?? "").Trim().ToLower();
                         if (cAct.StartsWith("a")) DoAttack(chargeTarget);
                         else if (cAct.StartsWith("g")) DoGrapple(chargeTarget);
                     }
@@ -4118,7 +4122,7 @@ class CombatSession
                     if (P.RagePoints <= 0 || P.IsRaging) { Console.WriteLine("  No rage points available."); continue; }
                     int maxSpend = P.RagePoints;
                     Console.Write($"  Spend how many rage points? (1-{maxSpend}): ");
-                    if (!int.TryParse(Console.ReadLine()?.Trim(), out int rpts) || rpts < 1 || rpts > maxSpend)
+                    if (!int.TryParse(GameIO.ReadLine()?.Trim(), out int rpts) || rpts < 1 || rpts > maxSpend)
                     { Console.WriteLine("  Invalid."); continue; }
                     P.RagePoints -= rpts;
                     P.RagePointsSpent = rpts;
@@ -4135,7 +4139,7 @@ class CombatSession
                     if (!wwAlive.Any()) { Console.WriteLine("  No enemies to hit."); continue; }
                     int numHits = 1 + (P.Level >= 2 ? (P.Level - 2) / 3 + 1 : 0);
                     Console.Write($"  Whirlwind ({numHits} swings)! [C]lockwise or [A]nti-clockwise? ");
-                    string wwDir = (Console.ReadLine() ?? "c").Trim().ToLower();
+                    string wwDir = (GameIO.ReadLine() ?? "c").Trim().ToLower();
                     bool cw = !wwDir.StartsWith("a");
                     // 8 directions cycling CW: N NE E SE S SW W NW
                     var cwDirs = new (int dx, int dy)[] { (0,-1),(1,-1),(1,0),(1,1),(0,1),(-1,1),(-1,0),(-1,-1) };
@@ -4188,7 +4192,7 @@ class CombatSession
                     Console.WriteLine($"  Known spells (casts left: {P.SpellUses}):");
                     for (int si = 0; si < P.KnownSpells.Count; si++) Console.WriteLine($"  [{si+1}] {P.KnownSpells[si]}");
                     Console.Write("  Cast which: ");
-                    if (int.TryParse(Console.ReadLine()?.Trim(), out int si2) && si2 >= 1 && si2 <= P.KnownSpells.Count)
+                    if (int.TryParse(GameIO.ReadLine()?.Trim(), out int si2) && si2 >= 1 && si2 <= P.KnownSpells.Count)
                     {
                         if (P.SpellUses <= 0) { Console.WriteLine("  You have no spell casts left. Rest to recover."); continue; }
                         P.SpellUses--;
@@ -4196,12 +4200,12 @@ class CombatSession
                         if (P.HasFeat("Twin Caster") && P.SpellUses > 0)
                         {
                             Console.Write("  [Twin Caster] Cast a second spell? [y/n]: ");
-                            if ((Console.ReadLine() ?? "").Trim().ToLower().StartsWith("y"))
+                            if ((GameIO.ReadLine() ?? "").Trim().ToLower().StartsWith("y"))
                             {
                                 Console.WriteLine($"  Known spells (casts left: {P.SpellUses}):");
                                 for (int tsi = 0; tsi < P.KnownSpells.Count; tsi++) Console.WriteLine($"  [{tsi+1}] {P.KnownSpells[tsi]}");
                                 Console.Write("  Cast which: ");
-                                if (int.TryParse(Console.ReadLine()?.Trim(), out int tsi2) && tsi2 >= 1 && tsi2 <= P.KnownSpells.Count)
+                                if (int.TryParse(GameIO.ReadLine()?.Trim(), out int tsi2) && tsi2 >= 1 && tsi2 <= P.KnownSpells.Count)
                                 {
                                     P.SpellUses--;
                                     DoSpell(P.KnownSpells[tsi2 - 1], alive);
@@ -4288,7 +4292,7 @@ class CombatSession
                     for (int sli = 0; sli < songList.Count; sli++)
                         Console.WriteLine($"  [{sli + 1}] {songList[sli].Name,-20} — {songList[sli].Desc}");
                     Console.Write("  Song # (or [C]ancel): ");
-                    string sraw = (Console.ReadLine() ?? "").Trim().ToLower();
+                    string sraw = (GameIO.ReadLine() ?? "").Trim().ToLower();
                     string? song = null;
                     if (int.TryParse(sraw, out int si) && si >= 1 && si <= songList.Count) song = songList[si - 1].Name;
                     else song = songList.Select(s => s.Name).FirstOrDefault(s => s.ToLower().StartsWith(sraw));
@@ -4394,7 +4398,7 @@ class CombatSession
                 {
                     Console.WriteLine("  Brew: [1] Boost (+1d4/lvl attack, 3 turns)  [2] Heal (1d6/lvl)  [3] Poison (AoE)  [4] Restore (uses)");
                     Console.Write("  Which (brews TWO): ");
-                    string bp = (Console.ReadLine() ?? "").Trim();
+                    string bp = (GameIO.ReadLine() ?? "").Trim();
                     switch (bp)
                     {
                         case "1": P.PotionsBoost += 2; Console.WriteLine($"  Brewed 2 Boost potions. ({P.PotionsBoost})"); break;
@@ -4416,7 +4420,7 @@ class CombatSession
                     if (P.PotionsRestore > 0) pOpts.Add($"[4] Restore x{P.PotionsRestore}");
                     Console.WriteLine($"  Potions: {string.Join("  ", pOpts)}");
                     Console.Write("  Use which: ");
-                    string up = (Console.ReadLine() ?? "").Trim();
+                    string up = (GameIO.ReadLine() ?? "").Trim();
                     if (up == "1" && P.PotionsBoost > 0)
                     {
                         P.PotionsBoost--;
@@ -4451,7 +4455,7 @@ class CombatSession
                     {
                         P.PotionsRestore--;
                         Console.Write("  Restore: [1] Spells  [2] Rage  [3] Prayers  [4] Duelist points: ");
-                        string rp = (Console.ReadLine() ?? "").Trim();
+                        string rp = (GameIO.ReadLine() ?? "").Trim();
                         switch (rp)
                         {
                             case "2": P.RagePoints += P.Level; Console.WriteLine($"  +{P.Level} rage points ({P.RagePoints})."); break;
@@ -4506,7 +4510,7 @@ class CombatSession
                     if (P.HasFeat("Prayer of Redemption"))     Console.WriteLine($"  [7] Redemption         — fully heal an ally + double max HP for 1d4 turns");
                     if (P.HasFeat("Prayer of Mass Blessings")) Console.WriteLine($"  [8] Mass Blessings     — +1d4 to all allies' rolls for 1d4 turns");
                     Console.Write("  Choose prayer: ");
-                    string pc = (Console.ReadLine() ?? "").Trim();
+                    string pc = (GameIO.ReadLine() ?? "").Trim();
 
                     bool validPrayer = pc switch
                     {
@@ -4529,7 +4533,7 @@ class CombatSession
                             var living = AllPlayers.Where(pl => pl.HP > 0).ToList();
                             for (int pi2 = 0; pi2 < living.Count; pi2++) Console.Write($"[{pi2 + 1}]{living[pi2].Name}  ");
                             Console.Write("\n  Ward who: ");
-                            if (int.TryParse(Console.ReadLine()?.Trim(), out int wi) && wi >= 1 && wi <= living.Count)
+                            if (int.TryParse(GameIO.ReadLine()?.Trim(), out int wi) && wi >= 1 && wi <= living.Count)
                                 sancTarget = living[wi - 1];
                         }
                         sancTarget.SanctuaryTurns = Rng.Next(1, 5);
@@ -4561,7 +4565,7 @@ class CombatSession
                             var living = AllPlayers.Where(pl => pl.HP > 0).ToList();
                             for (int pi3 = 0; pi3 < living.Count; pi3++) Console.Write($"[{pi3 + 1}]{living[pi3].Name}  ");
                             Console.Write("\n  Redeem who: ");
-                            if (int.TryParse(Console.ReadLine()?.Trim(), out int ri) && ri >= 1 && ri <= living.Count)
+                            if (int.TryParse(GameIO.ReadLine()?.Trim(), out int ri) && ri >= 1 && ri <= living.Count)
                                 redTarget = living[ri - 1];
                         }
                         redTarget.ExpireRedemption();   // don't stack with an existing redemption
@@ -4597,7 +4601,7 @@ class CombatSession
                         if (undeadTargets.Any())
                         {
                             Console.Write($"  Undead within 25ft! [S]mite an undead for {roll} radiant, or [H]eal self? ");
-                            if ((Console.ReadLine() ?? "").Trim().ToLower().StartsWith("s"))
+                            if ((GameIO.ReadLine() ?? "").Trim().ToLower().StartsWith("s"))
                                 smiteTarget = undeadTargets.Count == 1 ? undeadTargets[0] : PickTarget(undeadTargets);
                         }
 
@@ -4681,7 +4685,7 @@ class CombatSession
                             for (int ri = 0; ri < fallen.Count; ri++)
                                 Console.WriteLine($"  [{ri+1}] {fallen[ri].Name}");
                             Console.Write("  Revive whom? ");
-                            reviveTarget = int.TryParse((Console.ReadLine() ?? "").Trim(), out int ri2) && ri2 >= 1 && ri2 <= fallen.Count
+                            reviveTarget = int.TryParse((GameIO.ReadLine() ?? "").Trim(), out int ri2) && ri2 >= 1 && ri2 <= fallen.Count
                                 ? fallen[ri2 - 1] : null;
                         }
                         if (reviveTarget == null) { Console.WriteLine("  No one revived."); continue; }
@@ -4695,10 +4699,10 @@ class CombatSession
                     if (P.HasFeat("Holy Roller"))
                     {
                         Console.Write("  [Holy Roller] Second prayer? [y/n]: ");
-                        if ((Console.ReadLine() ?? "n").Trim().ToLower().StartsWith("y"))
+                        if ((GameIO.ReadLine() ?? "n").Trim().ToLower().StartsWith("y"))
                         {
                             Console.Write("  Choose prayer: ");
-                            string pc2 = (Console.ReadLine() ?? "").Trim();
+                            string pc2 = (GameIO.ReadLine() ?? "").Trim();
                             if (pc2 == "1")
                             {
                                 int roll2 = P.PrayerHealBonus;
@@ -4902,7 +4906,7 @@ class CombatSession
                 case "club sweep":
                 {
                     Console.Write("  Club sweep direction [N/S/E/W]: ");
-                    string swDir = (Console.ReadLine() ?? "").Trim().ToLower();
+                    string swDir = (GameIO.ReadLine() ?? "").Trim().ToLower();
                     int swdx = swDir.StartsWith("e") ? 1 : swDir.StartsWith("w") ? -1 : 0;
                     int swdy = swDir.StartsWith("s") ? 1 : swDir.StartsWith("n") ? -1 : 0;
                     if (swdx == 0 && swdy == 0) { Console.WriteLine("  Invalid direction (N/S/E/W)."); continue; }
@@ -4932,7 +4936,7 @@ class CombatSession
                     for (int wi = 0; wi < nearby.Count; wi++)
                         Console.WriteLine($"  [{wi + 1}] {nearby[wi].Type} at ({nearby[wi].Pos.X},{nearby[wi].Pos.Y})");
                     Console.Write("  Pick up #: ");
-                    if (!int.TryParse(Console.ReadLine()?.Trim(), out int wpick) || wpick < 1 || wpick > nearby.Count)
+                    if (!int.TryParse(GameIO.ReadLine()?.Trim(), out int wpick) || wpick < 1 || wpick > nearby.Count)
                     { Console.WriteLine("  Invalid."); continue; }
                     var picked = nearby[wpick - 1];
                     if (picked.Type == "Ogre Club" && !P.HasFeat("Giant's Strength"))
@@ -4984,7 +4988,7 @@ class CombatSession
                     for (int si = 0; si < available.Count; si++)
                         Console.WriteLine($"  [{si+1}] {available[si].name} — {available[si].desc}");
                     Console.Write("  Choose (0=cancel): ");
-                    if (!int.TryParse(Console.ReadLine()?.Trim(), out int sc2) || sc2 < 1 || sc2 > available.Count)
+                    if (!int.TryParse(GameIO.ReadLine()?.Trim(), out int sc2) || sc2 < 1 || sc2 > available.Count)
                     { Console.WriteLine("  Cancelled."); continue; }
                     var chosen2 = available[sc2 - 1];
 
@@ -4998,7 +5002,7 @@ class CombatSession
                         for (int pick = 0; pick < 2; pick++)
                         {
                             Console.Write($"  Pick {pick+1}/2: ");
-                            if (int.TryParse(Console.ReadLine()?.Trim(), out int hp) && hp >= 1 && hp <= others.Count)
+                            if (int.TryParse(GameIO.ReadLine()?.Trim(), out int hp) && hp >= 1 && hp <= others.Count)
                             {
                                 string hName = others[hp - 1].name;
                                 P.DuelistEffectTurns[hName] = Math.Max(P.DuelistEffectTurns.GetValueOrDefault(hName, 0), 1);
@@ -5015,7 +5019,7 @@ class CombatSession
                         Console.WriteLine($"  [Duelist Stamina] Pick 1 special (lasts 2 turns):");
                         for (int si = 0; si < stamOthers.Count; si++) Console.WriteLine($"  [{si+1}] {stamOthers[si].name}");
                         Console.Write("  Pick: ");
-                        if (int.TryParse(Console.ReadLine()?.Trim(), out int sp) && sp >= 1 && sp <= stamOthers.Count)
+                        if (int.TryParse(GameIO.ReadLine()?.Trim(), out int sp) && sp >= 1 && sp <= stamOthers.Count)
                         {
                             string sName = stamOthers[sp - 1].name;
                             P.DuelistEffectTurns[sName] = Math.Max(P.DuelistEffectTurns.GetValueOrDefault(sName, 0), 2);
@@ -5055,7 +5059,7 @@ class CombatSession
             for (int wb = 0; wb < wBonus && wAlive.Any() && P.HP > 0; wb++)
             {
                 Console.Write($"\n  [Warrior Bonus {wb + 1}/{wBonus}] [A]ttack  [G]rapple  [skip]: ");
-                string wc = (Console.ReadLine() ?? "").Trim().ToLower();
+                string wc = (GameIO.ReadLine() ?? "").Trim().ToLower();
                 wAlive = Active.Where(e => e.Alive).ToList();
                 if (!wAlive.Any()) break;
                 if (wc.StartsWith("a"))
@@ -5079,7 +5083,7 @@ class CombatSession
             for (int mb = 0; mb < maBonus && maAlive.Any() && P.HP > 0; mb++)
             {
                 Console.Write($"\n  [Martial Artist Bonus {mb + 1}/{maBonus}] [M]elee  [T]hrow  [skip]: ");
-                string mc = (Console.ReadLine() ?? "").Trim().ToLower();
+                string mc = (GameIO.ReadLine() ?? "").Trim().ToLower();
                 maAlive = Active.Where(e => e.Alive).ToList();
                 if (!maAlive.Any()) break;
                 if (mc.StartsWith("m"))
@@ -5306,7 +5310,7 @@ class CombatSession
         for (int i = 0; i < alive.Count; i++) Console.Write($"[{i + 1}]{alive[i].Name}  ");
         Console.WriteLine();
         Console.Write("  Target #: ");
-        if (int.TryParse(Console.ReadLine()?.Trim(), out int ti) && ti >= 1 && ti <= alive.Count)
+        if (int.TryParse(GameIO.ReadLine()?.Trim(), out int ti) && ti >= 1 && ti <= alive.Count)
             return alive[ti - 1];
         Console.WriteLine("  Invalid target.");
         return null;
@@ -5329,7 +5333,7 @@ class CombatSession
         if (mods.Any())
         {
             Console.Write($"  Modifier? {string.Join("  ", mods)}  [N]one: ");
-            string m = (Console.ReadLine() ?? "n").Trim().ToLower();
+            string m = (GameIO.ReadLine() ?? "n").Trim().ToLower();
             usePower = m.StartsWith("p") && P.HasFeat("Power Attack");
             useSunder = m.StartsWith("s") && P.HasFeat("Sunder");
             useDisarm = m.StartsWith("d") && P.HasFeat("Disarm");
@@ -5428,7 +5432,7 @@ class CombatSession
         if (flurryCount == 1 && P.HasFeat("Flurry of Blows"))
         {
             Console.Write("  [Flurry of Blows] Unleash five attacks? (y/n): ");
-            if ((Console.ReadLine() ?? "n").Trim().ToLower().StartsWith("y")) flurryCount = 5;
+            if ((GameIO.ReadLine() ?? "n").Trim().ToLower().StartsWith("y")) flurryCount = 5;
         }
         for (int fi = 0; fi < flurryCount && target.Alive; fi++)
         {
@@ -5521,7 +5525,7 @@ class CombatSession
             if (canTargetShield)
             {
                 Console.Write($"  Disarm {target.Name}'s [W]eapon (longsword) or [S]hield? ");
-                string dc = (Console.ReadLine() ?? "w").Trim().ToLower();
+                string dc = (GameIO.ReadLine() ?? "w").Trim().ToLower();
                 if (dc.StartsWith("s"))
                 {
                     target.ShieldLost = true;
@@ -5584,7 +5588,7 @@ class CombatSession
         if (P.HasFeat("Slayer") && target.HP <= target.MaxHP / 3)
         {
             Console.Write($"  Slayer! {target.Name} is low HP. Free attack? (y/n): ");
-            if ((Console.ReadLine() ?? "").Trim().ToLower() == "y") FreeAttack(target);
+            if ((GameIO.ReadLine() ?? "").Trim().ToLower() == "y") FreeAttack(target);
         }
     }
 
@@ -5626,7 +5630,7 @@ class CombatSession
     {
         if (!P.HasFeat(feat) || !target.Alive) return;
         Console.Write($"  {feat}! Free attack on {target.Name}? (y/n): ");
-        if ((Console.ReadLine() ?? "").Trim().ToLower() == "y") FreeAttack(target);
+        if ((GameIO.ReadLine() ?? "").Trim().ToLower() == "y") FreeAttack(target);
     }
 
     int ReduceByToughHide(Enemy e, int dmg)
@@ -5718,7 +5722,7 @@ class CombatSession
         if (P.HasFeat("Thin the Herd") && others.Any())
         {
             Console.Write($"  Thin the Herd! Free attack on another enemy? (y/n): ");
-            if ((Console.ReadLine() ?? "").Trim().ToLower() == "y")
+            if ((GameIO.ReadLine() ?? "").Trim().ToLower() == "y")
             {
                 var t = others.Count == 1 ? others[0] : PickTarget(others);
                 if (t != null) FreeAttack(t);
@@ -5742,7 +5746,7 @@ class CombatSession
                 if (candidate.OffHandShieldName == null)
                 {
                     Console.Write($"  {candidate.Name}: Pick up the {dropName}? (y/n): ");
-                    if ((Console.ReadLine() ?? "").Trim().ToLower() == "y")
+                    if ((GameIO.ReadLine() ?? "").Trim().ToLower() == "y")
                     {
                         candidate.OffHandShieldName    = dropName;
                         candidate.OffHandShieldDefense = dropDef;
@@ -5757,7 +5761,7 @@ class CombatSession
                 else
                 {
                     Console.Write($"  {candidate.Name}: Swap your {candidate.OffHandShieldName} for the {dropName}? (y/n): ");
-                    if ((Console.ReadLine() ?? "").Trim().ToLower() == "y")
+                    if ((GameIO.ReadLine() ?? "").Trim().ToLower() == "y")
                     {
                         // Remove old shield bonuses
                         candidate.ArmorDamageReduction -= candidate.OffHandShieldDefense;
@@ -5788,7 +5792,7 @@ class CombatSession
                 foreach (var candidate in AllPlayers.Where(pl => pl.HP > 0))
                 {
                     Console.Write($"  {candidate.Name}: Pick up the {dropWeapon}? (y/n): ");
-                    if ((Console.ReadLine() ?? "").Trim().ToLower() != "y") continue;
+                    if ((GameIO.ReadLine() ?? "").Trim().ToLower() != "y") continue;
 
                     if (candidate.HeldWeapon == null)
                     {
@@ -5799,7 +5803,7 @@ class CombatSession
                     else if (candidate.SecondaryWeapon == null)
                     {
                         Console.Write($"  Main hand (m) replaces [{candidate.HeldWeapon}] \u2192 off-hand, or add as off-hand (o), or skip (n)? ");
-                        string slot = (Console.ReadLine() ?? "").Trim().ToLower();
+                        string slot = (GameIO.ReadLine() ?? "").Trim().ToLower();
                         if (slot == "m")
                         {
                             candidate.SecondaryWeapon = candidate.HeldWeapon;
@@ -5817,7 +5821,7 @@ class CombatSession
                     else
                     {
                         Console.Write($"  Replace main [{candidate.HeldWeapon}] (m), off-hand [{candidate.SecondaryWeapon}] (o), or skip (n)? ");
-                        string slot = (Console.ReadLine() ?? "").Trim().ToLower();
+                        string slot = (GameIO.ReadLine() ?? "").Trim().ToLower();
                         if (slot == "m")
                         {
                             Console.WriteLine($"  {candidate.Name} drops {candidate.HeldWeapon} and wields {dropWeapon}.");
@@ -5907,7 +5911,7 @@ class CombatSession
         while (debuffed.Any(e => e.Alive))
         {
             Console.Write($"  Target (penalty {pen}, 0=stop): ");
-            if (!int.TryParse(Console.ReadLine()?.Trim(), out int idx) || idx == 0) break;
+            if (!int.TryParse(GameIO.ReadLine()?.Trim(), out int idx) || idx == 0) break;
             if (idx < 1 || idx > debuffed.Count || !debuffed[idx - 1].Alive) { Console.WriteLine("  Invalid."); continue; }
 
             var t = debuffed[idx - 1];
@@ -5994,7 +5998,7 @@ class CombatSession
         if (!alive.Any()) return;
         Console.WriteLine("  [MMA] Slip free! Immediate free action:");
         Console.Write("  [A]ttack  [H]eal  [D]efend  [S]pell  [skip]: ");
-        string ch = (Console.ReadLine() ?? "").Trim().ToLower();
+        string ch = (GameIO.ReadLine() ?? "").Trim().ToLower();
         if (ch.StartsWith("a"))
         {
             var mt = PickTarget(alive);
@@ -6006,7 +6010,7 @@ class CombatSession
         {
             for (int si = 0; si < P.KnownSpells.Count; si++) Console.WriteLine($"  [{si+1}] {P.KnownSpells[si]}");
             Console.Write("  Cast: ");
-            if (int.TryParse(Console.ReadLine()?.Trim(), out int sc) && sc >= 1 && sc <= P.KnownSpells.Count)
+            if (int.TryParse(GameIO.ReadLine()?.Trim(), out int sc) && sc >= 1 && sc <= P.KnownSpells.Count)
                 DoSpell(P.KnownSpells[sc - 1], alive);
         }
     }
@@ -6025,7 +6029,7 @@ class CombatSession
             if (P.BarbedArrows > 0) opts2.Add($"bar[E]d x{P.BarbedArrows}");
             if (P.SpiralArrows > 0) opts2.Add($"[S]piral x{P.SpiralArrows}");
             Console.Write($"  Arrow? {string.Join("  ", opts2)}: ");
-            string apick = (Console.ReadLine() ?? "r").Trim().ToLower();
+            string apick = (GameIO.ReadLine() ?? "r").Trim().ToLower();
             arrowType = apick switch
             {
                 "b" or "blunt" when P.BluntArrows > 0   => "blunt",
@@ -6113,7 +6117,7 @@ class CombatSession
         if (shotModes.Count > 0)
         {
             Console.Write($"  Shot? [N]ormal  {string.Join("  ", shotModes)}: ");
-            string sm = (Console.ReadLine() ?? "n").Trim().ToLower();
+            string sm = (GameIO.ReadLine() ?? "n").Trim().ToLower();
             if (sm.StartsWith("m") && P.HasFeat("Multishot"))
             {
                 for (int i = 0; i < 4 && HasAmmo() && target.Alive; i++) QuickShot(target, costsArrow: true);
@@ -6312,7 +6316,7 @@ class CombatSession
 
         string gOpts = P.HasFeat("Judo") ? "[H]old  [T]hrow  [D]isarm" : "[H]old  [T]hrow";
         Console.Write($"  Option: {gOpts}: ");
-        string go = (Console.ReadLine() ?? "h").Trim().ToLower();
+        string go = (GameIO.ReadLine() ?? "h").Trim().ToLower();
 
         if (go.StartsWith("t"))
         {
@@ -6350,7 +6354,7 @@ class CombatSession
             if (P.HasFeat("Taekwondo"))
             {
                 Console.Write("  Taekwondo limb break? [L]eg [A]rm [N]eck [B]ack [S]kip: ");
-                string lb = (Console.ReadLine() ?? "s").Trim().ToLower();
+                string lb = (GameIO.ReadLine() ?? "s").Trim().ToLower();
                 int bd = Rng.Next(P.MinLimbBreak, P.MaxLimbBreak + 1);
                 switch (lb.Length > 0 ? lb[0] : 's')
                 {
@@ -6366,7 +6370,7 @@ class CombatSession
             if (P.HasFeat("Kehon Black Belt") && target.Alive)
             {
                 Console.Write($"  Kehon Black Belt! Instant KO {target.Name}? (y/n): ");
-                if ((Console.ReadLine() ?? "").Trim().ToLower() == "y")
+                if ((GameIO.ReadLine() ?? "").Trim().ToLower() == "y")
                 {
                     KnockOut(target);
                     target.Grappled = false;
@@ -6379,7 +6383,7 @@ class CombatSession
     {
         if (!target.Alive) return;
         Console.Write($"  Judo! Free grapple on {target.Name}? (y/n): ");
-        if ((Console.ReadLine() ?? "").Trim().ToLower() == "y") DoGrapple(target);
+        if ((GameIO.ReadLine() ?? "").Trim().ToLower() == "y") DoGrapple(target);
     }
 
     void DoHeal()
@@ -6484,7 +6488,7 @@ class CombatSession
             {
                 // 7.5×7.5 area (3×3 squares): cone or square around caster
                 Console.Write("  FROST BURST! [S]quare (3×3 around you) or cone [N/S/E/W]: ");
-                string fb = (Console.ReadLine() ?? "s").Trim().ToLower();
+                string fb = (GameIO.ReadLine() ?? "s").Trim().ToLower();
                 List<Enemy> targets;
                 if (fb.StartsWith("n") || fb.StartsWith("s") || fb.StartsWith("e") || fb.StartsWith("w"))
                 {
@@ -6649,7 +6653,7 @@ class CombatSession
                 for (int ci = 0; ci < corpses.Count; ci++) Console.Write($"[{ci+1}]{corpses[ci].Name}  ");
                 Console.WriteLine();
                 Console.Write("  Raise which: ");
-                if (!int.TryParse(Console.ReadLine()?.Trim(), out int rdi) || rdi < 1 || rdi > corpses.Count) { Console.WriteLine("  Invalid."); break; }
+                if (!int.TryParse(GameIO.ReadLine()?.Trim(), out int rdi) || rdi < 1 || rdi > corpses.Count) { Console.WriteLine("  Invalid."); break; }
                 var corpse = corpses[rdi - 1];
                 int rdTurns = ExtDur(Rng.Next(2, 10));
                 corpse.HP = Math.Max(1, corpse.MaxHP / 2);
@@ -6663,10 +6667,10 @@ class CombatSession
                 int tsTurns = ExtDur(Rng.Next(2, 5) + Rng.Next(2, 5));
                 Console.WriteLine("  TRUE SIGHT! Choose stat to boost: [1]attack [2]dodge [3]block [4]parry [5]grapple [6]spell");
                 Console.Write("  Stat: ");
-                string tsStat = (Console.ReadLine() ?? "1").Trim();
+                string tsStat = (GameIO.ReadLine() ?? "1").Trim();
                 P.TrueSightStat = tsStat switch { "1" or "attack" => "attack", "2" or "dodge" => "dodge", "3" or "block" => "block", "4" or "parry" => "parry", "5" or "grapple" => "grapple", "6" or "spell" => "spell", _ => "attack" };
                 Console.Write("  Boost [M]in or Ma[X]? ");
-                string tsMinMax = (Console.ReadLine() ?? "x").Trim().ToLower();
+                string tsMinMax = (GameIO.ReadLine() ?? "x").Trim().ToLower();
                 P.TrueSightIsMax = !tsMinMax.StartsWith("m");
                 P.TrueSightTurns = tsTurns;
                 string which = P.TrueSightIsMax ? "max" : "min";
@@ -7937,7 +7941,7 @@ class CombatSession
         if (canMelee) { opts.Add("[A]ttack"); opts.Add("[G]rapple"); }
         if (canRanged) opts.Add("[R]anged");
         Console.Write($"  Free response! {string.Join(" / ", opts)} on {e.Name}? ");
-        string choice = (Console.ReadLine() ?? "").Trim().ToLower();
+        string choice = (GameIO.ReadLine() ?? "").Trim().ToLower();
 
         bool doGrapple = choice.StartsWith("g") && canMelee;
         bool doRanged = !doGrapple && (choice.StartsWith("r") ? canRanged : !canMelee && canRanged);
@@ -8126,7 +8130,7 @@ class CombatSession
             if (P.HasFeat("Kehon"))
             {
                 Console.Write($"  Kehon! Instant grapple on {e.Name}? (y/n): ");
-                if ((Console.ReadLine() ?? "").Trim().ToLower() == "y") DoGrapple(e);
+                if ((GameIO.ReadLine() ?? "").Trim().ToLower() == "y") DoGrapple(e);
             }
         }
         // Duelist Fencing: counter-attack after any enemy attack

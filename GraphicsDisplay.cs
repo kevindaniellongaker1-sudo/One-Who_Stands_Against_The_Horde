@@ -41,10 +41,89 @@ class SharedGameState
     public void Push(RenderSnapshot snap)  { lock (_lock) _snap = snap; }
     public RenderSnapshot Pull()           { lock (_lock) return _snap; }
 
+    // ── Console mirror + clickable input (drives the on-screen UI) ────────
+    private readonly object _ioLock = new();
+    private readonly List<string> _log = new();
+    private string _partial = "";
+    public volatile bool WaitingForInput = false;
+    public readonly System.Collections.Concurrent.ConcurrentQueue<string> InputQueue = new();
+
+    public void AppendOutput(string text)
+    {
+        lock (_ioLock)
+        {
+            _partial += text;
+            int idx;
+            while ((idx = _partial.IndexOf('\n')) >= 0)
+            {
+                _log.Add(_partial[..idx].TrimEnd('\r'));
+                _partial = _partial[(idx + 1)..];
+            }
+            if (_log.Count > 400) _log.RemoveRange(0, _log.Count - 400);
+        }
+    }
+
+    public (List<string> Lines, string Prompt) SnapshotLog(int max)
+    {
+        lock (_ioLock)
+        {
+            int start = Math.Max(0, _log.Count - max);
+            return (_log.GetRange(start, _log.Count - start), _partial);
+        }
+    }
+
+    public void Inject(string s) => InputQueue.Enqueue(s);
+
     // Game thread holds its first console prompt until the render thread has
     // finished loading assets, so raylib's log spam doesn't bury the prompt.
     public void SignalAssetsReady()        => _assetsReady.Set();
     public void WaitAssetsReady(int ms)    => _assetsReady.Wait(ms);
+}
+
+// ── Console mirror: every printed line also feeds the graphics UI ─────────
+
+class ConsoleMirror : System.IO.TextWriter
+{
+    private readonly System.IO.TextWriter _inner;
+    private readonly SharedGameState _state;
+    public ConsoleMirror(System.IO.TextWriter inner, SharedGameState state) { _inner = inner; _state = state; }
+    public override System.Text.Encoding Encoding => _inner.Encoding;
+    public override void Write(char value) { _inner.Write(value); _state.AppendOutput(value.ToString()); }
+    public override void Write(string? value) { _inner.Write(value); if (!string.IsNullOrEmpty(value)) _state.AppendOutput(value); }
+    public override void WriteLine(string? value) { _inner.WriteLine(value); _state.AppendOutput((value ?? "") + "\n"); }
+    public override void Flush() => _inner.Flush();
+}
+
+// ── Input shim: console typing OR clicks in the graphics window ───────────
+
+static class GameIO
+{
+    public static SharedGameState? State;
+
+    public static string? ReadLine()
+    {
+        var st = State;
+        if (st == null) return Console.In.ReadLine();
+        st.WaitingForInput = true;
+        try
+        {
+            bool redirected;
+            try { redirected = Console.IsInputRedirected; } catch { redirected = true; }
+            while (true)
+            {
+                if (st.InputQueue.TryDequeue(out var s))
+                {
+                    Console.WriteLine(s);   // echo the click into the log
+                    return s;
+                }
+                if (redirected) return Console.In.ReadLine();
+                try { if (Console.KeyAvailable) return Console.ReadLine(); }
+                catch { return Console.In.ReadLine(); }
+                System.Threading.Thread.Sleep(25);
+            }
+        }
+        finally { st.WaitingForInput = false; }
+    }
 }
 
 // ── Raylib-based display window (runs on main thread) ─────────────────────
@@ -56,8 +135,9 @@ class GraphicsDisplay
     const int View    = 13;   // squares visible in each direction from player
     const int ViewPx  = (View * 2 + 1) * Cell;
     const int Panel   = 260;
+    const int UiH     = 236;  // bottom interaction panel (scene text + buttons)
     const int WinW    = ViewPx + Panel;
-    const int WinH    = ViewPx;
+    const int WinH    = ViewPx + UiH;
 
     readonly SharedGameState _state;
     readonly Dictionary<string, Texture2D> _tex = new();
@@ -80,6 +160,7 @@ class GraphicsDisplay
             Raylib.BeginDrawing();
             Raylib.ClearBackground(Color.Black);
             DrawMap(snap);
+            DrawUi();
             DrawPanel(snap);
             Raylib.EndDrawing();
         }
@@ -126,7 +207,7 @@ class GraphicsDisplay
         // Viewport is derived from the live window size: resize the window
         // and you see more (or less) of the battlefield.
         int screenW = Raylib.GetScreenWidth();
-        int screenH = Raylib.GetScreenHeight();
+        int screenH = Raylib.GetScreenHeight() - UiH;   // bottom strip belongs to the UI
         int mapW    = Math.Max(Cell, screenW - Panel);
         int cellsX  = Math.Max(1, mapW / Cell);
         int cellsY  = Math.Max(1, screenH / Cell + 1);
@@ -290,6 +371,91 @@ class GraphicsDisplay
     // ── Status panel ───────────────────────────────────────────────────────
 
     static string Trunc(string s, int max) => s.Length <= max ? s : s[..(max - 1)] + "…";
+
+    // ── Interaction panel: scene text, current prompt, clickable choices ──
+
+    static readonly System.Text.RegularExpressions.Regex OptRx =
+        new(@"\[([A-Za-z0-9]{1,3})\]\s?([A-Za-z0-9''/&+ -]{0,16})", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    bool UiButton(int x, int y, int w, int h, string label, Color bg)
+    {
+        var mouse = Raylib.GetMousePosition();
+        bool hover = mouse.X >= x && mouse.X <= x + w && mouse.Y >= y && mouse.Y <= y + h;
+        Raylib.DrawRectangle(x, y, w, h, hover ? new Color(90, 110, 160, 255) : bg);
+        Raylib.DrawRectangleLines(x, y, w, h, new Color(120, 130, 170, 255));
+        int tw = Raylib.MeasureText(label, 12);
+        Raylib.DrawText(label, x + Math.Max(3, (w - tw) / 2), y + (h - 12) / 2, 12, Color.White);
+        return hover && Raylib.IsMouseButtonPressed(MouseButton.Left);
+    }
+
+    void DrawUi()
+    {
+        int screenW = Raylib.GetScreenWidth();
+        int screenH = Raylib.GetScreenHeight();
+        int uiW = Math.Max(200, screenW - Panel);
+        int uiY = screenH - UiH;
+
+        Raylib.DrawRectangle(0, uiY, uiW, UiH, new Color(14, 14, 20, 255));
+        Raylib.DrawLine(0, uiY, uiW, uiY, new Color(60, 60, 80, 255));
+
+        var (lines, prompt) = _state.SnapshotLog(9);
+        int maxChars = Math.Max(20, uiW / 7);
+        int y = uiY + 6;
+        foreach (var ln in lines)
+        {
+            Raylib.DrawText(Trunc(ln, maxChars), 8, y, 12, new Color(190, 190, 200, 255));
+            y += 14;
+        }
+        bool waiting = _state.WaitingForInput;
+        Raylib.DrawText(Trunc(prompt, maxChars) + (waiting ? " _" : ""), 8, y, 13,
+            waiting ? Color.Yellow : Color.Gray);
+
+        // Parse clickable options from the recent scene text
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var buttons = new List<(string Token, string Label)>();
+        var searchLines = new List<string>(lines) { prompt };
+        for (int li = searchLines.Count - 1; li >= 0 && buttons.Count < 18; li--)
+        {
+            foreach (System.Text.RegularExpressions.Match m in OptRx.Matches(searchLines[li]))
+            {
+                string token = m.Groups[1].Value;
+                string label = m.Groups[2].Value.Trim();
+                if (!seen.Add(token + "|" + label)) continue;
+                buttons.Add((token, label.Length > 0 ? $"{token} {label}" : token));
+                if (buttons.Count >= 18) break;
+            }
+            // Stop once we've collected options from a line that had several —
+            // older lines are usually a previous, stale menu.
+            if (buttons.Count >= 6) break;
+        }
+
+        int bx = 8, by = uiY + UiH - 84;
+        foreach (var (token, label) in buttons)
+        {
+            int w = Math.Max(34, Raylib.MeasureText(label, 12) + 14);
+            if (bx + w > uiW - 8) { bx = 8; by += 26; }
+            if (by > screenH - 28) break;
+            if (UiButton(bx, by, w, 24, label, new Color(50, 60, 95, 255)) && waiting)
+                _state.Inject(token.ToLowerInvariant());
+            bx += w + 6;
+        }
+
+        // Standard row: quick numbers, yes/no, Enter
+        int sy = screenH - 28;
+        int sx = 8;
+        string[] std = { "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "y", "n" };
+        foreach (var t in std)
+        {
+            int w = t.Length > 1 ? 30 : 24;
+            if (UiButton(sx, sy, w, 22, t.ToUpper(), new Color(40, 42, 58, 255)) && waiting)
+                _state.Inject(t);
+            sx += w + 4;
+        }
+        if (UiButton(sx, sy, 58, 22, "ENTER", new Color(40, 42, 58, 255)) && waiting)
+            _state.Inject("");
+        sx += 62;
+        Raylib.DrawText("click a choice — or type in the console for names/amounts", sx + 6, sy + 5, 11, Color.Gray);
+    }
 
     void DrawPanel(RenderSnapshot snap)
     {
