@@ -142,6 +142,7 @@ class GraphicsDisplay
 
     readonly SharedGameState _state;
     readonly Dictionary<string, Texture2D> _tex = new();
+    int _cellSize = Cell;   // live map zoom (pixels per square); +/- buttons adjust it
 
     public GraphicsDisplay(SharedGameState state) => _state = state;
 
@@ -267,7 +268,7 @@ class GraphicsDisplay
     {
         if (tex is Texture2D t)
             Raylib.DrawTexturePro(t, new Rectangle(0, 0, t.Width, t.Height),
-                new Rectangle(sx, sy, Cell, Cell), Vector2.Zero, 0, tint);
+                new Rectangle(sx, sy, _cellSize, _cellSize), Vector2.Zero, 0, tint);
     }
 
     // Build a character from tinted layers. Returns false if not even a body
@@ -321,6 +322,10 @@ class GraphicsDisplay
 
     void DrawMap(RenderSnapshot snap)
     {
+        // Effective square size = the zoom level (shadows the const for this
+        // method so all the map math below scales with +/- zoom).
+        int Cell = _cellSize;
+
         // Viewport is derived from the live window size: resize the window
         // and you see more (or less) of the battlefield.
         int screenW = Raylib.GetScreenWidth();
@@ -432,10 +437,18 @@ class GraphicsDisplay
                 Raylib.DrawText("@", sx + 8, sy + 10, 20, Color.Black);
             }
         }
+
+        // Zoom controls (top-left of the map): + zooms in, - zooms out
+        if (UiButton(6, 6, 28, 28, "+", new Color(40, 42, 58, 220)))
+            _cellSize = Math.Min(96, _cellSize + 8);
+        if (UiButton(38, 6, 28, 28, "-", new Color(40, 42, 58, 220)))
+            _cellSize = Math.Max(16, _cellSize - 8);
+        Raylib.DrawText($"{_cellSize}px", 70, 13, 12, new Color(180, 180, 190, 255));
     }
 
     void DrawEntity(int sx, int sy, string type, int hp, int maxHp)
     {
+        int Cell = _cellSize;   // scale sprites/labels with the map zoom
         if (_tex.TryGetValue(type, out var tex))
         {
             var dst = new Rectangle(sx, sy, Cell, Cell);
