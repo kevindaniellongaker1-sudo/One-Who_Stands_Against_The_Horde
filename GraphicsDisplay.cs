@@ -221,43 +221,100 @@ class GraphicsDisplay
                 _tex[key] = Raylib.LoadTexture(path);
         }
 
-        // Player sprites: load every player*.png present, keyed by filename stem
-        // (e.g. "player_orc_warrior_male_1"). The fallback chain below picks the
-        // most specific one that exists for a given character.
+        // Player sprites + compositor layers: load every file whose name starts
+        // with a known layer prefix, keyed by filename stem. "player_*" are flat
+        // full-character overrides; the rest are stackable, tintable layers.
         if (Directory.Exists(assetDir))
-            foreach (var f in Directory.GetFiles(assetDir, "player*.png"))
-            {
-                string stem = Path.GetFileNameWithoutExtension(f).ToLower();
-                if (!_tex.ContainsKey(stem)) _tex[stem] = Raylib.LoadTexture(f);
-            }
+            foreach (var prefix in new[] { "player", "body", "clothing", "armor",
+                                           "eyes", "hair", "facial", "head", "weapon" })
+                foreach (var f in Directory.GetFiles(assetDir, prefix + "*.png"))
+                {
+                    string stem = Path.GetFileNameWithoutExtension(f).ToLower();
+                    if (!_tex.ContainsKey(stem)) _tex[stem] = Raylib.LoadTexture(f);
+                }
     }
 
-    // Best available player sprite for "race|class|gender|variant", most specific
-    // to least. Returns null if not even a generic player.png exists.
+    // ── Layered character compositor ─────────────────────────────────────────
+    // Layers stack back-to-front. Anything whose PNG is missing simply doesn't
+    // draw, so art can be added one layer at a time.
+
+    static Color TintFor(string name) => name switch
+    {
+        "black"     => new Color(48, 48, 52, 255),
+        "blonde"    => new Color(232, 200, 120, 255),
+        "brown"     => new Color(122, 78, 44, 255),
+        "red"       => new Color(184, 46, 38, 255),
+        "white"     => new Color(236, 236, 238, 255),
+        "blue"      => new Color(58, 100, 205, 255),
+        "green"     => new Color(56, 166, 78, 255),
+        "hazel"     => new Color(150, 120, 72, 255),
+        "yellow"    => new Color(226, 206, 66, 255),
+        "purple"    => new Color(146, 66, 186, 255),
+        "turquoise" => new Color(60, 200, 190, 255),
+        _           => Color.White,
+    };
+
+    static string At(string[] a, int i) => i >= 0 && i < a.Length ? a[i] : "";
+
+    Texture2D? FirstTex(params string[] keys)
+    {
+        foreach (var k in keys)
+            if (k.Length > 0 && _tex.TryGetValue(k, out var t)) return t;
+        return null;
+    }
+
+    void DrawLayer(int sx, int sy, Texture2D? tex, Color tint)
+    {
+        if (tex is Texture2D t)
+            Raylib.DrawTexturePro(t, new Rectangle(0, 0, t.Width, t.Height),
+                new Rectangle(sx, sy, Cell, Cell), Vector2.Zero, 0, tint);
+    }
+
+    // Build a character from tinted layers. Returns false if not even a body
+    // exists (caller then falls back to the letter tile).
+    bool DrawComposite(int sx, int sy, string[] f)
+    {
+        string race = At(f, 0), cls = At(f, 1), gen = At(f, 2);
+        string hairColor = At(f, 3), hairLen = At(f, 4), eyeColor = At(f, 5);
+        string headwear = At(f, 6), clothColor = At(f, 7), facial = At(f, 8);
+        string weapon = At(f, 9), armor = At(f, 10);
+
+        var body = FirstTex($"body_{race}_{gen}", $"body_{race}", $"body_{gen}", "body");
+        if (body is null) return false;
+        DrawLayer(sx, sy, body, Color.White);
+
+        // Clothing, or armor sprite when something better than cloth is worn
+        if (armor.Length > 0 && armor != "cloth")
+            DrawLayer(sx, sy, FirstTex($"armor_{armor}_{race}_{gen}", $"armor_{armor}", $"armor_{race}", "armor"), Color.White);
+        else
+            DrawLayer(sx, sy, FirstTex($"clothing_{cls}_{race}_{gen}", $"clothing_{cls}", $"clothing_{race}", "clothing"), TintFor(clothColor));
+
+        DrawLayer(sx, sy, FirstTex($"eyes_{race}_{gen}", $"eyes_{race}", "eyes"), TintFor(eyeColor));
+
+        if (hairLen.Length > 0 && hairLen != "bald")
+            DrawLayer(sx, sy, FirstTex($"hair_{hairLen}_{race}_{gen}", $"hair_{hairLen}", $"hair_{race}", "hair"), TintFor(hairColor));
+
+        if (facial.Length > 0 && facial != "none")
+            DrawLayer(sx, sy, FirstTex($"facial_{facial}_{race}", $"facial_{facial}", "facial"), TintFor(hairColor));
+
+        if (headwear.Length > 0 && headwear != "nothing")
+            DrawLayer(sx, sy, FirstTex($"head_{headwear}_{race}_{gen}", $"head_{headwear}", "head"), Color.White);
+
+        if (weapon.Length > 0 && weapon != "unarmed")
+            DrawLayer(sx, sy, FirstTex($"weapon_{weapon}", "weapon"), Color.White);
+
+        return true;
+    }
+
+    // Optional flat, hand-drawn full-character override (takes priority over the
+    // compositor). Keyed on race/class/gender, most specific to least.
     Texture2D? PlayerTexture(string desc)
     {
-        if (string.IsNullOrEmpty(desc)) desc = "|||1";
-        var parts = desc.Split('|');
-        string r = parts.Length > 0 ? parts[0] : "";
-        string c = parts.Length > 1 ? parts[1] : "";
-        string g = parts.Length > 2 ? parts[2] : "";
-        string v = parts.Length > 3 ? parts[3] : "1";
-        var chain = new[]
-        {
-            $"player_{r}_{c}_{g}_{v}",
-            $"player_{r}_{c}_{g}",
-            $"player_{r}_{c}_{v}",
-            $"player_{r}_{c}",
-            $"player_{r}_{g}",
-            $"player_{r}",
-            $"player_{c}_{g}",
-            $"player_{c}",
-            $"player_{g}",
-            "player",
-        };
-        foreach (var key in chain)
-            if (_tex.TryGetValue(key, out var t)) return t;
-        return null;
+        var f = (desc ?? "").Split('|');
+        string r = At(f, 0), c = At(f, 1), g = At(f, 2);
+        return FirstTex(
+            $"player_{r}_{c}_{g}", $"player_{r}_{c}", $"player_{r}_{g}", $"player_{r}",
+            $"player_{c}_{g}", $"player_{c}", $"player_{g}", "player");
     }
 
     // ── Map rendering ──────────────────────────────────────────────────────
@@ -339,17 +396,20 @@ class GraphicsDisplay
             DrawEntity(sx, sy, type, hp, maxHp);
         }
 
-        // Other party members: their own sprite, or a blue tile with initials
+        // Other party members: flat override → composited layers → blue tile
         foreach (var (pos, initials, sprite) in snap.OtherPlayers)
         {
             int sx = (pos.X - ox) * Cell;
             int sy = (pos.Y - oy) * Cell;
             if (sx < 0 || sy < 0 || sx >= mapPxW || sy >= mapPxH) continue;
-            var tex = PlayerTexture(sprite);
-            if (tex is Texture2D at)
+            var flat = PlayerTexture(sprite);
+            if (flat is Texture2D at)
             {
-                Raylib.DrawTexturePro(at, new Rectangle(0, 0, at.Width, at.Height),
-                    new Rectangle(sx, sy, Cell, Cell), Vector2.Zero, 0, Color.White);
+                DrawLayer(sx, sy, at, Color.White);
+                Raylib.DrawRectangleLines(sx, sy, Cell, Cell, new Color(30, 110, 255, 255));
+            }
+            else if (DrawComposite(sx, sy, sprite.Split('|')))
+            {
                 Raylib.DrawRectangleLines(sx, sy, Cell, Cell, new Color(30, 110, 255, 255));
             }
             else
@@ -359,17 +419,14 @@ class GraphicsDisplay
             }
         }
 
-        // Player (always at the viewport center)
+        // Player (always at the viewport center): flat → composite → @ tile
         {
             int sx = (snap.PlayerPos.X - ox) * Cell;
             int sy = (snap.PlayerPos.Y - oy) * Cell;
-            var ptex = PlayerTexture(snap.PlayerSprite);
-            if (ptex is Texture2D pt)
-            {
-                Raylib.DrawTexturePro(pt, new Rectangle(0, 0, pt.Width, pt.Height),
-                    new Rectangle(sx, sy, Cell, Cell), Vector2.Zero, 0, Color.White);
-            }
-            else
+            var flat = PlayerTexture(snap.PlayerSprite);
+            if (flat is Texture2D pt)
+                DrawLayer(sx, sy, pt, Color.White);
+            else if (!DrawComposite(sx, sy, snap.PlayerSprite.Split('|')))
             {
                 Raylib.DrawRectangle(sx + 1, sy + 1, Cell - 2, Cell - 2, new Color(0, 255, 255, 255));
                 Raylib.DrawText("@", sx + 8, sy + 10, 20, Color.Black);

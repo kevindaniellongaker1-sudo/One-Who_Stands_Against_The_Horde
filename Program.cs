@@ -3572,11 +3572,18 @@ class CombatSession
             (used < squares ? $"  ({squares - used} square(s) unused)" : ""));
     }
 
-    // Compact sprite descriptor: race|class|gender|variant, lowercased & squished.
+    // Full layer descriptor for the sprite compositor. Order matters — see
+    // GraphicsDisplay.DrawComposite. Every field lowercased & squished to a slug.
     static string SpriteDesc(Player pl)
     {
-        static string Slug(string s) => new string(s.ToLower().Where(char.IsLetterOrDigit).ToArray());
-        return $"{Slug(pl.Race)}|{Slug(pl.CharacterType)}|{Slug(pl.Gender)}|{pl.Variant}";
+        static string Slug(string s) => new string((s ?? "").ToLower().Where(char.IsLetterOrDigit).ToArray());
+        return string.Join("|", new[]
+        {
+            Slug(pl.Race), Slug(pl.CharacterType), Slug(pl.Gender),
+            Slug(pl.HairColor), Slug(pl.HairLength), Slug(pl.EyeColor),
+            Slug(pl.Headwear), Slug(pl.ClothingColor), Slug(pl.FacialHair),
+            Slug(pl.HeldWeapon ?? "unarmed"), Slug(pl.MainArmor),
+        });
     }
 
     static string PlayerInitials(string name)
