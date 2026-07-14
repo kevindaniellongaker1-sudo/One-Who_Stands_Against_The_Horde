@@ -148,6 +148,7 @@ class GraphicsDisplay
     int _uiH = UiH;         // current panel height (drag the top edge to resize)
     int _logScroll = 0;     // scene-text history scroll (lines back from latest)
     bool _dragUi = false;   // dragging the panel divider
+    string _typeBuf = "";   // in-window typed text (names, amounts, any input)
 
     public GraphicsDisplay(SharedGameState state) => _state = state;
 
@@ -543,6 +544,19 @@ class GraphicsDisplay
         bool waiting = _state.WaitingForInput;
         var mp = Raylib.GetMousePosition();
 
+        // Any click or typed submission clears the typed buffer as it's sent
+        void Send(string s) { _state.Inject(s); _typeBuf = ""; }
+
+        // ── Physical keyboard works in the game window now ──
+        // Drain typed characters into a line buffer; Backspace edits, Enter sends.
+        int gc;
+        while ((gc = Raylib.GetCharPressed()) > 0)
+            if (waiting && gc >= 32 && gc < 127 && _typeBuf.Length < 48) _typeBuf += (char)gc;
+        if (waiting && Raylib.IsKeyPressed(KeyboardKey.Backspace) && _typeBuf.Length > 0)
+            _typeBuf = _typeBuf[..^1];
+        if (waiting && Raylib.IsKeyPressed(KeyboardKey.Enter))
+            Send(_typeBuf);
+
         // ── Drag the top edge to resize the panel (read all the text you need) ──
         int dividerY = screenH - _uiH;
         bool overDivider = mp.X < uiW && Math.Abs(mp.Y - dividerY) <= 4;
@@ -575,6 +589,13 @@ class GraphicsDisplay
         var arrowBg = new Color(40, 42, 58, 255);
 
         var (lines, prompt) = _state.SnapshotLog(200);
+
+        // Free-text prompts (names, player count): the answer must be typed, so
+        // suppress leftover choice buttons from the previous menu to avoid the
+        // stale "New/Load character" buttons showing during name entry.
+        string pp = prompt.TrimStart();
+        bool textEntry = pp.StartsWith("First name") || pp.StartsWith("Middle name")
+            || pp.StartsWith("Last name") || pp.StartsWith("How many players");
 
         // ── Layout: scene-text history (top ~42%), prompt, options (rest) ──
         int regionTop = uiY + 30;
@@ -620,19 +641,23 @@ class GraphicsDisplay
 
         // Collect EVERY option token from the recent menu (scan only the recent
         // lines so we stay tied to the current menu, not scrolled-back history).
-        var recent = lines.Count > 26 ? lines.GetRange(lines.Count - 26, 26) : lines;
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // Skipped entirely on free-text prompts so you just type your answer.
         var opts = new List<(string Token, string Label)>();
-        var searchLines = new List<string>(recent) { prompt };
-        for (int li = searchLines.Count - 1; li >= 0 && opts.Count < 60; li--)
-            foreach (System.Text.RegularExpressions.Match m in OptRx.Matches(searchLines[li]))
-            {
-                string token = m.Groups[1].Value;
-                string label = m.Groups[2].Value.Trim();
-                if (!seen.Add(token)) continue;
-                opts.Add((token, label.Length > 0 ? $"{token} {label}" : token));
-            }
-        opts.Reverse();
+        if (!textEntry)
+        {
+            var recent = lines.Count > 26 ? lines.GetRange(lines.Count - 26, 26) : lines;
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var searchLines = new List<string>(recent) { prompt };
+            for (int li = searchLines.Count - 1; li >= 0 && opts.Count < 60; li--)
+                foreach (System.Text.RegularExpressions.Match m in OptRx.Matches(searchLines[li]))
+                {
+                    string token = m.Groups[1].Value;
+                    string label = m.Groups[2].Value.Trim();
+                    if (!seen.Add(token)) continue;
+                    opts.Add((token, label.Length > 0 ? $"{token} {label}" : token));
+                }
+            opts.Reverse();
+        }
 
         // Option buttons: a scrollable grid below the prompt
         int bandTop = sceneBottom + promptH;
@@ -669,7 +694,7 @@ class GraphicsDisplay
             if (drawY + btnH < bandTop || drawY > bandBottom) continue;
             bool fully = drawY >= bandTop && drawY + btnH <= bandBottom;
             if (UiButton(pcx, drawY, w, btnH, label, new Color(50, 60, 95, 255)) && waiting && fully)
-                _state.Inject(token.ToLowerInvariant());
+                Send(token.ToLowerInvariant());
         }
         Raylib.EndScissorMode();
 
@@ -689,17 +714,29 @@ class GraphicsDisplay
             Raylib.DrawRectangle(gx + 5, thumbY, scrollColW - 10, thumbH, new Color(90, 110, 160, 255));
         }
 
-        // Standard row: quick numbers, yes/no, Enter
+        // Standard row: quick numbers, yes/no, then the typed-text field
+        int rowH = FS(12) + 10;
         int sx = 8;
         foreach (var t in new[] { "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "y", "n" })
         {
             int w = FS(12) + (t.Length > 1 ? 16 : 10);
-            if (UiButton(sx, stdY, w, FS(12) + 10, t.ToUpper(), new Color(40, 42, 58, 255)) && waiting)
-                _state.Inject(t);
+            if (UiButton(sx, stdY, w, rowH, t.ToUpper(), new Color(40, 42, 58, 255)) && waiting)
+                Send(t);
             sx += w + 4;
         }
-        if (UiButton(sx, stdY, FS(12) + 34, FS(12) + 10, "ENTER", new Color(40, 42, 58, 255)) && waiting)
-            _state.Inject("");
+        // Backspace + typed-text field + Enter (Enter sends whatever you've typed)
+        if (UiButton(sx, stdY, FS(12) + 20, rowH, "DEL", new Color(40, 42, 58, 255)) && waiting && _typeBuf.Length > 0)
+            _typeBuf = _typeBuf[..^1];
+        sx += FS(12) + 24;
+        int fieldW = Math.Max(80, uiW - sx - 8 - (FS(12) + 40));
+        Raylib.DrawRectangle(sx, stdY, fieldW, rowH, new Color(24, 26, 36, 255));
+        Raylib.DrawRectangleLines(sx, stdY, fieldW, rowH, new Color(80, 90, 120, 255));
+        string shown = _typeBuf.Length == 0 ? "type here…" : _typeBuf;
+        Raylib.DrawText(shown + (waiting && _typeBuf.Length > 0 ? "_" : ""), sx + 6, stdY + 5, FS(12),
+            _typeBuf.Length == 0 ? Color.Gray : Color.SkyBlue);
+        sx += fieldW + 4;
+        if (UiButton(sx, stdY, FS(12) + 36, rowH, "ENTER", new Color(50, 60, 95, 255)) && waiting)
+            Send(_typeBuf);
     }
 
     void DrawPanel(RenderSnapshot snap)
