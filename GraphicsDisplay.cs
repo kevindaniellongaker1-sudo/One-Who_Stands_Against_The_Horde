@@ -136,13 +136,14 @@ class GraphicsDisplay
     const int View    = 13;   // squares visible in each direction from player
     const int ViewPx  = (View * 2 + 1) * Cell;
     const int Panel   = 260;
-    const int UiH     = 236;  // bottom interaction panel (scene text + buttons)
+    const int UiH     = 288;  // bottom interaction panel (scene text + buttons)
     const int WinW    = ViewPx + Panel;
     const int WinH    = ViewPx + UiH;
 
     readonly SharedGameState _state;
     readonly Dictionary<string, Texture2D> _tex = new();
     int _cellSize = Cell;   // live map zoom (pixels per square); +/- buttons adjust it
+    float _uiScale = 1.0f;  // UI text zoom (A- / A+ buttons)
 
     public GraphicsDisplay(SharedGameState state) => _state = state;
 
@@ -516,14 +517,17 @@ class GraphicsDisplay
     static readonly System.Text.RegularExpressions.Regex OptRx =
         new(@"\[([A-Za-z0-9]{1,3})\]\s?([A-Za-z0-9''/&+ -]{0,16})", System.Text.RegularExpressions.RegexOptions.Compiled);
 
+    int FS(int baseSize) => Math.Max(8, (int)(baseSize * _uiScale));
+
     bool UiButton(int x, int y, int w, int h, string label, Color bg)
     {
         var mouse = Raylib.GetMousePosition();
         bool hover = mouse.X >= x && mouse.X <= x + w && mouse.Y >= y && mouse.Y <= y + h;
         Raylib.DrawRectangle(x, y, w, h, hover ? new Color(90, 110, 160, 255) : bg);
         Raylib.DrawRectangleLines(x, y, w, h, new Color(120, 130, 170, 255));
-        int tw = Raylib.MeasureText(label, 12);
-        Raylib.DrawText(label, x + Math.Max(3, (w - tw) / 2), y + (h - 12) / 2, 12, Color.White);
+        int fs = FS(12);
+        int tw = Raylib.MeasureText(label, fs);
+        Raylib.DrawText(label, x + Math.Max(3, (w - tw) / 2), y + (h - fs) / 2, fs, Color.White);
         return hover && Raylib.IsMouseButtonPressed(MouseButton.Left);
     }
 
@@ -533,67 +537,76 @@ class GraphicsDisplay
         int screenH = Raylib.GetScreenHeight();
         int uiW = Math.Max(200, screenW - Panel);
         int uiY = screenH - UiH;
+        bool waiting = _state.WaitingForInput;
 
         Raylib.DrawRectangle(0, uiY, uiW, UiH, new Color(14, 14, 20, 255));
         Raylib.DrawLine(0, uiY, uiW, uiY, new Color(60, 60, 80, 255));
 
-        var (lines, prompt) = _state.SnapshotLog(9);
-        int maxChars = Math.Max(20, uiW / 7);
-        int y = uiY + 6;
-        foreach (var ln in lines)
-        {
-            Raylib.DrawText(Trunc(ln, maxChars), 8, y, 12, new Color(190, 190, 200, 255));
-            y += 14;
-        }
-        bool waiting = _state.WaitingForInput;
-        Raylib.DrawText(Trunc(prompt, maxChars) + (waiting ? " _" : ""), 8, y, 13,
-            waiting ? Color.Yellow : Color.Gray);
+        // Text-size controls (top-right of the strip)
+        if (UiButton(uiW - 62, uiY + 4, 27, 22, "A-", new Color(40, 42, 58, 255)))
+            _uiScale = Math.Max(0.7f, _uiScale - 0.1f);
+        if (UiButton(uiW - 32, uiY + 4, 27, 22, "A+", new Color(40, 42, 58, 255)))
+            _uiScale = Math.Min(1.9f, _uiScale + 0.1f);
 
-        // Parse clickable options from the recent scene text
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var buttons = new List<(string Token, string Label)>();
-        var searchLines = new List<string>(lines) { prompt };
-        for (int li = searchLines.Count - 1; li >= 0 && buttons.Count < 18; li--)
+        int body = FS(12), lineH = FS(12) + 4;
+        int maxChars = Math.Max(16, (int)((uiW - 78) / (body * 0.62)));
+
+        var (lines, prompt) = _state.SnapshotLog(24);
+
+        // Scene text: the last few lines of narration
+        int sceneLines = 4;
+        var show = lines.Count > sceneLines ? lines.GetRange(lines.Count - sceneLines, sceneLines) : lines;
+        int y = uiY + 6;
+        foreach (var ln in show)
         {
+            Raylib.DrawText(Trunc(ln, maxChars), 8, y, body, new Color(190, 190, 200, 255));
+            y += lineH;
+        }
+        Raylib.DrawText(Trunc(prompt, maxChars) + (waiting ? " _" : ""), 8, y, FS(13),
+            waiting ? Color.Yellow : Color.Gray);
+        y += lineH + 4;
+
+        // Collect EVERY option token from the recent menu (menus can span many
+        // lines, some with section headers between option rows). Scan bottom-up
+        // so the most recent occurrence of a token wins, then restore order.
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var opts = new List<(string Token, string Label)>();
+        var searchLines = new List<string>(lines) { prompt };
+        for (int li = searchLines.Count - 1; li >= 0 && opts.Count < 60; li--)
             foreach (System.Text.RegularExpressions.Match m in OptRx.Matches(searchLines[li]))
             {
                 string token = m.Groups[1].Value;
                 string label = m.Groups[2].Value.Trim();
-                if (!seen.Add(token + "|" + label)) continue;
-                buttons.Add((token, label.Length > 0 ? $"{token} {label}" : token));
-                if (buttons.Count >= 18) break;
+                if (!seen.Add(token)) continue;
+                opts.Add((token, label.Length > 0 ? $"{token} {label}" : token));
             }
-            // Stop once we've collected options from a line that had several —
-            // older lines are usually a previous, stale menu.
-            if (buttons.Count >= 6) break;
-        }
+        opts.Reverse();
 
-        int bx = 8, by = uiY + UiH - 84;
-        foreach (var (token, label) in buttons)
+        // Option buttons: wrap across as many rows as fit above the standard row
+        int btnH = FS(12) + 10;
+        int stdY = screenH - (FS(12) + 12);
+        int bx = 8, by = y;
+        foreach (var (token, label) in opts)
         {
-            int w = Math.Max(34, Raylib.MeasureText(label, 12) + 14);
-            if (bx + w > uiW - 8) { bx = 8; by += 26; }
-            if (by > screenH - 28) break;
-            if (UiButton(bx, by, w, 24, label, new Color(50, 60, 95, 255)) && waiting)
+            int w = Math.Max(30, Raylib.MeasureText(label, FS(12)) + 12);
+            if (bx + w > uiW - 8) { bx = 8; by += btnH + 4; }
+            if (by + btnH > stdY - 4) break;   // out of vertical room
+            if (UiButton(bx, by, w, btnH, label, new Color(50, 60, 95, 255)) && waiting)
                 _state.Inject(token.ToLowerInvariant());
             bx += w + 6;
         }
 
         // Standard row: quick numbers, yes/no, Enter
-        int sy = screenH - 28;
         int sx = 8;
-        string[] std = { "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "y", "n" };
-        foreach (var t in std)
+        foreach (var t in new[] { "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "y", "n" })
         {
-            int w = t.Length > 1 ? 30 : 24;
-            if (UiButton(sx, sy, w, 22, t.ToUpper(), new Color(40, 42, 58, 255)) && waiting)
+            int w = FS(12) + (t.Length > 1 ? 16 : 10);
+            if (UiButton(sx, stdY, w, FS(12) + 10, t.ToUpper(), new Color(40, 42, 58, 255)) && waiting)
                 _state.Inject(t);
             sx += w + 4;
         }
-        if (UiButton(sx, sy, 58, 22, "ENTER", new Color(40, 42, 58, 255)) && waiting)
+        if (UiButton(sx, stdY, FS(12) + 34, FS(12) + 10, "ENTER", new Color(40, 42, 58, 255)) && waiting)
             _state.Inject("");
-        sx += 62;
-        Raylib.DrawText("click a choice — or type in the console for names/amounts", sx + 6, sy + 5, 11, Color.Gray);
     }
 
     void DrawPanel(RenderSnapshot snap)

@@ -3446,6 +3446,7 @@ class FeatDef
         new("Magic Crafting", "Craft returning ammo, Rune/Scribed armor, the spell-reflecting Mirror Shield, and the Bag of Holding."),
         new("Flurry of Blows", "Five attacks with your melee or thrown weapon in one action.", "Fury of Blows"),
         new("Weapon Specialist", "+1d4 attack and +1d4 damage with a chosen weapon. Take multiple times.", null, true),
+        new("Extended Grasp", "Melee, weapon and grapple reach +1 square and can strike foes on the corners (diagonals); extends Whirlwind's circle too."),
         new("Giant's Strength", "Can pick up and wield Ogre Club (club sweep 2 squares). +2 min damage, +1 max damage on all non-club weapons."),
         new("Giant's Grip", "Wield two-handed weapons as though they are one-handed, allowing dual-wielding of two-handed weapons."),
         new("Spell Focus", "Spells gain +2 to hit (min and max spell attack rolls)."),
@@ -4049,7 +4050,18 @@ class CombatSession
             Enemy? target = null;
             if (chosen is "attack" or "grapple" or "block" or "parry" or "sap" or "sunder" or "disarm")
             {
-                target = PickTarget(alive);
+                // Ranged weapons can target anyone in range; melee and grapple
+                // only reach adjacent foes (further with Extended Grasp).
+                bool rangedAttack = chosen == "attack" && P.HeldWeapon is "Bow" or "Shortbow" or "Hunting Bow" or "Wand";
+                var cands = rangedAttack ? alive : alive.Where(InMeleeReach).ToList();
+                if (!cands.Any())
+                {
+                    Console.WriteLine(chosen == "grapple"
+                        ? "  No enemy within reach to grapple — move closer first."
+                        : "  No enemy within reach — move closer or use a ranged attack.");
+                    continue;
+                }
+                target = PickTarget(cands);
                 if (target == null) continue;
             }
 
@@ -4235,7 +4247,7 @@ class CombatSession
                         wwAlive = Active.Where(e => e.Alive).ToList();
                         if (!wwAlive.Any()) break;
                         var (dx, dy) = dirs[hi % 8];
-                        int range = hi >= 4 ? 2 : 1;
+                        int range = (hi >= 4 || P.HasFeat("Extended Grasp")) ? 2 : 1;
                         bool swingHit = false;
                         for (int r = 1; r <= range; r++)
                         {
@@ -5336,6 +5348,17 @@ class CombatSession
     // ── HIGH GROUND & SIZE HELPERS ────────────────────────────────────────
 
     int HighGround() => P.Climbed ? 2 : 0;   // +2 to attack rolls from up high
+
+    // Melee / grapple reach: cardinally adjacent normally. Extended Grasp adds
+    // the corner (diagonal) cells and one extra square straight out.
+    bool InMeleeReach(Enemy e)
+    {
+        int dx = Math.Abs(e.Position.X - PlayerPos.X);
+        int dy = Math.Abs(e.Position.Y - PlayerPos.Y);
+        if (P.HasFeat("Extended Grasp"))
+            return Math.Max(dx, dy) <= 1 || (dx + dy == 2 && (dx == 0 || dy == 0));
+        return dx + dy == 1;
+    }
 
     // Dodge adjustment sampled from the (min,max) size window
     int SizeDodgeRoll(string defRace, string atkRace)
