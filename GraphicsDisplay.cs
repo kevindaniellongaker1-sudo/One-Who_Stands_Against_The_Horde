@@ -145,6 +145,9 @@ class GraphicsDisplay
     int _cellSize = Cell;   // live map zoom (pixels per square); +/- buttons adjust it
     float _uiScale = 1.0f;  // UI text zoom (A- / A+ buttons)
     float _optScroll = 0;   // scroll offset (px) for the option-button list
+    int _uiH = UiH;         // current panel height (drag the top edge to resize)
+    int _logScroll = 0;     // scene-text history scroll (lines back from latest)
+    bool _dragUi = false;   // dragging the panel divider
 
     public GraphicsDisplay(SharedGameState state) => _state = state;
 
@@ -331,7 +334,7 @@ class GraphicsDisplay
         // Viewport is derived from the live window size: resize the window
         // and you see more (or less) of the battlefield.
         int screenW = Raylib.GetScreenWidth();
-        int screenH = Raylib.GetScreenHeight() - UiH;   // bottom strip belongs to the UI
+        int screenH = Raylib.GetScreenHeight() - _uiH;   // bottom strip belongs to the UI
         int mapW    = Math.Max(Cell, screenW - Panel);
         int cellsX  = Math.Max(1, mapW / Cell);
         int cellsY  = Math.Max(1, screenH / Cell + 1);
@@ -537,11 +540,23 @@ class GraphicsDisplay
         int screenW = Raylib.GetScreenWidth();
         int screenH = Raylib.GetScreenHeight();
         int uiW = Math.Max(200, screenW - Panel);
-        int uiY = screenH - UiH;
         bool waiting = _state.WaitingForInput;
+        var mp = Raylib.GetMousePosition();
 
-        Raylib.DrawRectangle(0, uiY, uiW, UiH, new Color(14, 14, 20, 255));
-        Raylib.DrawLine(0, uiY, uiW, uiY, new Color(60, 60, 80, 255));
+        // ── Drag the top edge to resize the panel (read all the text you need) ──
+        int dividerY = screenH - _uiH;
+        bool overDivider = mp.X < uiW && Math.Abs(mp.Y - dividerY) <= 4;
+        if (overDivider && Raylib.IsMouseButtonPressed(MouseButton.Left)) _dragUi = true;
+        if (!Raylib.IsMouseButtonDown(MouseButton.Left)) _dragUi = false;
+        if (_dragUi) _uiH = screenH - (int)mp.Y;
+        _uiH = Math.Clamp(_uiH, 110, Math.Max(140, screenH - 140));
+
+        int uiY = screenH - _uiH;
+        Raylib.DrawRectangle(0, uiY, uiW, _uiH, new Color(14, 14, 20, 255));
+        // Resize grip on the top edge (highlights on hover/drag)
+        var gripCol = (overDivider || _dragUi) ? new Color(120, 140, 190, 255) : new Color(60, 60, 80, 255);
+        Raylib.DrawRectangle(0, uiY - 2, uiW, 3, gripCol);
+        Raylib.DrawRectangle(uiW / 2 - 18, uiY - 1, 36, 1, new Color(200, 210, 230, 255));
 
         // Text-size controls (top-right of the strip)
         if (UiButton(uiW - 62, uiY + 4, 27, 22, "A-", new Color(40, 42, 58, 255)))
@@ -550,29 +565,65 @@ class GraphicsDisplay
             _uiScale = Math.Min(1.9f, _uiScale + 0.1f);
 
         int body = FS(12), lineH = FS(12) + 4;
-        int maxChars = Math.Max(16, (int)((uiW - 78) / (body * 0.62)));
+        int maxChars = Math.Max(16, (int)((uiW - 96) / (body * 0.62)));
+        int btnH = FS(12) + 10, rowStep = btnH + 4;
+        int stdY = screenH - (FS(12) + 12);
+        int scrollColW = 18;
+        int contentRight = uiW - 8 - scrollColW;
+        var barBg = new Color(30, 32, 44, 255);
+        var barThumb = new Color(90, 110, 160, 255);
+        var arrowBg = new Color(40, 42, 58, 255);
 
-        var (lines, prompt) = _state.SnapshotLog(24);
+        var (lines, prompt) = _state.SnapshotLog(200);
 
-        // Scene text: the last few lines of narration
-        int sceneLines = 4;
-        var show = lines.Count > sceneLines ? lines.GetRange(lines.Count - sceneLines, sceneLines) : lines;
-        int y = uiY + 6;
-        foreach (var ln in show)
+        // ── Layout: scene-text history (top ~42%), prompt, options (rest) ──
+        int regionTop = uiY + 30;
+        int available = (stdY - 6) - regionTop;
+        int promptH = lineH + 4;
+        int sceneH = Math.Max(lineH, (int)((available - promptH) * 0.42f));
+        int sceneTop = regionTop, sceneBottom = sceneTop + sceneH;
+
+        // Scene text is scrollable so you can read back through everything
+        int visLines = Math.Max(1, sceneH / lineH);
+        int maxLog = Math.Max(0, lines.Count - visLines);
+        bool overScene = mp.X < uiW - scrollColW && mp.Y >= sceneTop && mp.Y < sceneBottom;
+        if (overScene && maxLog > 0)
         {
-            Raylib.DrawText(Trunc(ln, maxChars), 8, y, body, new Color(190, 190, 200, 255));
-            y += lineH;
+            float wheel = Raylib.GetMouseWheelMove();
+            if (wheel != 0) _logScroll += (int)wheel;   // wheel up = back in history
         }
-        Raylib.DrawText(Trunc(prompt, maxChars) + (waiting ? " _" : ""), 8, y, FS(13),
-            waiting ? Color.Yellow : Color.Gray);
-        y += lineH + 4;
+        _logScroll = Math.Clamp(_logScroll, 0, maxLog);
+        int startLine = Math.Max(0, lines.Count - visLines - _logScroll);
+        Raylib.BeginScissorMode(0, sceneTop, uiW - scrollColW, sceneH);
+        int ly = sceneTop;
+        for (int i = startLine; i < lines.Count && ly + lineH <= sceneBottom + 2; i++)
+        {
+            Raylib.DrawText(Trunc(lines[i], maxChars), 8, ly, body, new Color(190, 190, 200, 255));
+            ly += lineH;
+        }
+        Raylib.EndScissorMode();
+        if (maxLog > 0)
+        {
+            int gx = uiW - scrollColW - 2;
+            if (UiButton(gx, sceneTop, scrollColW, 18, "^", arrowBg)) _logScroll = Math.Min(maxLog, _logScroll + 1);
+            if (UiButton(gx, sceneBottom - 18, scrollColW, 18, "v", arrowBg)) _logScroll = Math.Max(0, _logScroll - 1);
+            int tTop = sceneTop + 20, tBot = sceneBottom - 20, tH = Math.Max(4, tBot - tTop);
+            Raylib.DrawRectangle(gx + 5, tTop, scrollColW - 10, tH, barBg);
+            int thumbH = Math.Max(10, (int)(tH * (float)visLines / lines.Count));
+            int thumbY = tTop + (int)((tH - thumbH) * (1f - (float)_logScroll / maxLog));
+            Raylib.DrawRectangle(gx + 5, thumbY, scrollColW - 10, thumbH, barThumb);
+        }
 
-        // Collect EVERY option token from the recent menu (menus can span many
-        // lines, some with section headers between option rows). Scan bottom-up
-        // so the most recent occurrence of a token wins, then restore order.
+        // Prompt line, between scene and options
+        Raylib.DrawText(Trunc(prompt, maxChars) + (waiting ? " _" : ""), 8, sceneBottom + 2, FS(13),
+            waiting ? Color.Yellow : Color.Gray);
+
+        // Collect EVERY option token from the recent menu (scan only the recent
+        // lines so we stay tied to the current menu, not scrolled-back history).
+        var recent = lines.Count > 26 ? lines.GetRange(lines.Count - 26, 26) : lines;
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var opts = new List<(string Token, string Label)>();
-        var searchLines = new List<string>(lines) { prompt };
+        var searchLines = new List<string>(recent) { prompt };
         for (int li = searchLines.Count - 1; li >= 0 && opts.Count < 60; li--)
             foreach (System.Text.RegularExpressions.Match m in OptRx.Matches(searchLines[li]))
             {
@@ -583,16 +634,10 @@ class GraphicsDisplay
             }
         opts.Reverse();
 
-        // Option buttons: a scrollable grid. Lay them out in "content space",
-        // then draw the slice that fits the band, offset by the scroll amount.
-        int btnH = FS(12) + 10;
-        int rowStep = btnH + 4;
-        int stdY = screenH - (FS(12) + 12);
-        int bandTop = y;
+        // Option buttons: a scrollable grid below the prompt
+        int bandTop = sceneBottom + promptH;
         int bandBottom = stdY - 6;
         int bandH = Math.Max(btnH, bandBottom - bandTop);
-        int scrollColW = 18;
-        int contentRight = uiW - 8 - scrollColW;
 
         var placed = new List<(string Token, string Label, int Cx, int Cy, int W)>();
         int cx = 8, cy = 0;
@@ -606,8 +651,7 @@ class GraphicsDisplay
         int contentH = placed.Count > 0 ? placed[^1].Cy + btnH : 0;
         int maxScroll = Math.Max(0, contentH - bandH);
 
-        // Mouse-wheel scroll while hovering the band
-        var mp = Raylib.GetMousePosition();
+        // Mouse-wheel scroll while hovering the options band
         bool overBand = mp.X >= 0 && mp.X < uiW && mp.Y >= bandTop && mp.Y <= bandBottom;
         if (overBand && maxScroll > 0)
         {
