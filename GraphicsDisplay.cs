@@ -517,6 +517,15 @@ class GraphicsDisplay
 
     static string Trunc(string s, int max) => s.Length <= max ? s : s[..(max - 1)] + "…";
 
+    // Keep the END of a string visible within a pixel width (input auto-scroll)
+    static string FitEnd(string s, int maxW, int fs)
+    {
+        if (Raylib.MeasureText(s, fs) <= maxW) return s;
+        int lo = 0;
+        while (lo < s.Length && Raylib.MeasureText("…" + s[lo..], fs) > maxW) lo++;
+        return "…" + s[Math.Min(lo, s.Length)..];
+    }
+
     // ── Interaction panel: scene text, current prompt, clickable choices ──
 
     static readonly System.Text.RegularExpressions.Regex OptRx =
@@ -594,8 +603,8 @@ class GraphicsDisplay
         // suppress leftover choice buttons from the previous menu to avoid the
         // stale "New/Load character" buttons showing during name entry.
         string pp = prompt.TrimStart();
-        bool textEntry = pp.StartsWith("First name") || pp.StartsWith("Middle name")
-            || pp.StartsWith("Last name") || pp.StartsWith("How many players");
+        bool nameKeyboard = pp.StartsWith("First name") || pp.StartsWith("Middle name") || pp.StartsWith("Last name");
+        bool textEntry = nameKeyboard || pp.StartsWith("How many players");
 
         // ── Layout: scene-text history (top ~42%), prompt, options (rest) ──
         int regionTop = uiY + 30;
@@ -714,6 +723,43 @@ class GraphicsDisplay
             Raylib.DrawRectangle(gx + 5, thumbY, scrollColW - 10, thumbH, new Color(90, 110, 160, 255));
         }
 
+        // ── On-screen A-Z keyboard for the three name prompts ──
+        if (nameKeyboard)
+        {
+            var keyBg = new Color(50, 60, 95, 255);
+            int kh = FS(12) + 12, kgap = 4;
+            int kw = Math.Max(FS(12) + 12, (contentRight - 8 - 9 * kgap) / 10);
+            string[] rows = { "QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM" };
+            int ky = bandTop;
+            foreach (var row in rows)
+            {
+                if (ky + kh > bandBottom) break;
+                int kx = 8;
+                foreach (char c in row)
+                {
+                    if (UiButton(kx, ky, kw, kh, c.ToString(), keyBg) && waiting && _typeBuf.Length < 48)
+                    {
+                        bool cap = _typeBuf.Length == 0 || _typeBuf.EndsWith(" ");
+                        _typeBuf += cap ? char.ToUpper(c) : char.ToLower(c);
+                    }
+                    kx += kw + kgap;
+                }
+                ky += kh + kgap;
+            }
+            if (ky + kh <= bandBottom + kh)   // bottom row: Space / Del / Enter
+            {
+                int kx = 8;
+                if (UiButton(kx, ky, kw * 4, kh, "SPACE", new Color(40, 42, 58, 255)) && waiting && _typeBuf.Length < 48)
+                    _typeBuf += " ";
+                kx += kw * 4 + kgap;
+                if (UiButton(kx, ky, kw + 10, kh, "DEL", new Color(40, 42, 58, 255)) && waiting && _typeBuf.Length > 0)
+                    _typeBuf = _typeBuf[..^1];
+                kx += kw + 10 + kgap;
+                if (UiButton(kx, ky, kw * 2 + 20, kh, "ENTER", new Color(60, 90, 130, 255)) && waiting)
+                    Send(_typeBuf);
+            }
+        }
+
         // Standard row: quick numbers, yes/no, then the typed-text field
         int rowH = FS(12) + 10;
         int sx = 8;
@@ -731,8 +777,10 @@ class GraphicsDisplay
         int fieldW = Math.Max(80, uiW - sx - 8 - (FS(12) + 40));
         Raylib.DrawRectangle(sx, stdY, fieldW, rowH, new Color(24, 26, 36, 255));
         Raylib.DrawRectangleLines(sx, stdY, fieldW, rowH, new Color(80, 90, 120, 255));
-        string shown = _typeBuf.Length == 0 ? "type here…" : _typeBuf;
-        Raylib.DrawText(shown + (waiting && _typeBuf.Length > 0 ? "_" : ""), sx + 6, stdY + 5, FS(12),
+        // Text scrolls to follow the end when it overflows the field
+        string typed = _typeBuf + (waiting && _typeBuf.Length > 0 ? "_" : "");
+        string shown = _typeBuf.Length == 0 ? "type here…" : FitEnd(typed, fieldW - 12, FS(12));
+        Raylib.DrawText(shown, sx + 6, stdY + 5, FS(12),
             _typeBuf.Length == 0 ? Color.Gray : Color.SkyBlue);
         sx += fieldW + 4;
         if (UiButton(sx, stdY, FS(12) + 36, rowH, "ENTER", new Color(50, 60, 95, 255)) && waiting)
