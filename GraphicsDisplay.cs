@@ -654,10 +654,16 @@ class GraphicsDisplay
         var opts = new List<(string Token, string Label)>();
         if (!textEntry)
         {
-            var recent = lines.Count > 26 ? lines.GetRange(lines.Count - 26, 26) : lines;
+            // Scan up from the prompt collecting option tokens. Menus can be big
+            // (the feat list is ~45 entries, each a name + a description line), so
+            // we keep going past single-line gaps and only stop once we've hit a
+            // few option-less lines in a row — i.e. the top of the current menu.
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var searchLines = new List<string>(recent) { prompt };
-            for (int li = searchLines.Count - 1; li >= 0 && opts.Count < 60; li--)
+            var searchLines = new List<string>(lines) { prompt };
+            int emptyRun = 0;
+            for (int li = searchLines.Count - 1; li >= 0 && opts.Count < 80; li--)
+            {
+                int before = opts.Count;
                 foreach (System.Text.RegularExpressions.Match m in OptRx.Matches(searchLines[li]))
                 {
                     string token = m.Groups[1].Value;
@@ -665,6 +671,9 @@ class GraphicsDisplay
                     if (!seen.Add(token)) continue;
                     opts.Add((token, label.Length > 0 ? $"{token} {label}" : token));
                 }
+                if (opts.Count > before) emptyRun = 0;
+                else if (opts.Count > 0 && ++emptyRun >= 3) break;
+            }
             opts.Reverse();
         }
 

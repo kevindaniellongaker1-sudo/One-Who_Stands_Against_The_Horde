@@ -98,6 +98,9 @@ for (int pi = 1; pi <= numPlayers; pi++)
     {
         AskName(p);
     }
+    // Pick the starting feat now, as part of this character's own creation,
+    // so in multiplayer it's clear whose feat is being chosen.
+    if (p.PendingFeats > 0) SelectFeats(p);
     allPlayers.Add(p);
 }
 
@@ -109,9 +112,8 @@ if (allPlayers.Count > 1)
     Console.WriteLine($"Starting at Wave {groupsDefeated + 1} (lowest character's progress).");
 Console.WriteLine($"HP: {player.HP}/{player.MaxHP}\n");
 
-if (player.PendingFeats > 0) SelectFeats(player);
-foreach (var ep in allPlayers.Skip(1).Where(p => p.PendingFeats > 0)) SelectFeats(ep);
-
+// Safety net: any character still owed feats (e.g. an old save) picks them now
+foreach (var ep in allPlayers.Where(p => p.PendingFeats > 0)) SelectFeats(ep);
 
 while (true)
 {
@@ -598,7 +600,7 @@ void SelectFeats(Player p)
 {
     while (p.PendingFeats > 0)
     {
-        Console.WriteLine("\n═══ FEAT SELECTION ═══");
+        Console.WriteLine($"\n═══ FEAT SELECTION — {p.Name} ({p.CharacterType}) ═══");
         var avail = FeatDef.All.Where(f =>
         {
             if (f.Prerequisite != null && !p.HasFeat(f.Prerequisite)) return false;
@@ -615,7 +617,7 @@ void SelectFeats(Player p)
             Console.WriteLine($"       {avail[i].Desc}");
         }
 
-        Console.Write($"Select feat (1-{avail.Count}): ");
+        Console.Write($"{p.Name} — select feat (1-{avail.Count}): ");
         if (int.TryParse(GameIO.ReadLine()?.Trim(), out int fi) && fi >= 1 && fi <= avail.Count)
         {
             var f = avail[fi - 1];
