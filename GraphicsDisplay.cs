@@ -144,6 +144,7 @@ class GraphicsDisplay
     readonly Dictionary<string, Texture2D> _tex = new();
     int _cellSize = Cell;   // live map zoom (pixels per square); +/- buttons adjust it
     float _uiScale = 1.0f;  // UI text zoom (A- / A+ buttons)
+    float _optScroll = 0;   // scroll offset (px) for the option-button list
 
     public GraphicsDisplay(SharedGameState state) => _state = state;
 
@@ -582,18 +583,66 @@ class GraphicsDisplay
             }
         opts.Reverse();
 
-        // Option buttons: wrap across as many rows as fit above the standard row
+        // Option buttons: a scrollable grid. Lay them out in "content space",
+        // then draw the slice that fits the band, offset by the scroll amount.
         int btnH = FS(12) + 10;
+        int rowStep = btnH + 4;
         int stdY = screenH - (FS(12) + 12);
-        int bx = 8, by = y;
+        int bandTop = y;
+        int bandBottom = stdY - 6;
+        int bandH = Math.Max(btnH, bandBottom - bandTop);
+        int scrollColW = 18;
+        int contentRight = uiW - 8 - scrollColW;
+
+        var placed = new List<(string Token, string Label, int Cx, int Cy, int W)>();
+        int cx = 8, cy = 0;
         foreach (var (token, label) in opts)
         {
             int w = Math.Max(30, Raylib.MeasureText(label, FS(12)) + 12);
-            if (bx + w > uiW - 8) { bx = 8; by += btnH + 4; }
-            if (by + btnH > stdY - 4) break;   // out of vertical room
-            if (UiButton(bx, by, w, btnH, label, new Color(50, 60, 95, 255)) && waiting)
+            if (cx + w > contentRight) { cx = 8; cy += rowStep; }
+            placed.Add((token, label, cx, cy, w));
+            cx += w + 6;
+        }
+        int contentH = placed.Count > 0 ? placed[^1].Cy + btnH : 0;
+        int maxScroll = Math.Max(0, contentH - bandH);
+
+        // Mouse-wheel scroll while hovering the band
+        var mp = Raylib.GetMousePosition();
+        bool overBand = mp.X >= 0 && mp.X < uiW && mp.Y >= bandTop && mp.Y <= bandBottom;
+        if (overBand && maxScroll > 0)
+        {
+            float wheel = Raylib.GetMouseWheelMove();
+            if (wheel != 0) _optScroll -= wheel * rowStep;
+        }
+        _optScroll = Math.Clamp(_optScroll, 0, maxScroll);
+        int scroll = (int)_optScroll;
+
+        // Draw the visible buttons, clipped to the band
+        Raylib.BeginScissorMode(0, bandTop, contentRight + 2, bandH);
+        foreach (var (token, label, pcx, pcy, w) in placed)
+        {
+            int drawY = bandTop + pcy - scroll;
+            if (drawY + btnH < bandTop || drawY > bandBottom) continue;
+            bool fully = drawY >= bandTop && drawY + btnH <= bandBottom;
+            if (UiButton(pcx, drawY, w, btnH, label, new Color(50, 60, 95, 255)) && waiting && fully)
                 _state.Inject(token.ToLowerInvariant());
-            bx += w + 6;
+        }
+        Raylib.EndScissorMode();
+
+        // Scroll controls + bar (only when the list overflows)
+        if (maxScroll > 0)
+        {
+            int gx = uiW - scrollColW - 2;
+            if (UiButton(gx, bandTop, scrollColW, btnH, "^", new Color(40, 42, 58, 255)))
+                _optScroll = Math.Max(0, _optScroll - rowStep);
+            if (UiButton(gx, bandBottom - btnH, scrollColW, btnH, "v", new Color(40, 42, 58, 255)))
+                _optScroll = Math.Min(maxScroll, _optScroll + rowStep);
+            int trackTop = bandTop + btnH + 2, trackBot = bandBottom - btnH - 2;
+            int trackH = Math.Max(4, trackBot - trackTop);
+            Raylib.DrawRectangle(gx + 5, trackTop, scrollColW - 10, trackH, new Color(30, 32, 44, 255));
+            int thumbH = Math.Max(10, (int)(trackH * (float)bandH / contentH));
+            int thumbY = trackTop + (int)((trackH - thumbH) * (_optScroll / maxScroll));
+            Raylib.DrawRectangle(gx + 5, thumbY, scrollColW - 10, thumbH, new Color(90, 110, 160, 255));
         }
 
         // Standard row: quick numbers, yes/no, Enter
