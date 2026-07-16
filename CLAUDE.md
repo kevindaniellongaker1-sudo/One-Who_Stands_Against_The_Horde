@@ -1,18 +1,23 @@
 # OWSATH — One Who Stands Against The Horde
 
-Console combat game built in C# .NET 8. Single file `Program.cs` (~4000 lines).
-Raylib-cs 6.1.1 graphics on main thread; game logic on background thread.
-Development branch: `claude/todo-implementation-ymd2ro`
+Console combat game built in C# .NET 8. Raylib-cs 6.1.1 graphics on main thread; game logic on background thread.
 
 ## Project structure
 
-- `Program.cs` — all game logic (top-level statements + local functions + classes at the bottom)
-- `GraphicsDisplay.cs` — Raylib rendering, reads from `SharedGameState`
-- `goblinminigame.csproj` — .NET 8, Raylib-cs 6.1.1
+Split by concern (was one 10k-line Program.cs). Each file opens with a header comment explaining its contents and editing pitfalls — read those first.
+
+| File | Lines | Contents |
+|---|---|---|
+| `Program.cs` | ~2.8k | Startup, character creation, point buy, shops, wave loop, save/load. Banners: `══ STARTUP`, `══ CHARACTER CREATION`, `══ POINT BUY`, `══ THE SHOP`, `══ THE WAVE LOOP`, `══ SAVE / LOAD` |
+| `Player.cs` | ~420 | The `Player` class: stats, core traits, gear, pools |
+| `Enemies.cs` | ~790 | `Enemy` base + every monster/animal ("what a troll IS") |
+| `Rules.cs` | ~340 | `SizeRules`, `Shop` (prices/stock/storefronts), `FeatDef`, `BuyOpt` — lookup tables; most balance edits are one line here |
+| `Combat.cs` | ~6.2k | `CombatSession` — one whole fight ("what a troll DOES") |
+| `GraphicsDisplay.cs` | ~990 | Raylib rendering, sprites, clickable UI, reads `SharedGameState` |
 
 ## Architecture notes
 
-- `RunGameLogic(SharedGameState)` is the master local function — everything lives inside it
+- `RunGameLogic(SharedGameState)` is the master local function — all game-flow functions are local to it (that's why they share `rng`/`allPlayers`/`groupsDefeated` freely)
 - `CombatSession` class holds a single combat loop; player is `P`, enemies are `Active`
 - `Enemy.Alive` is a **computed property** (`HP > 0 && !Fled`) — never set it directly
 - `Enemy.Fled = true` to make an enemy flee (not `Alive = false`)
