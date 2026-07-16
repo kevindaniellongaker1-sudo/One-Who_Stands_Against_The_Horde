@@ -901,14 +901,20 @@ void SelectRace(Player p)
     // Class selection first so Stone Dwarf can double the class-set HP
     SelectCharacterType(p);
 
-    // Helpers to apply symmetric (min+max) bonuses cleanly
-    void Atk(int d)   { p.MinAttack += d; p.MaxAttack += d; }
-    void Dmg(int d)   { p.MinDamage += d; p.MaxDamage += d; }
-    void Dodge(int d) { p.MinDodge += d; p.MaxDodge += d; }
-    void Block(int d) { p.MinBlock += d; p.MaxBlock += d; }
-    void Parry(int d) { p.MinParry += d; p.MaxParry += d; }
-    void Grap(int d)  { p.MinGrapple += d; p.MaxGrapple += d; }
-    void RAtk(int d)  { p.MinRangedAtk += d; p.MaxRangedAtk += d; }
+    // Helpers to apply symmetric (min+max) bonuses cleanly. Every roll stat is
+    // clamped so a racial penalty can never drive a roll to zero/negative or
+    // collapse min==max into a fixed result.
+    void Rl(ref int mn, ref int mx, int d)
+    { mn = Math.Max(1, mn + d); mx = Math.Max(mn, mx + d); }
+    void Atk(int d)   { Rl(ref p.MinAttack, ref p.MaxAttack, d); }
+    void Dmg(int d)   { Rl(ref p.MinDamage, ref p.MaxDamage, d); }
+    void Dodge(int d) { Rl(ref p.MinDodge, ref p.MaxDodge, d); }
+    void Block(int d) { Rl(ref p.MinBlock, ref p.MaxBlock, d); }
+    void Parry(int d) { Rl(ref p.MinParry, ref p.MaxParry, d); }
+    void Grap(int d)  { Rl(ref p.MinGrapple, ref p.MaxGrapple, d); }
+    void RAtk(int d)  { Rl(ref p.MinRangedAtk, ref p.MaxRangedAtk, d); }
+    // Ranged damage is a *bonus* (base 0/0), so it may sit negative by design;
+    // the bow/throw sites floor the resulting damage at 1.
     void RDmg(int d)  { p.MinRangedDmgBonus += d; p.MaxRangedDmgBonus += d; }
     void Hp(int d)    { p.MaxHP = Math.Max(1, p.MaxHP + d); p.HP = p.MaxHP; }
 
@@ -4202,7 +4208,8 @@ class CombatSession
                 {
                     if (P.IsGrappled) { Console.WriteLine("  You can't sprint while grappled!"); continue; }
                     if (P.Climbed) { Console.WriteLine("  You're up high — climb down (action) or jump down first!"); continue; }
-                    int sprintRoll = Math.Max(1, Rng.Next(P.MinMovement, P.MaxMovement + 1) * 2 + P.MovementBonus + P.SprintBonus);
+                    // Sprint is 2d6 (+ movement/sprint bonuses)
+                    int sprintRoll = Math.Max(1, Rng.Next(1, 7) + Rng.Next(1, 7) + P.MovementBonus + P.SprintBonus);
                     string spNote = P.NoSprintPenalty ? "[no penalty]" : P.DoubleSprintPenalty ? "[-4 to next action]" : "[-2 to next action]";
                     Console.WriteLine($"  SPRINT! {sprintRoll} square(s). {spNote}");
                     StepMovement(sprintRoll);
@@ -6299,7 +6306,8 @@ class CombatSession
             else if (f2 <= 45f) { dMin = 2; dMax = 10; }
             else { dMin = 1; dMax = 5; }
             if (huntingBow) { dMin = 2; dMax = 6; }
-            dMin += P.MinRangedDmgBonus; dMax += P.MinRangedDmgBonus + P.MaxRangedDmgBonus;
+            dMin = Math.Max(1, dMin + P.MinRangedDmgBonus);
+            dMax = Math.Max(dMin, dMax + P.MinRangedDmgBonus + P.MaxRangedDmgBonus);
             int a2 = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 1) + SlayerAtk() + HighGround() + arrowAtkBonus + (huntingBow ? 2 : 0);
             int d2 = Rng.Next(tgt.MinDodge, tgt.MaxDodge + 1) + SizeDodgeRoll(tgt.Race, P.Race) - tgt.DodgePenalty;
             Console.WriteLine($"  Arrow at {tgt.Name} ({f2:F0}ft): {a2} vs dodge {d2}.");
@@ -6386,7 +6394,8 @@ class CombatSession
         else if (feet <= 45f) { dmgMin = 2; dmgMax = 10; }
         else { dmgMin = 1; dmgMax = 5; }
         if (huntingBow) { dmgMin = 2; dmgMax = 6; }
-        dmgMin += P.MinRangedDmgBonus; dmgMax += P.MinRangedDmgBonus + P.MaxRangedDmgBonus;
+        dmgMin = Math.Max(1, dmgMin + P.MinRangedDmgBonus);
+        dmgMax = Math.Max(dmgMin, dmgMax + P.MinRangedDmgBonus + P.MaxRangedDmgBonus);
         int atkRoll = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 1) + SlayerAtk() + HighGround() + arrowAtkBonus + (huntingBow ? 2 : 0);
         int ddg = Rng.Next(target.MinDodge, target.MaxDodge + 1) + SizeDodgeRoll(target.Race, P.Race) - target.DodgePenalty;
         Console.WriteLine($"  BOW ({feet:F0}ft, dmg {dmgMin}-{dmgMax})! Roll {atkRoll} vs {target.Name}'s dodge {ddg}.");
@@ -6437,7 +6446,8 @@ class CombatSession
             if (feet <= 14f) { d2Min = 4; d2Max = 12; }
             else if (feet <= 45f) { d2Min = 2; d2Max = 10; }
             else { d2Min = 1; d2Max = 5; }
-            d2Min += P.MinRangedDmgBonus; d2Max += P.MinRangedDmgBonus + P.MaxRangedDmgBonus;
+            d2Min = Math.Max(1, d2Min + P.MinRangedDmgBonus);
+            d2Max = Math.Max(d2Min, d2Max + P.MinRangedDmgBonus + P.MaxRangedDmgBonus);
             Console.WriteLine($"  BOW ({feet:F0}ft)! Roll {atk2} vs dodge {ddg2}.");
             if (atk2 >= ddg2)
             {
@@ -7516,7 +7526,7 @@ class CombatSession
                         if (ncAtk >= ncDdg)
                         {
                             int ncDmg = Rng.Next(1, 5);
-                            if (P.ArmorDamageReduction > 0) ncDmg = Math.Max(1, ncDmg - P.ArmorDamageReduction);
+                            ncDmg = Math.Max(1, ncDmg - P.ArmorDamageReduction);
                             P.HP -= ncDmg;
                             Console.WriteLine($"  Clawed for {ncDmg}! HP:{P.HP}/{P.MaxHP}");
                         }
@@ -7723,7 +7733,7 @@ class CombatSession
                         if (haAtk >= haDdg)
                         {
                             int haDmg = Rng.Next(2, 9);
-                            if (P.ArmorDamageReduction > 0) haDmg = Math.Max(1, haDmg - P.ArmorDamageReduction);
+                            haDmg = Math.Max(1, haDmg - P.ArmorDamageReduction);
                             P.HP -= haDmg;
                             Console.WriteLine($"  Axe HIT for {haDmg}! HP:{P.HP}/{P.MaxHP}");
                         }
@@ -7742,7 +7752,7 @@ class CombatSession
                         if (gbAtk >= gbDdg)
                         {
                             int gbDmg = Rng.Next(1, 5) + Rng.Next(1, 5);
-                            if (P.ArmorDamageReduction > 0) gbDmg = Math.Max(1, gbDmg - P.ArmorDamageReduction);
+                            gbDmg = Math.Max(1, gbDmg - P.ArmorDamageReduction);
                             P.HP -= gbDmg;
                             Console.WriteLine($"  Arrow HIT for {gbDmg}! HP:{P.HP}/{P.MaxHP}");
                         }
@@ -8059,7 +8069,7 @@ class CombatSession
         {
             int swDmg = Rng.Next(3, 13);
             if (P.Defending) swDmg = Math.Max(1, swDmg / 2);
-            if (P.ArmorDamageReduction > 0) swDmg = Math.Max(1, swDmg - P.ArmorDamageReduction);
+            swDmg = Math.Max(1, swDmg - P.ArmorDamageReduction);
             Console.WriteLine($"  Club sweep hits you for {swDmg}! HP:{P.HP - swDmg}/{P.MaxHP}");
             P.HP -= swDmg;
         }
@@ -8131,7 +8141,7 @@ class CombatSession
         {
             int kDmg = Rng.Next(e.KickDmgMin, e.KickDmgMax + 1);
             if (P.Defending) kDmg = Math.Max(1, kDmg / 2);
-            if (P.ArmorDamageReduction > 0) kDmg = Math.Max(1, kDmg - P.ArmorDamageReduction);
+            kDmg = Math.Max(1, kDmg - P.ArmorDamageReduction);
             P.HP -= kDmg;
             Console.WriteLine($"  Kick HIT! {kDmg} damage. HP:{P.HP}/{P.MaxHP}");
         }
@@ -8308,7 +8318,7 @@ class CombatSession
                 dmg = Math.Max(1, dmg + SizeRules.DmgBonus(e.Race, P.Race));
             }
             if (P.Defending) dmg = Math.Max(1, dmg / 2);
-            if (P.ArmorDamageReduction > 0) dmg = Math.Max(1, dmg - P.ArmorDamageReduction);
+            dmg = Math.Max(1, dmg - P.ArmorDamageReduction);
             if (P.SpellweaveArmorTurns > 0) dmg = Math.Max(1, dmg - 2);
             Console.WriteLine($"  HIT! You take {dmg} damage. HP: {P.HP - dmg}/{P.MaxHP}");
             P.HP -= dmg;
@@ -8324,7 +8334,7 @@ class CombatSession
                 {
                     int ofDmg = Rng.Next(e.OffhandMinDmg, e.OffhandMaxDmg + 1);
                     if (P.Defending) ofDmg = Math.Max(1, ofDmg / 2);
-                    if (P.ArmorDamageReduction > 0) ofDmg = Math.Max(1, ofDmg - P.ArmorDamageReduction);
+                    ofDmg = Math.Max(1, ofDmg - P.ArmorDamageReduction);
                     Console.WriteLine($"  Off-hand HIT! {ofDmg} damage. HP:{P.HP - ofDmg}/{P.MaxHP}");
                     P.HP -= ofDmg;
                     if (P.IsRaging && P.HP < 0) { P.HP = 0; Console.WriteLine("  RAGE keeps you standing!"); }
@@ -8657,7 +8667,7 @@ class CombatSession
         if (atk >= ddg)
         {
             int dmg = Rng.Next(dmgMin, dmgMax + 1);
-            if (P.ArmorDamageReduction > 0) dmg = Math.Max(1, dmg - P.ArmorDamageReduction);
+            dmg = Math.Max(1, dmg - P.ArmorDamageReduction);
             P.HP -= dmg;
             Console.WriteLine($"  HIT for {dmg}! HP:{P.HP}/{P.MaxHP}");
         }
@@ -8778,7 +8788,7 @@ class CombatSession
                             int clawDmg = 0; for (int d = 0; d < 6; d++) clawDmg += Rng.Next(1, 3);   // 6d2
                             int biteDmg = 0; for (int d = 0; d < 4; d++) biteDmg += Rng.Next(1, 4);   // 4d3
                             int total = clawDmg + biteDmg;
-                            if (P.ArmorDamageReduction > 0) total = Math.Max(2, total - P.ArmorDamageReduction);
+                            total = Math.Max(2, total - P.ArmorDamageReduction);
                             P.HP -= total;
                             Console.WriteLine($"  Claws dig into your back ({clawDmg}) as it BITES ({biteDmg})! {total} damage. HP:{P.HP}/{P.MaxHP}");
                         }
@@ -8897,7 +8907,7 @@ class CombatSession
                 if (cAtk >= cDdg)
                 {
                     int cDmg = Rng.Next(1, 5);
-                    if (P.ArmorDamageReduction > 0) cDmg = Math.Max(1, cDmg - P.ArmorDamageReduction);
+                    cDmg = Math.Max(1, cDmg - P.ArmorDamageReduction);
                     P.HP -= cDmg;
                     Console.WriteLine($"  Clawed for {cDmg}! HP:{P.HP}/{P.MaxHP}");
                 }
@@ -9017,7 +9027,7 @@ class CombatSession
         {
             int dmg = Rng.Next(2, 9); // hand axe throw: 2-8
             if (P.Defending) dmg = Math.Max(1, dmg / 2);
-            if (P.ArmorDamageReduction > 0) dmg = Math.Max(1, dmg - P.ArmorDamageReduction);
+            dmg = Math.Max(1, dmg - P.ArmorDamageReduction);
             Console.WriteLine($"  Hand axe HIT! {dmg} damage. HP:{P.HP - dmg}/{P.MaxHP}");
             P.HP -= dmg;
         }
@@ -9039,7 +9049,7 @@ class CombatSession
         {
             int dmg = Rng.Next(rg.MinDamage, rg.MaxDamage + 1);
             if (P.Defending) dmg = Math.Max(1, dmg / 2);
-            if (P.ArmorDamageReduction > 0) dmg = Math.Max(1, dmg - P.ArmorDamageReduction);
+            dmg = Math.Max(1, dmg - P.ArmorDamageReduction);
             Console.WriteLine($"  Dagger HIT! {dmg} damage. HP:{P.HP - dmg}/{P.MaxHP}");
             P.HP -= dmg;
         }
@@ -9125,7 +9135,7 @@ class CombatSession
         {
             int dmg = Rng.Next(dmgMin, dmgMax + 1);
             if (P.Defending) dmg = Math.Max(1, dmg / 2);
-            if (P.ArmorDamageReduction > 0) dmg = Math.Max(1, dmg - P.ArmorDamageReduction);
+            dmg = Math.Max(1, dmg - P.ArmorDamageReduction);
             Console.WriteLine($"  Arrow HIT! {dmg} damage. HP:{P.HP - dmg}/{P.MaxHP}");
             P.HP -= dmg;
         }
@@ -9146,7 +9156,7 @@ class CombatSession
         {
             int dmg = Rng.Next(1, 7);
             if (P.Defending) dmg = Math.Max(1, dmg / 2);
-            if (P.ArmorDamageReduction > 0) dmg = Math.Max(1, dmg - P.ArmorDamageReduction);
+            dmg = Math.Max(1, dmg - P.ArmorDamageReduction);
             Console.WriteLine($"  Dagger HIT! {dmg} damage. HP:{P.HP - dmg}/{P.MaxHP}");
             P.HP -= dmg;
         }
@@ -9280,7 +9290,7 @@ class CombatSession
             int dmg = Rng.Next(orr.BowMinDmg, orr.BowMaxDmg + 1);
             if (isCrit) { dmg *= 2; Console.WriteLine($"  CRITICAL! Arrow strikes true!"); }
             if (P.Defending) dmg = Math.Max(1, dmg / 2);
-            if (P.ArmorDamageReduction > 0) dmg = Math.Max(1, dmg - P.ArmorDamageReduction);
+            dmg = Math.Max(1, dmg - P.ArmorDamageReduction);
             Console.WriteLine($"  Arrow HIT! {dmg} damage. HP:{P.HP - dmg}/{P.MaxHP}");
             P.HP -= dmg;
             // Double Tap: second arrow
@@ -9294,7 +9304,7 @@ class CombatSession
                 {
                     int dmg2 = Rng.Next(orr.BowMinDmg, orr.BowMaxDmg + 1);
                     if (raw2 == orr.BowMaxAtk) { dmg2 *= 2; Console.WriteLine($"  CRITICAL second arrow!"); }
-                    if (P.ArmorDamageReduction > 0) dmg2 = Math.Max(1, dmg2 - P.ArmorDamageReduction);
+                    dmg2 = Math.Max(1, dmg2 - P.ArmorDamageReduction);
                     Console.WriteLine($"  Second arrow HIT! {dmg2} damage. HP:{P.HP - dmg2}/{P.MaxHP}");
                     P.HP -= dmg2;
                 }
@@ -9320,7 +9330,7 @@ class CombatSession
         {
             int dmg = Rng.Next(dmgMin, dmgMax + 1);
             if (P.Defending) dmg = Math.Max(1, dmg / 2);
-            if (P.ArmorDamageReduction > 0) dmg = Math.Max(1, dmg - P.ArmorDamageReduction);
+            dmg = Math.Max(1, dmg - P.ArmorDamageReduction);
             Console.WriteLine($"  Axe HIT! {dmg} damage. HP:{P.HP - dmg}/{P.MaxHP}");
             P.HP -= dmg;
             tr.ThrownAxePositions.Add(PlayerPos); // axe near player

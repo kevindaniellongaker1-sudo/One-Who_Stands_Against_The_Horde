@@ -556,8 +556,10 @@ class GraphicsDisplay
 
     // ── Interaction panel: scene text, current prompt, clickable choices ──
 
+    // \s* inside the brackets so right-aligned menus like "[ 1] Guitar"
+    // (Console format "{i,2}") still produce buttons.
     static readonly System.Text.RegularExpressions.Regex OptRx =
-        new(@"\[([A-Za-z0-9]{1,3})\]\s?([A-Za-z0-9''/&+ -]{0,16})", System.Text.RegularExpressions.RegexOptions.Compiled);
+        new(@"\[\s*([A-Za-z0-9]{1,3})\s*\]\s?([A-Za-z0-9''/&+ -]{0,16})", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     int FS(int baseSize) => Math.Max(8, (int)(baseSize * _uiScale));
 
