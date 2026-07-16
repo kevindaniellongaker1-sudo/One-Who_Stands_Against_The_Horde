@@ -1506,17 +1506,111 @@ void SelectCharacterType(Player p)
 }
 
 // ── The travelling merchant: visits the party after every group ────────────
+// ── One storefront: stocks a random 8 of its range, fresh every visit ──
+void BrowseStorefront(Player pl, string shop)
+{
+    while (true)
+    {
+        // Armor Store also carries the armor list; Magic Shop marks up by 3 gold
+        IEnumerable<string>? extra = shop == "Armor Store" ? Shop.Armors.Keys : null;
+        var stock = Shop.RollStock(shop, rng, extra);
+        long Markup(string it) => Shop.CostOf(it) + (shop == "Magic Shop" ? 3 * Shop.Gold : 0);
+
+        Console.WriteLine($"\n── {shop} ──  Purse: {Shop.Fmt(pl.Copper)}   (stock rotates each visit)");
+        for (int i = 0; i < stock.Length; i++)
+        {
+            string it = stock[i];
+            string tag = Shop.TwoHanded.Contains(it) ? " [2H]" : Shop.ReachWeapons.Contains(it) ? " [reach]" : "";
+            string blurb = Shop.Armors.TryGetValue(it, out var ad) ? $" — {ad.Desc}" : "";
+            Console.WriteLine($"  [{i + 1,2}] {it,-24}{tag} {Shop.Fmt(Markup(it))}{blurb}");
+        }
+        Console.Write("  Buy # (or Enter to leave): ");
+        string raw = (GameIO.ReadLine() ?? "").Trim();
+        if (raw.Length == 0) return;
+        if (!int.TryParse(raw, out int bi) || bi < 1 || bi > stock.Length) continue;
+        string item = stock[bi - 1];
+        long cost = Markup(item);
+        if (cost > pl.Copper) { Console.WriteLine($"  Not enough coin ({Shop.Fmt(cost)})."); continue; }
+        if (pl.MonkWeaponsOnly && Shop.Price.ContainsKey(item) && !Shop.Armors.ContainsKey(item)
+            && !pl.IsMonkWeapon(item) && !Shop.Shields.ContainsKey(item)
+            && item is not ("Quiver" or "Potion Pouch" or "Throwing Band" or "Artisan's Bag" or "Bag of Holding"))
+        { Console.WriteLine($"  Your Vow of Silence forbids the {item} — monk weapons only."); continue; }
+
+        // ── Armor ──
+        if (Shop.Armors.TryGetValue(item, out var armor))
+        {
+            if (armor.Under && pl.UnderArmor.Length > 0) { Console.WriteLine($"  You already wear {pl.UnderArmor} underneath."); continue; }
+            if (!armor.Under && pl.MainArmor != "none") { Console.WriteLine($"  You already wear {pl.MainArmor}."); continue; }
+            pl.Copper -= cost;
+            if (armor.Under) pl.UnderArmor = item; else pl.MainArmor = item;
+            pl.ArmorDamageReduction += armor.MeleeDR;
+            pl.ArmorSpellDR += armor.SpellDR; pl.ArmorPrayerDR += armor.PrayerDR;
+            pl.ArmorAbsorbPct = Math.Min(100, pl.ArmorAbsorbPct + armor.AbsorbPct);
+            if (armor.Metal) pl.ArmorMetal = true;
+            Console.WriteLine($"  You don the {item}. {armor.Desc}");
+            continue;
+        }
+        // ── Shields ──
+        if (Shop.Shields.TryGetValue(item, out var sh))
+        {
+            if (pl.OffHandShieldName != null) { Console.WriteLine($"  You already carry a {pl.OffHandShieldName}."); continue; }
+            pl.Copper -= cost;
+            pl.OffHandShieldName = item; pl.OffHandShieldBlock = sh.Block;
+            pl.ArmorDamageReduction += sh.Def;
+            Console.WriteLine($"  You strap on the {item} (+{sh.Block} block).");
+            continue;
+        }
+        // ── Bags and carriers ──
+        if (item is "Quiver" or "Potion Pouch" or "Throwing Band" or "Artisan's Bag" or "Bag of Holding" or "Quiver of Holding")
+        {
+            pl.Copper -= cost;
+            switch (item)
+            {
+                case "Quiver":            pl.QuiverCap += 25; Console.WriteLine($"  A quiver — carries {pl.QuiverCap} arrows."); break;
+                case "Potion Pouch":      pl.PotionPouchCap += 5; Console.WriteLine($"  A potion pouch — holds {pl.PotionPouchCap} potions."); break;
+                case "Throwing Band":     pl.ThrowBandCap += 4; Console.WriteLine($"  A throwing band — holds {pl.ThrowBandCap} throwing weapons."); break;
+                case "Artisan's Bag":     pl.CarryCap += 50; Console.WriteLine($"  An artisan's bag — pack space is now {pl.CarryCap}."); break;
+                case "Quiver of Holding": pl.HasQuiverOfHolding = true; Console.WriteLine("  A quiver of holding — endless arrows!"); break;
+                default:                  pl.CarryCap = 9999; Console.WriteLine("  A bag of holding — carry anything!"); break;
+            }
+            continue;
+        }
+        // ── Weapons ──
+        pl.Copper -= cost;
+        if (pl.HeldWeapon == null) { pl.HeldWeapon = item; Console.WriteLine($"  You wield the {item}."); }
+        else if (pl.SecondaryWeapon == null) { pl.SecondaryWeapon = item; Console.WriteLine($"  You stow the {item}."); }
+        else
+        {
+            Console.Write($"  Hands full — trade in [H]eld {pl.HeldWeapon}, [S]econdary {pl.SecondaryWeapon}, or [N]othing? ");
+            string tr = (GameIO.ReadLine() ?? "n").Trim().ToLower();
+            if (tr.StartsWith("h")) { pl.Copper += Shop.Sell(pl.HeldWeapon); pl.HeldWeapon = item; Console.WriteLine($"  You now wield the {item}."); }
+            else if (tr.StartsWith("s")) { pl.Copper += Shop.Sell(pl.SecondaryWeapon); pl.SecondaryWeapon = item; Console.WriteLine($"  Stowed the {item}."); }
+            else { pl.Copper += cost; Console.WriteLine("  Purchase cancelled."); }
+        }
+    }
+}
+
 void VisitShop(Player pl)
 {
     while (true)
     {
         Console.WriteLine($"\n═══ TRAVELLING MERCHANT ═══  Purse: {Shop.Fmt(pl.Copper)}");
         Console.WriteLine($"  Wearing: {pl.MainArmor}{(pl.UnderArmor.Length > 0 ? $" over {pl.UnderArmor}" : "")}");
+        Console.WriteLine("  ── Storefronts (stock rotates each visit) ──");
+        Console.WriteLine("  [c] Crafts Store   [w] Weapon Shop   [a] Armor Store");
+        Console.WriteLine("  [m] Magic Shop     [b] Bags Shop     [j] Dojo (monk weapons)");
+        Console.WriteLine("  ── Merchant's own stall ──");
         Console.WriteLine("  [1] Arrows   [2] Weapons   [3] Shields   [4] Sell gear   [5] Armor   [6] Materials");
         Console.WriteLine("  [8] Bag space   [9] Magic shop   [10] Potion shop   [7] Leave");
         Console.Write("  Browse: ");
         string c = (GameIO.ReadLine() ?? "7").Trim().ToLower();
         if (c is "7" or "leave" or "exit" or "x" or "") break;
+        if (c is "c" or "crafts") { BrowseStorefront(pl, "Crafts Store"); continue; }
+        if (c is "w" or "weapon") { BrowseStorefront(pl, "Weapon Shop"); continue; }
+        if (c is "a" or "armor")  { BrowseStorefront(pl, "Armor Store"); continue; }
+        if (c is "m" or "magic")  { BrowseStorefront(pl, "Magic Shop"); continue; }
+        if (c is "b" or "bags")   { BrowseStorefront(pl, "Bags Shop"); continue; }
+        if (c is "j" or "dojo")   { BrowseStorefront(pl, "Dojo"); continue; }
 
         if (c is "8" or "bag" or "bags")
         {
@@ -2320,6 +2414,8 @@ void SaveGame(Player p, int groups)
         $"MinRangedAtk={p.MinRangedAtk - warAdj - blessAdj}", $"MaxRangedAtk={p.MaxRangedAtk - warAdj - blessAdj}",
         $"MinRangedDmgBonus={p.MinRangedDmgBonus}", $"MaxRangedDmgBonus={p.MaxRangedDmgBonus}",
         $"ChiUses={p.ChiUses}",
+        $"QuiverCap={p.QuiverCap}", $"PotionPouchCap={p.PotionPouchCap}",
+        $"ThrowBandCap={p.ThrowBandCap}", $"HasQuiverOfHolding={p.HasQuiverOfHolding}",
         $"PrayerHealMaxBonus={p.PrayerHealMaxBonus}", $"PrayerDmgBonus={p.PrayerDmgBonus}",
         $"PrayerDmgMaxBonus={p.PrayerDmgMaxBonus}", $"PrayerVsHp={p.PrayerVsHp}", $"PrayerVsHpMax={p.PrayerVsHpMax}",
         $"PrayerAbilBonus={p.PrayerAbilBonus}", $"PrayerAbilMaxBonus={p.PrayerAbilMaxBonus}", $"PrayerTurnsMax={p.PrayerTurnsMax}",
@@ -2471,6 +2567,12 @@ bool TryLoadGame(Player p, string filePath)
 
         p.GroupsDefeated = I("GroupsDefeated");
         if (dict.ContainsKey("ChiUses")) p.ChiUses = I("ChiUses");
+        if (dict.ContainsKey("QuiverCap"))
+        {
+            p.QuiverCap = I("QuiverCap"); p.PotionPouchCap = I("PotionPouchCap");
+            p.ThrowBandCap = I("ThrowBandCap");
+            p.HasQuiverOfHolding = G("HasQuiverOfHolding") == "True";
+        }
         // Point-buy investments — absent in older saves, so they default to 0
         if (dict.ContainsKey("PrayerHealMaxBonus"))
         {
@@ -2683,8 +2785,25 @@ static class Shop
         ["Claymore"] = 5 * Gold, ["Great Axe"] = 5 * Gold, ["Warhammer"] = 4 * Gold,
         ["Wand"] = 50 * Silver, ["Pickaxe"] = 15 * Silver, ["Shortbow"] = 30 * Silver,
         ["Hunting Bow"] = 75 * Silver,
+        // craft & general goods
+        ["Workshop Hammer"] = 10 * Silver, ["Knife"] = 1,
+        // hammers, picks, polearms, bows, whips
+        ["Throwing Hammer"] = 10 * Silver, ["Battle Hammer"] = 25 * Silver,
+        ["War Pick"] = 50 * Silver, ["Maul"] = 2 * Gold, ["Composite Bow"] = Gold,
+        ["Whip"] = 75 * Silver, ["Nine-Tails Whip"] = 2 * Gold,
+        // monk weapons (the Dojo)
+        ["Wakizashi"] = 60 * Silver, ["Tanto"] = 35 * Silver, ["Katana"] = 2 * Gold,
+        ["Nodachi"] = 4 * Gold, ["Tetsubo"] = 70 * Silver, ["Kanabo"] = 90 * Silver,
+        ["Nunchucks"] = 40 * Silver, ["Chain and Ball"] = 55 * Silver, ["Spike Chain"] = 65 * Silver,
+        ["Screama Sticks"] = 45 * Silver, ["Foldable Fan Blade"] = 50 * Silver,
+        ["Circle Throwing Blades"] = 55 * Silver, ["Shuriken"] = 5 * Silver, ["Smoke Pouch"] = 20 * Silver,
+        // bags & carriers
+        ["Quiver"] = 50, ["Potion Pouch"] = 10, ["Throwing Band"] = 12, ["Artisan's Bag"] = 3 * Gold,
         // Magic-crafted goods (base prices; the magic shop adds 3 gold)
         ["Mirror Shield"] = 35 * Silver, ["Returning Quiver"] = 60 * Silver, ["Bag of Holding"] = 5 * Gold,
+        ["Quiver of Holding"] = 4 * Gold,
+        ["Fire Robes"] = 5 * Gold, ["Frost Robes"] = 5 * Gold,
+        ["Lightning Robes"] = 7 * Gold, ["Holy Vestments"] = 10 * Gold,
         // enemy gear (sellable loot)
         ["Goblin Dagger"] = 40, ["Orc Longsword"] = 40 * Silver, ["Troll Axe"] = 2 * Gold,
         ["Bastard Sword"] = 60 * Silver, ["Kukuri"] = 25 * Silver, ["Ogre Club"] = 2 * Gold,
@@ -2696,7 +2815,56 @@ static class Shop
     // Two-handed weapons: one-handed only with Giant's Strength
     public static readonly HashSet<string> TwoHanded = new()
     { "Great Sword", "War Mace", "Battle Axe", "Ogre Club", "Great Axe", "Claymore",
-      "Staff", "Long Staff", "Halberd", "Pike" };
+      "Staff", "Long Staff", "Halberd", "Pike",
+      "Maul", "Nodachi", "Chain and Ball", "Spike Chain" };
+
+    // Weapons with reach: strike one square further and into the corners
+    public static readonly HashSet<string> ReachWeapons = new()
+    { "Halberd", "Pike", "Whip", "Chain and Ball", "Spike Chain", "Nodachi" };
+
+    // Weapons that ignore some armor: (dice, sides) rolled and subtracted from DR
+    public static readonly Dictionary<string, (int Dice, int Sides)> ArmorPiercing = new()
+    { ["Tetsubo"] = (2, 3), ["Kanabo"] = (3, 3) };
+
+    // ── Storefronts: each visit stocks a random 8 of the shop's range ──
+    public static readonly Dictionary<string, string[]> Storefronts = new()
+    {
+        ["Crafts Store"] = new[]
+        { "Workshop Hammer", "Pickaxe", "Axe", "Hunting Bow", "Knife", "Artisan's Bag",
+          "Dagger", "Quarterstaff", "Club", "Staff" },
+        ["Weapon Shop"] = new[]
+        { "Hunting Bow", "Knife", "Axe", "Throwing Hammer", "Battle Hammer", "War Pick",
+          "Maul", "Composite Bow", "Whip", "Nine-Tails Whip", "Short Sword", "Hand Axe",
+          "Sword", "Long Sword", "Rapier Sword", "Great Sword", "Battle Axe", "Great Axe",
+          "Claymore", "Mace", "War Mace", "Warhammer", "Halberd", "Pike", "Bow", "Shortbow",
+          "Dagger", "Staff", "Long Staff", "Wand" },
+        ["Armor Store"] = new[]
+        { "Buckler", "Round Shield", "Shield", "Kite Shield", "Tower Shield" },   // armors appended at runtime
+        ["Magic Shop"] = new[]
+        { "Mirror Shield", "Returning Quiver", "Bag of Holding", "Quiver of Holding",
+          "Fire Robes", "Frost Robes", "Lightning Robes", "Holy Vestments" },
+        ["Bags Shop"] = new[]
+        { "Quiver", "Potion Pouch", "Throwing Band", "Artisan's Bag", "Bag of Holding" },
+        ["Dojo"] = new[]
+        { "Wakizashi", "Tanto", "Katana", "Nodachi", "Tetsubo", "Kanabo", "Nunchucks",
+          "Chain and Ball", "Spike Chain", "Screama Sticks", "Foldable Fan Blade",
+          "Circle Throwing Blades", "Shuriken", "Smoke Pouch", "Short Sword", "Knife",
+          "Halberd", "Staff", "Long Staff", "Hunting Bow", "Composite Bow", "Quarterstaff" },
+    };
+
+    // What a thing costs, whether it lives in Price or in Armors
+    public static long CostOf(string item) =>
+        Price.TryGetValue(item, out var c) ? c
+        : Armors.TryGetValue(item, out var a) ? a.Cost : 0;
+
+    // Roll this visit's stock: a random 8 (or fewer if the range is small),
+    // listed cheapest first.
+    public static string[] RollStock(string shop, Random rng, IEnumerable<string>? extra = null)
+    {
+        var pool = Storefronts[shop].ToList();
+        if (extra != null) pool.AddRange(extra);
+        return pool.Distinct().OrderBy(_ => rng.Next()).Take(8).OrderBy(CostOf).ToArray();
+    }
 
     // Shield stats: (block bonus, damage reduction)
     public static readonly Dictionary<string, (int Block, int Def)> Shields = new()
@@ -2724,6 +2892,12 @@ static class Shop
         ["Scale Armor"]   = new(100 * Gold,   false, true,  10, 7, 5, 0, "plated; -4d4 melee, -3d6 ranged, -3d4 spell, -2d4 prayer"),
         ["Rune Armor"]    = new(5 * Platinum, false, false, 10, 9, 8, 45, "absorbs 45% of spells/prayers (+1 use); prayers heal x2 on you"),
         ["Scribed Robes"] = new(5 * Platinum, true,  false, 0, 4, 4, 55, "absorbs 55% of spells/prayers (+1 use); prayers heal x2 on you"),
+        // ── Elemental robes: absorb their own element outright, 15% of anything
+        // else, burn/chill/shock nearby foes, and empower matching spells ──
+        ["Fire Robes"]      = new(5 * Gold,  true, false, 0, 1, 1, 15, "fire spells absorbed 100%, 15% of anything else; burns nearby foes 1d4 (25% ignite); +2d2 fire spell damage & to-hit"),
+        ["Frost Robes"]     = new(5 * Gold,  true, false, 0, 1, 1, 15, "ice spells absorbed 100%, 15% of anything else; chills nearby foes 1d2 (may cost actions/movement); +2d2 ice spell damage & to-hit"),
+        ["Lightning Robes"] = new(7 * Gold,  true, false, 0, 1, 1, 15, "lightning absorbed 100%, 15% of anything else; shocks nearby foes 2-3 (metal armor burns 1d3/turn); +2d2 lightning spell damage & to-hit"),
+        ["Holy Vestments"]  = new(10 * Gold, true, false, 0, 1, 1, 15, "negative prayers absorbed 100%, 15% of spells; heals allies & sears undead 1d4/turn (25% full heal / destroy); +2d2 healing, +1d2 damage prayers"),
     };
 
     public static long Sell(string item) =>
@@ -2790,6 +2964,12 @@ class Player
     public string Headwear = "nothing";      // fedora/pointy hat/mask/hood/circlet/top hat/nothing
     public string ClothingColor = "black";   // 9 colors
     public string FacialHair = "none";       // males: beard/goatee/mustache/fu manchu/handlebars/soul patch/none
+    // ── Carriers (bought at the Bags Shop; overflow goes into the pack) ──
+    public int QuiverCap = 0;            // arrows carried outside the pack (+15 per upgrade)
+    public int PotionPouchCap = 2;       // everyone carries 2 potions free of the pack
+    public int ThrowBandCap = 0;         // throwing weapons on the band
+    public bool HasQuiverOfHolding = false;
+
     // ── Point-buy investments (base = the low end of a roll, max = the high end) ──
     public int PrayerHealMaxBonus = 0;                    // base lives in PrayerHealBonus
     public int PrayerDmgBonus = 0, PrayerDmgMaxBonus = 0;
@@ -6835,6 +7015,35 @@ class CombatSession
         "Warhammer"      => (2, 8, 3, 12),   // non-lethal
         "Dagger"         => (1, 6, 1, 6),
         "Pickaxe"        => (1, 4, 2, 12),   // 2d6 damage, -2 to hit
+        // ── Craft & general goods ──
+        "Workshop Hammer" => (1, 6, 2, 8),    // 2d4 non-lethal; needed to craft as an Artisan
+        "Knife"           => (1, 6, 1, 2),    // 1d2; skins animals; throwable 1d4
+        // ── Hammers (all non-lethal) ──
+        "Throwing Hammer" => (1, 6, 2, 8),    // 2d4 melee, 3d3 thrown
+        "Battle Hammer"   => (2, 8, 3, 9),    // 3d3 melee, 4-8 thrown
+        "Maul"            => (2, 8, 4, 24),   // 4d6, two-handed
+        // ── Picks & polearms ──
+        "War Pick"        => (1, 7, 2, 12),   // 2d6, -1 to hit, ignores 2 armor
+        // ── Bows ──
+        "Composite Bow"   => (3, 8, 4, 16),   // +2 to hit, 4d4
+        // ── Whips (reach 2) ──
+        "Whip"            => (1, 6, 2, 8),    // 2d4, +2 disarm, needs Disarm
+        "Nine-Tails Whip" => (1, 6, 1, 2),    // nine 1d2 lashes, may stun
+        // ── Monk weapons ──
+        "Wakizashi"       => (2, 8, 4, 12),   // 4d3 one-handed / 4d4 two-handed
+        "Tanto"           => (1, 6, 2, 8),    // 2d4, light + monk
+        "Katana"          => (2, 8, 5, 15),   // 5d3 one-handed / 6d4 two-handed
+        "Nodachi"         => (1, 8, 8, 32),   // 8d4, two-handed, reach, wide swings
+        "Tetsubo"         => (2, 8, 4, 12),   // 4d3 non-lethal, ignores 2d3 armor
+        "Kanabo"          => (2, 8, 5, 15),   // 5d3 non-lethal, ignores 3d3 armor
+        "Nunchucks"       => (1, 6, 1, 4),    // 1d4 x consecutive attack number
+        "Chain and Ball"  => (2, 8, 3, 12),   // 3d4 non-lethal, reach, +2 disarm/grapple
+        "Spike Chain"     => (2, 8, 3, 9),    // 3d3 lethal, reach, +2 disarm/grapple
+        "Screama Sticks"  => (2, 8, 2, 8),    // pair 2d4 each; combine into a 3d4 staff
+        "Foldable Fan Blade" => (2, 8, 2, 8), // 2d4 thrown lethal, returns
+        "Circle Throwing Blades" => (2, 8, 2, 6), // pair, 2d3 melee, returns on a hit
+        "Shuriken"        => (2, 8, 2, 6),    // 2d3, thrown only
+        "Smoke Pouch"     => (1, 6, 1, 2),    // utility: free action escape
         "Shortbow"       => (1, 6, 1, 6),
         _ => (0, 0, 0, 0)
     };
