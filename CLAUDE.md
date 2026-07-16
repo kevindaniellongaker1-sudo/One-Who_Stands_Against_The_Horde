@@ -40,6 +40,16 @@ Highlights: Moon/Sun/Wood Elf (elite attackers/casters, frail); Human (+6 stat p
 
 Wiring: sprint distance = base×2 + MovementBonus + SprintBonus; sprint penalty from the flags; DodgeVsLarge + Frenzy fold into `PDodgeSize()`; durations into `ExtDur`/song-linger/prayer-turn sites; Frenzy also hits block/parry rolls and doubles melee damage in DoAttack.
 
+## Core traits
+
+8 traits on `Player` (Strength, Dexterity, Constitution, Intelligence, Wisdom, Smarts, Charisma, Agility), chosen in `SelectCoreTraits` — 16 points, 1 point per +1, cap +4, and dropping a trait to -1/-2 refunds points. Creation order is now **core traits → feats → point buy** (`SpendStatPoints` moved out of `SelectCharacterType` so trait/Human bonuses land in the pool first). Saved/loaded; older saves default to 0.
+
+Derived helpers on Player (ties resolve to the higher trait): `LightWeaponTrait` (Str/Dex, Wis for non-lethal), `DodgeTrait` (Dex/Agi), `ParryTrait`/`DisarmTrait` (Dex/Smarts), `ChiTrait` (Wis/Smarts), `MoveTrait`, `SprintTrait`, `BowTrait`, `WandTrait`, `TwoHandTrait`, `ExtraActionsFromAgility`, `FearTrait`, range helpers, `DotResistPct`, `TraitStatPoints`.
+
+Wired so far: melee attack+damage via `CombatSession.MeleeTraitBonus()` (picks two-handed 1.5×Str / light / finesse-Smarts per weapon); Dex+BowTrait into bow attack & damage; `PDodgeSize()` adds `DodgeTrait`; movement/sprint; grapple +Str; spell attack +Int+Smarts; pools (`MaxSpellUses` +Int, `MaxPrayerUses` +Wis, `MaxSongTokens` +Cha); and at creation Con→HP/rages, Int→spell dmg/atk/duration, Wis→prayer heal/duration, Cha→song bonus/duration, Smarts→duelist points, Agility→actions, Int+Wis+Smarts→stat points.
+
+NPCs have traits too: `Enemy.ApplyNpcTraits()` assigns a 0-4 spread per `TypeName` (brutes Str/Con, casters Int/Wis, skirmishers Dex/Agi), called from the Enemy constructor.
+
 ## Enemy roster
 
 | Enemy | First appears | Notes |

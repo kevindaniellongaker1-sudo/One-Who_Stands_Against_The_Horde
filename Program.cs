@@ -1058,7 +1058,84 @@ void SelectRace(Player p)
     }
 
     ApplyRaceTraits(p);
+
+    // Creation order: core traits → feats → point buy
+    SelectCoreTraits(p);
+    if (p.PendingFeats > 0) SelectFeats(p);
+    Console.WriteLine($"\n  You have {p.SavedStatPoints} points to spend on starting stats!");
+    SpendStatPoints(p);
     SelectAppearance(p);
+}
+
+// Core traits: 16 points, 1 point per +1, cap +4. Dropping a trait to -1/-2
+// refunds points to spend elsewhere. Chosen before feats and the point buy.
+void SelectCoreTraits(Player p)
+{
+    string[] names = { "Strength", "Dexterity", "Constitution", "Intelligence",
+                       "Wisdom", "Smarts", "Charisma", "Agility" };
+    string[] blurb = {
+        "melee & grapple attack/damage; two-handed weapons",
+        "ranged attack/damage, bows, dodge, movement, sprint, parry/disarm",
+        "hit points, rages, resist fire/frost/damage-over-time",
+        "spell uses, spell damage/attack/duration, wands, stat points",
+        "prayer uses, prayer healing/damage, chi, non-lethal weapons, stat points",
+        "duelist points, finesse weapons, parry/disarm, chi, spell range, stat points",
+        "song uses, song bonus/duration/healing, fear & convert, song range",
+        "extra actions, dodge, movement, sprint, extra attacks/abilities"
+    };
+    int Get(int i) => i switch { 0 => p.Strength, 1 => p.Dexterity, 2 => p.Constitution,
+        3 => p.Intelligence, 4 => p.Wisdom, 5 => p.Smarts, 6 => p.Charisma, _ => p.Agility };
+    void Set(int i, int v)
+    {
+        switch (i) { case 0: p.Strength = v; break; case 1: p.Dexterity = v; break;
+            case 2: p.Constitution = v; break; case 3: p.Intelligence = v; break;
+            case 4: p.Wisdom = v; break; case 5: p.Smarts = v; break;
+            case 6: p.Charisma = v; break; default: p.Agility = v; break; }
+    }
+
+    while (true)
+    {
+        int spent = 0;
+        for (int i = 0; i < 8; i++) spent += Get(i);
+        int left = 16 - spent;
+        Console.WriteLine($"\n═══ CORE TRAITS — {p.Name} ({p.CharacterType}) ═══");
+        Console.WriteLine("  Each +1 costs 1 point (max +4). Drop a trait to -1 or -2 to get points back.");
+        for (int i = 0; i < 8; i++)
+            Console.WriteLine($"  [{i + 1}] {names[i],-13} {Get(i),2}   — {blurb[i]}");
+        Console.WriteLine($"  Points left: {left}");
+        Console.Write("  Pick a trait to set (1-8), or [9] done: ");
+        string raw = (GameIO.ReadLine() ?? "").Trim();
+        if (raw is "9" or "done" or "") { if (left >= 0) break; Console.WriteLine("  You're over budget — lower something first."); continue; }
+        int ti;
+        if (int.TryParse(raw, out int tn) && tn >= 1 && tn <= 8) ti = tn - 1;
+        else { int f = Array.FindIndex(names, n => n.StartsWith(raw, StringComparison.OrdinalIgnoreCase)); if (f < 0) continue; ti = f; }
+
+        Console.Write($"  Set {names[ti]} to (-2 to 4): ");
+        if (!int.TryParse((GameIO.ReadLine() ?? "").Trim(), out int nv)) continue;
+        nv = Math.Clamp(nv, -2, 4);
+        int wouldSpend = spent - Get(ti) + nv;
+        if (wouldSpend > 16) { Console.WriteLine($"  Not enough points (that would need {wouldSpend}/16)."); continue; }
+        Set(ti, nv);
+        Console.WriteLine($"  {names[ti]} → {nv}");
+    }
+
+    // Traits that fold into the character sheet right away
+    p.MaxHP = Math.Max(1, p.MaxHP + p.Constitution);
+    p.HP = p.MaxHP;
+    p.SavedStatPoints += p.TraitStatPoints();          // Int + Wis + Smarts
+    p.AdditionalActions += p.ExtraActionsFromAgility(); // +0.5 actions per Agility
+    if (p.Smarts > 0) p.DuelistPoints += p.Smarts;      // +1 duelist point per Smarts
+    p.RagePoints += p.Constitution;                     // +Constitution rages
+    p.SpellDamageBonus += p.Intelligence;               // Int: spell damage/bonus
+    p.SpellAttackBonus += p.Intelligence;               // Int: spell attack
+    p.SpellDurBonus += p.Intelligence;                  // Int: spell duration
+    p.PrayerHealBonus += p.Wisdom;                      // Wis: prayer healing/damage
+    p.PrayerDurBonus += p.Wisdom;                       // Wis: prayer duration
+    p.SongDurBonus += p.Charisma;                       // Cha: song duration
+    if (p.Charisma != 0)                                // Cha: song bonus rolls
+    { p.MinBardSong = Math.Max(1, p.MinBardSong + p.Charisma); p.MaxBardSong = Math.Max(p.MinBardSong, p.MaxBardSong + p.Charisma); }
+    Console.WriteLine($"  Traits locked in. HP {p.MaxHP}, +{p.TraitStatPoints()} stat points, " +
+                      $"+{p.ExtraActionsFromAgility()} action(s).");
 }
 
 // Behavioral flags derived purely from race. Numeric stat bonuses live in
@@ -1309,10 +1386,9 @@ void SelectCharacterType(Player p)
     };
     Console.WriteLine($"  Starting HP: {p.HP}  (+{hpPerLevel} per level)");
 
-    // 12 points to spend on stats at character creation
+    // 12 points at creation. The point buy itself runs later, after core
+    // traits and feats (traits and Human/race bonuses add to the pool first).
     p.SavedStatPoints = 12;
-    Console.WriteLine("\n  You have 12 points to spend on starting stats!");
-    SpendStatPoints(p);
 }
 
 // ── The travelling merchant: visits the party after every group ────────────
@@ -2127,6 +2203,9 @@ void SaveGame(Player p, int groups)
         $"MinSpellDmgBonus={p.MinSpellDmgBonus}", $"MaxSpellDmgBonus={p.MaxSpellDmgBonus}",
         $"MinRangedAtk={p.MinRangedAtk - warAdj - blessAdj}", $"MaxRangedAtk={p.MaxRangedAtk - warAdj - blessAdj}",
         $"MinRangedDmgBonus={p.MinRangedDmgBonus}", $"MaxRangedDmgBonus={p.MaxRangedDmgBonus}",
+        $"Strength={p.Strength}", $"Dexterity={p.Dexterity}", $"Intelligence={p.Intelligence}",
+        $"Wisdom={p.Wisdom}", $"Constitution={p.Constitution}", $"Smarts={p.Smarts}",
+        $"Charisma={p.Charisma}", $"Agility={p.Agility}",
         $"GroupsDefeated={groups}",
         $"OffHandShieldName={p.OffHandShieldName ?? ""}",
         $"OffHandShieldDefense={p.OffHandShieldDefense}",
@@ -2256,6 +2335,14 @@ bool TryLoadGame(Player p, string filePath)
         p.MaxRangedDmgBonus = I("MaxRangedDmgBonus");
 
         p.GroupsDefeated = I("GroupsDefeated");
+        // Core traits — absent in older saves, so they default to 0
+        if (dict.ContainsKey("Strength"))
+        {
+            p.Strength = I("Strength"); p.Dexterity = I("Dexterity");
+            p.Intelligence = I("Intelligence"); p.Wisdom = I("Wisdom");
+            p.Constitution = I("Constitution"); p.Smarts = I("Smarts");
+            p.Charisma = I("Charisma"); p.Agility = I("Agility");
+        }
         ApplyRaceTraits(p);   // re-derive racial behavioral flags for loaded characters
         // Off-hand shield — only present in newer saves
         if (dict.ContainsKey("OffHandShieldName"))
@@ -2545,6 +2632,39 @@ class Player
     public string Headwear = "nothing";      // fedora/pointy hat/mask/hood/circlet/top hat/nothing
     public string ClothingColor = "black";   // 9 colors
     public string FacialHair = "none";       // males: beard/goatee/mustache/fu manchu/handlebars/soul patch/none
+    // ── Core traits (creation: 16 points, each -2..4) ──
+    public int Strength = 0, Dexterity = 0, Intelligence = 0, Wisdom = 0;
+    public int Constitution = 0, Smarts = 0, Charisma = 0, Agility = 0;
+
+    // Derived trait helpers. Where the rules say "+X if higher than Y", the
+    // higher of the two applies (a tie yields that same value either way).
+    public int LightWeaponTrait()                        // unarmed / light / monk weapons
+    {
+        int best = Math.Max(Strength, Dexterity);
+        if (Wisdom > Strength && Wisdom > Dexterity) best = Math.Max(best, Wisdom);
+        return best;
+    }
+    public int NonLethalTrait() =>                        // non-lethal / monk weapons (Wis)
+        (Wisdom > Strength && Wisdom > Dexterity) ? Wisdom : Math.Max(Strength, Dexterity);
+    public int DodgeTrait() => Math.Max(Dexterity, Agility);
+    public int ParryTrait() => Math.Max(Dexterity, Smarts);
+    public int DisarmTrait() => Math.Max(Dexterity, Smarts);
+    public int FinesseTrait() => Smarts;                  // spike chain/whip/pick/dagger/wand/knife/rapier
+    public int ChiTrait() => Math.Max(Wisdom, Smarts);
+    public int MoveTrait() => Dexterity + Agility;
+    public int SprintTrait() => (int)(Dexterity * 1.5) + (int)(Agility * 1.5);
+    public int BowTrait() => (int)(Dexterity * 1.5);
+    public int WandTrait() => (int)(Intelligence * 1.5);
+    public int TwoHandTrait() => (int)(Strength * 1.5);
+    public int ExtraActionsFromAgility() => Agility / 2;  // +0.5 actions per point
+    public int FearTrait() => (int)(Charisma * 1.5);
+    public int SpellRangeFeet() => (int)(Smarts * 1.5);
+    public int PrayerRangeFeet() => (int)(Wisdom * 1.5);
+    public int SongRangeFeet() => Charisma * 5;
+    public int RangedRangeFeet() => (int)(Dexterity * 1.5);
+    public int DotResistPct() => Constitution * 5;
+    public int TraitStatPoints() => Intelligence + Wisdom + Smarts;
+
     // ── Racial behavioral traits (re-derived from Race via ApplyRaceTraits) ──
     public int DodgeVsLarge = 0;             // extra dodge vs large attackers
     public int SprintBonus = 0;              // extra sprint distance beyond movement
@@ -2657,13 +2777,13 @@ class Player
     public static readonly string[] SpellFeats  = { "Cantrips", "Necromancer", "Lich Bound", "Divination", "Advanced Cantrips" };
     public bool CanPray => CharacterType == "Priest" || PrayerFeats.Any(HasFeat);
     public bool CanSing => CharacterType == "Musician" || SongFeats.Any(HasFeat);
-    public int MaxPrayerUses() => 5 + (Level / 2) * 2;          // 5 uses, +2 every 2 levels
-    public int MaxSpellUses()  => 6 + (Level / 2) * 2;          // 6 uses, +2 every 2 levels
+    public int MaxPrayerUses() => Math.Max(1, 5 + (Level / 2) * 2 + Wisdom);       // +Wisdom
+    public int MaxSpellUses()  => Math.Max(1, 6 + (Level / 2) * 2 + Intelligence); // +Intelligence
 
     // ── Musician songs ──
     // Tier: +2 to song bonuses (and +1d6 fear dice) every 3rd level.
     public int SongTier() => Level >= 3 ? Level / 3 : 0;
-    public int MaxSongTokens() => 5 + Level / 2;                // 5 plays, +1 every 2 levels
+    public int MaxSongTokens() => Math.Max(1, 5 + Level / 2 + Charisma);   // +Charisma
     public int SongBonusAmount() => 2 + 2 * SongTier();          // Slayer atk / Wind / Hardstone
     public int SlayerDmgBonus() => 1 + 2 * SongTier();
     public int FearDiceCount() => 2 + SongTier();                // DeathTone (2+tier)d6
@@ -2854,7 +2974,47 @@ abstract class Enemy
     public string Race = "";
     public int RegenPerTurn = 0;
 
-    public Enemy(string name, string typeName) { Name = name; TypeName = typeName; }
+    // ── Core traits (0-4, fitted to the creature) ──
+    public int Strength = 0, Dexterity = 0, Intelligence = 0, Wisdom = 0;
+    public int Constitution = 0, Smarts = 0, Charisma = 0, Agility = 0;
+
+    public Enemy(string name, string typeName)
+    {
+        Name = name; TypeName = typeName;
+        ApplyNpcTraits();
+    }
+
+    // Trait spreads per creature type: brutes lean Strength/Constitution,
+    // casters Intelligence/Wisdom, skirmishers Dexterity/Agility.
+    void ApplyNpcTraits()
+    {
+        void T(int s, int d, int c, int i, int w, int m, int ch, int a)
+        { Strength = s; Dexterity = d; Constitution = c; Intelligence = i;
+          Wisdom = w; Smarts = m; Charisma = ch; Agility = a; }
+        switch (TypeName)
+        {
+            case "Goblin":           T(1, 3, 1, 0, 0, 1, 0, 3); break;
+            case "SpellGoblin":      T(0, 2, 1, 4, 1, 3, 1, 2); break;
+            case "GoblinShaman":     T(0, 1, 1, 2, 4, 2, 2, 1); break;
+            case "Hobgoblin":        T(3, 2, 3, 0, 0, 1, 1, 2); break;
+            case "Orc":              T(4, 1, 3, 0, 0, 0, 1, 1); break;
+            case "OrcBarbarian":     T(4, 2, 4, 0, 0, 0, 2, 2); break;
+            case "Troll":            T(4, 1, 4, 0, 1, 0, 0, 1); break;
+            case "TrollWarrior":     T(4, 2, 4, 0, 0, 1, 1, 1); break;
+            case "TrollPriest":      T(2, 1, 3, 1, 4, 2, 2, 1); break;
+            case "TrollMusician":    T(2, 2, 3, 1, 2, 2, 4, 2); break;
+            case "NecromancerTroll": T(2, 1, 3, 4, 2, 4, 2, 1); break;
+            case "Ogre":             T(4, 0, 4, 0, 0, 0, 0, 0); break;
+            case "Giant":            T(4, 1, 4, 0, 1, 1, 1, 0); break;
+            case "GiantMage":        T(3, 1, 3, 4, 1, 3, 1, 1); break;
+            case "GiantPriest":      T(3, 1, 3, 1, 4, 2, 2, 1); break;
+            case "Deer":             T(0, 3, 1, 0, 1, 0, 0, 4); break;
+            case "Wolf":             T(2, 3, 2, 0, 1, 1, 1, 4); break;
+            case "Boar":             T(3, 2, 3, 0, 0, 0, 0, 2); break;
+            case "Bear":             T(4, 1, 4, 0, 1, 0, 1, 2); break;
+            default:                 T(1, 1, 1, 0, 0, 1, 0, 1); break;
+        }
+    }
 
     protected void RollRace(Random r)
     {
@@ -4197,7 +4357,7 @@ class CombatSession
                 {
                     if (P.IsGrappled) { Console.WriteLine("  You can't move while grappled!"); continue; }
                     if (P.Climbed) { Console.WriteLine("  You're up high — climb down (action) or jump down first!"); continue; }
-                    int moveRoll = Rng.Next(P.MinMovement, P.MaxMovement + 1) + P.MovementBonus;
+                    int moveRoll = Rng.Next(P.MinMovement, P.MaxMovement + 1) + P.MovementBonus + P.MoveTrait();
                     Console.WriteLine($"  Move roll: {moveRoll} square(s).");
                     StepMovement(moveRoll);
                     justBlocked = false;
@@ -4209,7 +4369,7 @@ class CombatSession
                     if (P.IsGrappled) { Console.WriteLine("  You can't sprint while grappled!"); continue; }
                     if (P.Climbed) { Console.WriteLine("  You're up high — climb down (action) or jump down first!"); continue; }
                     // Sprint is 2d6 (+ movement/sprint bonuses)
-                    int sprintRoll = Math.Max(1, Rng.Next(1, 7) + Rng.Next(1, 7) + P.MovementBonus + P.SprintBonus);
+                    int sprintRoll = Math.Max(1, Rng.Next(1, 7) + Rng.Next(1, 7) + P.MovementBonus + P.SprintBonus + P.SprintTrait());
                     string spNote = P.NoSprintPenalty ? "[no penalty]" : P.DoubleSprintPenalty ? "[-4 to next action]" : "[-2 to next action]";
                     Console.WriteLine($"  SPRINT! {sprintRoll} square(s). {spNote}");
                     StepMovement(sprintRoll);
@@ -5302,7 +5462,7 @@ class CombatSession
                     if (gRoll >= dRoll)
                     {
                         mt.KnockedDown = true; mt.OffBalance = true;
-                        int throwDmg = Rng.Next(P.MinGrappleDmg + P.GetFeatStacks("Closeliner"), P.MaxGrappleDmg + 1);
+                        int throwDmg = Rng.Next(P.MinGrappleDmg + P.GetFeatStacks("Closeliner"), P.MaxGrappleDmg + 1) + P.Strength;
                         throwDmg = ReduceByToughHide(mt, throwDmg);
                         mt.HP -= throwDmg;
                         Console.WriteLine($"  {mt.Name} is slammed to the ground for {throwDmg}! HP:{mt.HP}/{mt.MaxHP}");
@@ -5476,9 +5636,27 @@ class CombatSession
     }
 
     // Player's dodge bonus vs whichever enemy is currently acting (+1 while climbed)
+    // Which core trait powers the melee weapon in hand (rules as written):
+    // two-handed → 1.5×Strength; unarmed/light → better of Str/Dex (Wis for
+    // non-lethal); finesse weapons → Smarts when it beats the others.
+    int MeleeTraitBonus()
+    {
+        string w = P.HeldWeapon ?? "";
+        string lw = w.ToLowerInvariant();
+        bool light = lw is "" or "unarmed" or "dagger" or "knife" or "short sword" or "rapier" or "staff";
+        bool finesse = lw is "dagger" or "knife" or "rapier" or "wand" or "whip" or "pickaxe" or "war pick" or "spike chain";
+        bool nonLethal = lw is "" or "unarmed" or "staff" or "ogre club" or "mace" or "war mace" or "warhammer";
+        int best = light ? P.LightWeaponTrait() : P.Strength;
+        if (nonLethal) best = Math.Max(best, P.NonLethalTrait());
+        if (finesse && P.Smarts > best) best = P.Smarts;
+        if (Shop.TwoHanded.Contains(w)) best = Math.Max(best, P.TwoHandTrait());
+        return best;
+    }
+
     int PDodgeSize()
     {
         int b = P.Climbed ? 1 : 0;
+        b += P.DodgeTrait();   // better of Dexterity / Agility
         if (_atkEnemy != null)
         {
             b += SizeDodgeRoll(P.Race, _atkEnemy.Race);
@@ -5633,6 +5811,11 @@ class CombatSession
         if (sizeAtk != 0 || sizeDmg != 0)
             Console.WriteLine($"  [Size] {sizeAtk:+0;-0} attack, {sizeDmg:+0;-0} damage vs {(target.Race.Length > 0 ? target.Race : "foe")}.");
         if (P.Climbed) Console.WriteLine("  [High ground] +2 attack!");
+        // Core traits: Strength drives melee; light/unarmed use the better of
+        // Strength/Dexterity (Wisdom for non-lethal); two-handed adds 1.5x Str.
+        int traitAtk = MeleeTraitBonus();
+        if (traitAtk != 0) Console.WriteLine($"  [Traits] {traitAtk:+0;-0} melee attack & damage.");
+        dmgBonus += traitAtk;
         // Frenzy: -2 to hit, but the base damage roll is added again (doubled)
         int frenzyAtk = P.Frenzied ? -2 : 0;
         if (P.Frenzied) { dmgBonus += Rng.Next(minDmg, maxDmg + 1); Console.WriteLine("  [Frenzy] Reckless double-strength blow!"); }
@@ -5662,7 +5845,7 @@ class CombatSession
         {
             if (fi > 0) Console.WriteLine($"  [Flurry hit {fi + 1}]");
             int rawRoll = Rng.Next(minAtk, maxAtk + 1);
-            PerformAttack(target, rawRoll + atkPen + warriorAtkBonus - brokenArmPenalty + trueSightAtkBonus + songAtkBonus + sizeAtk + specAtk + frenzyAtk + HighGround(), minDmg, maxDmg, fi == 0 ? dmgBonus : 0, useSunder, useDisarm, fi == 0 && useSap, rawRoll == maxAtk, rawRoll == minAtk);
+            PerformAttack(target, rawRoll + atkPen + warriorAtkBonus - brokenArmPenalty + trueSightAtkBonus + songAtkBonus + sizeAtk + specAtk + frenzyAtk + traitAtk + HighGround(), minDmg, maxDmg, fi == 0 ? dmgBonus : 0, useSunder, useDisarm, fi == 0 && useSap, rawRoll == maxAtk, rawRoll == minAtk);
         }
 
         // Off-hand (Double Tap)
@@ -6306,9 +6489,9 @@ class CombatSession
             else if (f2 <= 45f) { dMin = 2; dMax = 10; }
             else { dMin = 1; dMax = 5; }
             if (huntingBow) { dMin = 2; dMax = 6; }
-            dMin = Math.Max(1, dMin + P.MinRangedDmgBonus);
+            dMin = Math.Max(1, dMin + P.MinRangedDmgBonus + P.Dexterity + P.BowTrait());
             dMax = Math.Max(dMin, dMax + P.MinRangedDmgBonus + P.MaxRangedDmgBonus);
-            int a2 = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 1) + SlayerAtk() + HighGround() + arrowAtkBonus + (huntingBow ? 2 : 0);
+            int a2 = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 1) + SlayerAtk() + HighGround() + arrowAtkBonus + (huntingBow ? 2 : 0) + P.Dexterity + P.BowTrait();
             int d2 = Rng.Next(tgt.MinDodge, tgt.MaxDodge + 1) + SizeDodgeRoll(tgt.Race, P.Race) - tgt.DodgePenalty;
             Console.WriteLine($"  Arrow at {tgt.Name} ({f2:F0}ft): {a2} vs dodge {d2}.");
             if (a2 >= d2 && !EnemyBlocks(tgt, a2, isRanged: true))
@@ -6394,9 +6577,9 @@ class CombatSession
         else if (feet <= 45f) { dmgMin = 2; dmgMax = 10; }
         else { dmgMin = 1; dmgMax = 5; }
         if (huntingBow) { dmgMin = 2; dmgMax = 6; }
-        dmgMin = Math.Max(1, dmgMin + P.MinRangedDmgBonus);
+        dmgMin = Math.Max(1, dmgMin + P.MinRangedDmgBonus + P.Dexterity + P.BowTrait());
         dmgMax = Math.Max(dmgMin, dmgMax + P.MinRangedDmgBonus + P.MaxRangedDmgBonus);
-        int atkRoll = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 1) + SlayerAtk() + HighGround() + arrowAtkBonus + (huntingBow ? 2 : 0);
+        int atkRoll = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 1) + SlayerAtk() + HighGround() + arrowAtkBonus + (huntingBow ? 2 : 0) + P.Dexterity + P.BowTrait();
         int ddg = Rng.Next(target.MinDodge, target.MaxDodge + 1) + SizeDodgeRoll(target.Race, P.Race) - target.DodgePenalty;
         Console.WriteLine($"  BOW ({feet:F0}ft, dmg {dmgMin}-{dmgMax})! Roll {atkRoll} vs {target.Name}'s dodge {ddg}.");
         SpendArrow();
@@ -6446,7 +6629,7 @@ class CombatSession
             if (feet <= 14f) { d2Min = 4; d2Max = 12; }
             else if (feet <= 45f) { d2Min = 2; d2Max = 10; }
             else { d2Min = 1; d2Max = 5; }
-            d2Min = Math.Max(1, d2Min + P.MinRangedDmgBonus);
+            d2Min = Math.Max(1, d2Min + P.MinRangedDmgBonus + P.Dexterity + P.BowTrait());
             d2Max = Math.Max(d2Min, d2Max + P.MinRangedDmgBonus + P.MaxRangedDmgBonus);
             Console.WriteLine($"  BOW ({feet:F0}ft)! Roll {atk2} vs dodge {ddg2}.");
             if (atk2 >= ddg2)
@@ -6636,7 +6819,7 @@ class CombatSession
 
         int SpellAtk(string element) => P.SpellAttackBonus + (P.HasFeat("Spell Focus") ? 2 : 0) + (P.HasFeat("Elemental") && P.ElementalFocus == element ? 2 : 0);
         bool lastSpellCrit = false, lastSpellFumble = false;
-        int SpellAtkRoll() { int raw = Rng.Next(P.MinSpellAtk, P.MaxSpellAtk + 1); lastSpellCrit = raw == P.MaxSpellAtk; lastSpellFumble = raw == P.MinSpellAtk; return raw + SlayerAtk() + HighGround(); }
+        int SpellAtkRoll() { int raw = Rng.Next(P.MinSpellAtk, P.MaxSpellAtk + 1); lastSpellCrit = raw == P.MaxSpellAtk; lastSpellFumble = raw == P.MinSpellAtk; return raw + SlayerAtk() + HighGround() + P.Intelligence + P.Smarts; }
         int SpellDmg(int dmg, string element) { if (P.HasFeat("Magical Overflow")) dmg *= 2; if (P.HasFeat("Elemental") && P.ElementalFocus == element) dmg += 2; dmg += P.MinSpellDmgBonus + P.MaxSpellDmgBonus + SlayerDmg(); return dmg; }
         int ExtDur(int turns) => (P.HasFeat("Extended Magi") ? turns * 2 : turns) + P.SpellDurBonus;
         float SpellRange(float range) => P.HasFeat("OverReach Magic") ? range * 2f : range;
@@ -8780,7 +8963,7 @@ class CombatSession
                     {
                         // Bear hug: claws in the back, teeth at the neck
                         int hugGrap = Rng.Next(w.MinGrapple, w.MaxGrapple + 1);
-                        int pGrap = Rng.Next(P.MinGrapple, P.MaxGrapple + 1);
+                        int pGrap = Rng.Next(P.MinGrapple, P.MaxGrapple + 1) + P.Strength;
                         Console.WriteLine($"  {w.Name} rears up for a BEAR HUG! {hugGrap} vs your {pGrap}.");
                         if (hugGrap >= pGrap)
                         {
