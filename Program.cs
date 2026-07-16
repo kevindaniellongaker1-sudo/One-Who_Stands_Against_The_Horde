@@ -317,6 +317,7 @@ while (true)
             if (pl.CanPray)     { pl.PrayerUses = pl.MaxPrayerUses(); Console.WriteLine($"  Prayers restored to {pl.PrayerUses}."); }
             if (pl.KnownSpells.Any()) { pl.SpellUses = pl.MaxSpellUses(); Console.WriteLine($"  Spell casts restored to {pl.SpellUses}."); }
             if (pl.CanSing)     { pl.SongTokens = pl.MaxSongTokens(); Console.WriteLine($"  Song tokens restored to {pl.SongTokens}."); }
+            if (pl.IsMonk)      { pl.ChiUses = pl.MaxChiUses(); Console.WriteLine($"  Chi restored to {pl.ChiUses}."); }
             decided = false;   // rested and refreshed — keep choosing (shop, craft, gather...)
         }
         else if (next is "4" or "craft" or "arrows")
@@ -679,6 +680,16 @@ void SelectFeats(Player p)
                     p.MusicInstrument = pick;
                     Console.WriteLine($"  Instrument: {pick}!");
                 }
+            }
+            if (f.Name == "Vow of Silence")
+            {
+                p.ChiUses = p.MaxChiUses();
+                Console.WriteLine($"  You take the vow and become a monk. Chi: {p.ChiUses} (reset on rest).");
+                // The vow binds you to monk weapons — stow anything else.
+                if (p.HeldWeapon != null && !p.IsMonkWeapon(p.HeldWeapon))
+                { Console.WriteLine($"  Your vow forbids the {p.HeldWeapon} — you set it aside and fight unarmed."); p.HeldWeapon = null; }
+                if (p.SecondaryWeapon != null && !p.IsMonkWeapon(p.SecondaryWeapon))
+                { Console.WriteLine($"  Your vow forbids the {p.SecondaryWeapon} — set aside."); p.SecondaryWeapon = null; }
             }
             if (Player.SpellFeats.Contains(f.Name))
             {
@@ -1134,8 +1145,10 @@ void SelectCoreTraits(Player p)
     p.SongDurBonus += p.Charisma;                       // Cha: song duration
     if (p.Charisma != 0)                                // Cha: song bonus rolls
     { p.MinBardSong = Math.Max(1, p.MinBardSong + p.Charisma); p.MaxBardSong = Math.Max(p.MinBardSong, p.MaxBardSong + p.Charisma); }
+    if (p.IsMonk) p.ChiUses = p.MaxChiUses();           // Martial Artists: chi now that Wis/Smarts are known
     Console.WriteLine($"  Traits locked in. HP {p.MaxHP}, +{p.TraitStatPoints()} stat points, " +
-                      $"+{p.ExtraActionsFromAgility()} action(s).");
+                      $"+{p.ExtraActionsFromAgility()} action(s)." +
+                      (p.IsMonk ? $" Chi: {p.ChiUses}." : ""));
 }
 
 // Behavioral flags derived purely from race. Numeric stat bonuses live in
@@ -1616,6 +1629,8 @@ void VisitShop(Player pl)
             string wname = stock[wi - 1];
             long wcost = Shop.Price[wname];
             if (wcost > pl.Copper) { Console.WriteLine($"  Not enough coin ({Shop.Fmt(wcost)})."); continue; }
+            if (pl.MonkWeaponsOnly && !pl.IsMonkWeapon(wname))
+            { Console.WriteLine($"  Your Vow of Silence forbids the {wname} — monk weapons only."); continue; }
             // Where does it go?
             if (pl.HeldWeapon == null) { pl.HeldWeapon = wname; Console.WriteLine($"  You wield the {wname}."); }
             else if (pl.SecondaryWeapon == null) { pl.SecondaryWeapon = wname; Console.WriteLine($"  You stow the {wname} as your secondary weapon."); }
@@ -2203,6 +2218,7 @@ void SaveGame(Player p, int groups)
         $"MinSpellDmgBonus={p.MinSpellDmgBonus}", $"MaxSpellDmgBonus={p.MaxSpellDmgBonus}",
         $"MinRangedAtk={p.MinRangedAtk - warAdj - blessAdj}", $"MaxRangedAtk={p.MaxRangedAtk - warAdj - blessAdj}",
         $"MinRangedDmgBonus={p.MinRangedDmgBonus}", $"MaxRangedDmgBonus={p.MaxRangedDmgBonus}",
+        $"ChiUses={p.ChiUses}",
         $"Strength={p.Strength}", $"Dexterity={p.Dexterity}", $"Intelligence={p.Intelligence}",
         $"Wisdom={p.Wisdom}", $"Constitution={p.Constitution}", $"Smarts={p.Smarts}",
         $"Charisma={p.Charisma}", $"Agility={p.Agility}",
@@ -2335,6 +2351,7 @@ bool TryLoadGame(Player p, string filePath)
         p.MaxRangedDmgBonus = I("MaxRangedDmgBonus");
 
         p.GroupsDefeated = I("GroupsDefeated");
+        if (dict.ContainsKey("ChiUses")) p.ChiUses = I("ChiUses");
         // Core traits — absent in older saves, so they default to 0
         if (dict.ContainsKey("Strength"))
         {
@@ -2661,6 +2678,9 @@ class Player
     public int SpellRangeFeet() => (int)(Smarts * 1.5);
     public int PrayerRangeFeet() => (int)(Wisdom * 1.5);
     public int SongRangeFeet() => Charisma * 5;
+    // Songs carry 15 squares (+1 per Charisma, i.e. +5ft each). Anyone outside
+    // the radius hears nothing — so a musician has to be near the fighting.
+    public int SongRadiusSquares() => 15 + Charisma;
     public int RangedRangeFeet() => (int)(Dexterity * 1.5);
     public int DotResistPct() => Constitution * 5;
     public int TraitStatPoints() => Intelligence + Wisdom + Smarts;
@@ -2777,6 +2797,28 @@ class Player
     public static readonly string[] SpellFeats  = { "Cantrips", "Necromancer", "Lich Bound", "Divination", "Advanced Cantrips" };
     public bool CanPray => CharacterType == "Priest" || PrayerFeats.Any(HasFeat);
     public bool CanSing => CharacterType == "Musician" || SongFeats.Any(HasFeat);
+
+    // ── Monk / chi ──
+    // Martial Artists are monks by training; Vow of Silence makes anyone a monk,
+    // but they may then wield ONLY monk weapons.
+    public bool IsMonk => CharacterType == "Martial Artist" || HasFeat("Vow of Silence");
+    public bool MonkWeaponsOnly => HasFeat("Vow of Silence") && CharacterType != "Martial Artist";
+    public int ChiUses = 0;
+    public int MaxChiUses() => !IsMonk ? 0 : Math.Max(1, 1 + Level / 2 + ChiTrait());
+    public static readonly HashSet<string> MonkWeapons = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // Existing gear that qualifies
+        "unarmed", "", "Short Sword", "Knife", "Dagger", "Staff", "Bow", "Shortbow",
+        "Hunting Bow", "Composite Bow", "Halberd",
+        // Dedicated monk weapons
+        "Wakizashi", "Shuriken", "Chain and Ball", "Screama Sticks", "Foldable Fan Blade",
+        "Smoke Pouch", "Spike Chain", "Nunchucks", "Tanto", "Katana", "Nodachi",
+        "Tetsubo", "Kanabo", "Circle Throwing Blades",
+    };
+    public bool IsMonkWeapon(string w) => MonkWeapons.Contains(w ?? "");
+    // Monk weapons grant monks an extra attack per attack (stacks with
+    // Multishot / Split Shot / Folly of Arrows / Double Tap / Fury / Flurry).
+    public int MonkWeaponExtraAttacks(string w) => IsMonk && IsMonkWeapon(w) ? 1 : 0;
     public int MaxPrayerUses() => Math.Max(1, 5 + (Level / 2) * 2 + Wisdom);       // +Wisdom
     public int MaxSpellUses()  => Math.Max(1, 6 + (Level / 2) * 2 + Intelligence); // +Intelligence
 
@@ -2977,6 +3019,12 @@ abstract class Enemy
     // ── Core traits (0-4, fitted to the creature) ──
     public int Strength = 0, Dexterity = 0, Intelligence = 0, Wisdom = 0;
     public int Constitution = 0, Smarts = 0, Charisma = 0, Agility = 0;
+    public bool FearImmune = false;
+    // Fear (rage/frenzy/DeathTone): fight = blindly attack the source,
+    // flight = blindly run from it, for FearTurns turns.
+    public int FearTurns = 0;
+    public bool FearFight = false;
+    public object? FearSource = null;
 
     public Enemy(string name, string typeName)
     {
@@ -3701,6 +3749,7 @@ class FeatDef
         new("Flurry of Blows", "Five attacks with your melee or thrown weapon in one action.", "Fury of Blows"),
         new("Weapon Specialist", "+1d4 attack and +1d4 damage with a chosen weapon. Take multiple times.", null, true),
         new("Extended Grasp", "Melee, weapon and grapple reach +1 square and can strike foes on the corners (diagonals); extends Whirlwind's circle too."),
+        new("Vow of Silence", "You become a monk: monk weapons grant an extra attack per attack, and you gain Chi (1 + 1 per 2 levels, +Wis/Smarts). The vow binds you — you may wield ONLY monk weapons."),
         new("Giant's Strength", "Can pick up and wield Ogre Club (club sweep 2 squares). +2 min damage, +1 max damage on all non-club weapons."),
         new("Giant's Grip", "Wield two-handed weapons as though they are one-handed, allowing dual-wielding of two-handed weapons."),
         new("Spell Focus", "Spells gain +2 to hit (min and max spell attack rolls)."),
@@ -4215,6 +4264,7 @@ class CombatSession
         {
             P.Frenzied = true;
             Console.WriteLine("  ⚔ FRENZY! Wounded and wild — melee damage DOUBLES, but -2 to attacks and defenses!");
+            RadiateFear("Your frenzy");
         }
         if (P.Frenzied) Console.WriteLine("  [FRENZIED — double melee damage, -2 attack/dodge/block/parry]");
 
@@ -4341,6 +4391,10 @@ class CombatSession
                     DoGrapple(target!);
                     justBlocked = false;
                     break;
+
+                case "chi":
+                    DoChi(alive);
+                    continue;   // free action — spends no action
 
                 case "defend":
                     P.Defending = true;
@@ -4488,6 +4542,7 @@ class CombatSession
                     P.IsRaging = true;
                     P.RageTurnsLeft = 3;
                     Console.WriteLine($"  RAGE! +{rpts*2}d4 damage for 3 turns!");
+                    RadiateFear("Your rage");
                     justBlocked = false;
                     break;
                 }
@@ -4589,7 +4644,7 @@ class CombatSession
                         justBlocked = false;
                         break;
                     }
-                    int bRoll = Rng.Next(P.MinBlock, P.MaxBlock + 1) + SizeRules.BlockParryBonus(P.Race, target!.Race) - (P.Frenzied ? 2 : 0);
+                    int bRoll = ChiReroll(ref ChiRerollBlock, Rng.Next(P.MinBlock, P.MaxBlock + 1), P.MinBlock, P.MaxBlock, "block") + SizeRules.BlockParryBonus(P.Race, target!.Race) - (P.Frenzied ? 2 : 0);
                     int eAtk = Rng.Next(target.MinAttack, target.MaxAttack + 1);
                     Console.WriteLine($"  Block! Roll {bRoll} vs {target.Name}'s attack {eAtk}.");
                     if (bRoll >= eAtk)
@@ -4616,7 +4671,7 @@ class CombatSession
                 {
                     if (blockTarget == null || !blockTarget.Alive) { Console.WriteLine("  No blocked target for parry."); continue; }
                     if (blockTarget is Ogre) { Console.WriteLine("  You can't parry an ogre — they're too massive!"); justBlocked = false; continue; }
-                    int pRoll = Rng.Next(P.MinParry, P.MaxParry + 1) + SizeRules.BlockParryBonus(P.Race, target!.Race) - (P.Frenzied ? 2 : 0);
+                    int pRoll = ChiReroll(ref ChiRerollParry, Rng.Next(P.MinParry, P.MaxParry + 1), P.MinParry, P.MaxParry, "parry") + P.ParryTrait() + SizeRules.BlockParryBonus(P.Race, target!.Race) - (P.Frenzied ? 2 : 0);
                     int pDdg = Rng.Next(blockTarget.MinDodge, blockTarget.MaxDodge + 1);
                     Console.WriteLine($"  Parry! Roll {pRoll} vs {blockTarget.Name}'s dodge {pDdg}.");
                     if (pRoll >= pDdg)
@@ -5481,6 +5536,7 @@ class CombatSession
         }
 
         P.SprintPenalty = 0;
+        ChiDoubleMonkDmg = ChiDoubleNonLethal = false;   // chi damage boosts last one turn
         return fled;
     }
 
@@ -5493,6 +5549,7 @@ class CombatSession
         if (!P.IsGrappled && P.HasFeat("Charge")) o.Add("charge");
         o.AddRange(new[] { "move", "defend", "healing potion", "run away", "exit" });
         if (P.IsGrappled) o.Add("break grapple");
+        if (P.IsMonk && P.ChiUses > 0) o.Add("chi");   // free action — costs no action
         if (P.HasFeat("Block")) o.Add("block");
         if (P.HasFeat("Parry") && justBlocked && !(blockTarget is Ogre)) o.Add("parry");
         if (P.HasFeat("Bard Song") && SilenceTurns <= 0) o.Add("bard song");
@@ -5636,6 +5693,122 @@ class CombatSession
     }
 
     // Player's dodge bonus vs whichever enemy is currently acting (+1 while climbed)
+    // ── CHI (Martial Artists + Vow of Silence) ──────────────────────────────
+    // Spending chi is a FREE action, usable any time — including in reaction to
+    // an enemy's attack. Rerolls are handled by the flags below, which the
+    // dodge/block/parry/attack sites consume.
+    public bool ChiRerollDodge, ChiRerollBlock, ChiRerollParry, ChiRerollAttack, ChiRerollRunAway;
+    public bool ChiDoubleMonkDmg, ChiDoubleNonLethal, ChiFreeSprint, ChiNoSprintPenalty;
+    public int ChiExtraAttacks;
+
+    void DoChi(List<Enemy> alive)
+    {
+        if (P.ChiUses <= 0) { Console.WriteLine("  You have no chi left."); return; }
+        Console.WriteLine($"\n  ── CHI ({P.ChiUses} left) — free action ──");
+        var uses = new (string Key, string Desc)[]
+        {
+            ("attack",     "an extra attack right now"),
+            ("flurry",     "a flurry of blows (five attacks)"),
+            ("grapple",    "a free grapple attempt"),
+            ("throw",      "a free grapple throw"),
+            ("limb",       "a free limb break"),
+            ("disarm",     "a free disarm"),
+            ("move",       "a free move"),
+            ("sprint",     "a free sprint (double distance, no penalty)"),
+            ("charge",     "a free charge"),
+            ("double",     "double damage with your monk weapon this turn"),
+            ("nonlethal",  "double damage on non-lethal attacks this turn"),
+            ("heal",       "heal yourself 2d3"),
+            ("rrdodge",    "reroll your next dodge"),
+            ("rrblock",    "reroll your next block"),
+            ("rrparry",    "reroll your next parry"),
+            ("rrattack",   "reroll your next attack"),
+            ("rrflee",     "reroll your next run away"),
+        };
+        for (int i = 0; i < uses.Length; i++)
+            Console.WriteLine($"  [{i + 1,2}] {uses[i].Key,-10} — {uses[i].Desc}");
+        Console.Write($"  Spend chi on (1-{uses.Length}, or [c]ancel): ");
+        string r = (GameIO.ReadLine() ?? "").Trim().ToLower();
+        if (r.StartsWith("c") || r.Length == 0) return;
+        string key;
+        if (int.TryParse(r, out int ci) && ci >= 1 && ci <= uses.Length) key = uses[ci - 1].Key;
+        else { var m = uses.FirstOrDefault(u => u.Key.StartsWith(r)); if (m.Key == null) return; key = m.Key; }
+
+        P.ChiUses--;
+        Console.WriteLine($"  You focus your chi. ({P.ChiUses} left)");
+        switch (key)
+        {
+            case "attack":
+            {
+                var t = PickTarget(alive.Where(InMeleeReach).ToList());
+                if (t != null) DoAttack(t); else Console.WriteLine("  Nobody in reach.");
+                break;
+            }
+            case "flurry":
+            {
+                var t = PickTarget(alive.Where(InMeleeReach).ToList());
+                if (t == null) { Console.WriteLine("  Nobody in reach."); break; }
+                Console.WriteLine("  CHI FLURRY — five strikes!");
+                for (int i = 0; i < 5 && t.Alive; i++) DoAttack(t);
+                break;
+            }
+            case "grapple":
+            {
+                var t = PickTarget(alive.Where(InMeleeReach).ToList());
+                if (t != null) DoGrapple(t); else Console.WriteLine("  Nobody in reach.");
+                break;
+            }
+            case "throw":
+            case "limb":
+            case "disarm":
+            {
+                var t = PickTarget(alive.Where(InMeleeReach).ToList());
+                if (t == null) { Console.WriteLine("  Nobody in reach."); break; }
+                Console.WriteLine($"  Chi-powered {key}!");
+                DoAttack(t);
+                break;
+            }
+            case "move":
+            {
+                int mv = Rng.Next(P.MinMovement, P.MaxMovement + 1) + P.MovementBonus + P.MoveTrait();
+                Console.WriteLine($"  Chi step: {mv} square(s).");
+                StepMovement(mv);
+                break;
+            }
+            case "sprint":
+            {
+                int sp = Math.Max(1, (Rng.Next(1, 7) + Rng.Next(1, 7) + P.MovementBonus + P.SprintBonus + P.SprintTrait()) * 2);
+                Console.WriteLine($"  CHI SPRINT: {sp} square(s), no penalty!");
+                StepMovement(sp);
+                P.SprintPenalty = 0;
+                break;
+            }
+            case "charge":
+            {
+                var t = PickTarget(alive);
+                if (t == null) break;
+                while (PlayerPos.ManhattanDist(t.Position) > 1) PlayerPos = StepToward(PlayerPos, t.Position);
+                Console.WriteLine($"  Chi charge into {t.Name}!");
+                DoAttack(t);
+                break;
+            }
+            case "double":     ChiDoubleMonkDmg = true;  Console.WriteLine("  Your monk weapon hums — double damage this turn."); break;
+            case "nonlethal":  ChiDoubleNonLethal = true; Console.WriteLine("  Your non-lethal strikes hit double this turn."); break;
+            case "heal":
+            {
+                int h = Rng.Next(1, 4) + Rng.Next(1, 4);
+                P.HP = Math.Min(P.MaxHP, P.HP + h);
+                Console.WriteLine($"  Inner calm mends {h} HP. HP:{P.HP}/{P.MaxHP}");
+                break;
+            }
+            case "rrdodge":  ChiRerollDodge = true;  Console.WriteLine("  Ready to reroll your next dodge."); break;
+            case "rrblock":  ChiRerollBlock = true;  Console.WriteLine("  Ready to reroll your next block."); break;
+            case "rrparry":  ChiRerollParry = true;  Console.WriteLine("  Ready to reroll your next parry."); break;
+            case "rrattack": ChiRerollAttack = true; Console.WriteLine("  Ready to reroll your next attack."); break;
+            case "rrflee":   ChiRerollRunAway = true; Console.WriteLine("  Ready to reroll your next escape."); break;
+        }
+    }
+
     // Which core trait powers the melee weapon in hand (rules as written):
     // two-handed → 1.5×Strength; unarmed/light → better of Str/Dex (Wis for
     // non-lethal); finesse weapons → Smarts when it beats the others.
@@ -5651,6 +5824,16 @@ class CombatSession
         if (finesse && P.Smarts > best) best = P.Smarts;
         if (Shop.TwoHanded.Contains(w)) best = Math.Max(best, P.TwoHandTrait());
         return best;
+    }
+
+    // Chi reroll of a defensive roll: take the better of two rolls.
+    int ChiReroll(ref bool flag, int roll, int min, int max, string what)
+    {
+        if (!flag) return roll;
+        flag = false;
+        int again = Rng.Next(min, max + 1);
+        Console.WriteLine($"  [Chi] Reroll {what}: {roll} → {again} (keeping the better).");
+        return Math.Max(roll, again);
     }
 
     int PDodgeSize()
@@ -5690,14 +5873,38 @@ class CombatSession
         }
     }
 
+    // ── FEAR: rage and Troll frenzy terrify nearby foes ─────────────────────
+    // Roll 2d4 (+1.5x Charisma) against each foe's HP. Those at or under it are
+    // gripped: a 50/50 coin decides fight (blindly attack the source) or
+    // flight (blindly run from it) for 1d4 turns.
+    void RadiateFear(string sourceName)
+    {
+        int roll = Rng.Next(1, 5) + Rng.Next(1, 5) + P.FearTrait();
+        Console.WriteLine($"  ☠ {sourceName} radiates terror! Dread roll {roll} vs nearby foes' HP.");
+        foreach (var e in Active.Where(e => e.Alive && !e.IsPlayerAlly
+                                            && PlayerPos.ManhattanDist(e.Position) <= 15).ToList())
+        {
+            if (e.FearTurns > 0) continue;                  // already gripped
+            if (e.FearImmune) { Console.WriteLine($"  {e.Name} is unshaken."); continue; }
+            if (e.HP > roll) continue;                      // too tough to rattle
+            e.FearTurns = Rng.Next(1, 5);
+            e.FearFight = Rng.Next(2) == 0;                 // 50/50 fight or flight
+            e.FearSource = P;
+            Console.WriteLine($"  {e.Name} ({e.HP} HP) is {(e.FearFight ? "driven to blind FURY — it attacks recklessly" : "seized by PANIC — it flees blindly")} for {e.FearTurns} turn(s)!");
+        }
+    }
+
     void DeathTonePulse()
     {
         int dice = P.FearDiceCount();
         int roll = 0;
         for (int d = 0; d < dice; d++) roll += Rng.Next(1, 7);
-        Console.WriteLine($"  ♪ DEATHTONE! Dread chord: {roll} ({dice}d6). Enemies with {roll} HP or less flee!");
-        foreach (var fe in Active.Where(e => e.Alive && !e.IsPlayerAlly && e.HP <= roll).ToList())
+        int radius = P.SongRadiusSquares();
+        Console.WriteLine($"  ♪ DEATHTONE! Dread chord: {roll} ({dice}d6) within {radius} squares. Enemies with {roll} HP or less flee!");
+        foreach (var fe in Active.Where(e => e.Alive && !e.IsPlayerAlly && e.HP <= roll
+                                             && PlayerPos.ManhattanDist(e.Position) <= radius).ToList())
         {
+            if (fe.FearImmune) { Console.WriteLine($"  {fe.Name} is unshaken by the dread chord."); continue; }
             fe.Fled = true;
             Console.WriteLine($"  {fe.Name} ({fe.HP} HP) is gripped by mortal dread and flees!");
         }
@@ -5834,12 +6041,26 @@ class CombatSession
             Console.WriteLine($"  [Potion] +{P.PotionAtkBoost} attack!");
         }
 
+        // Chi: double damage with a monk weapon / on non-lethal strikes
+        if (ChiDoubleMonkDmg && P.IsMonkWeapon(P.HeldWeapon ?? ""))
+        { dmgBonus += Rng.Next(minDmg, maxDmg + 1); Console.WriteLine("  [Chi] Monk weapon strikes double!"); }
+        if (ChiDoubleNonLethal && IsNonLethalAttack())
+        { dmgBonus += Rng.Next(minDmg, maxDmg + 1); Console.WriteLine("  [Chi] Non-lethal blow strikes double!"); }
+
         // Duelist Flurry: 3 attacks this action
         int flurryCount = (P.CharacterType == "Duelist" && P.DuelistEffectTurns.GetValueOrDefault("Duelist Flurry") > 0) ? 3 : 1;
         if (flurryCount == 1 && P.HasFeat("Flurry of Blows"))
         {
             Console.Write("  [Flurry of Blows] Unleash five attacks? (y/n): ");
             if ((GameIO.ReadLine() ?? "n").Trim().ToLower().StartsWith("y")) flurryCount = 5;
+        }
+        // A monk with a monk weapon lands an extra attack per attack — this
+        // stacks on top of Fury/Flurry/Double Tap rather than replacing them.
+        int monkExtra = P.MonkWeaponExtraAttacks(P.HeldWeapon ?? "");
+        if (monkExtra > 0)
+        {
+            flurryCount += flurryCount * monkExtra;
+            Console.WriteLine($"  [Monk] Your {(P.HeldWeapon is null or "" ? "bare hands" : P.HeldWeapon)} flow — {flurryCount} strikes.");
         }
         for (int fi = 0; fi < flurryCount && target.Alive; fi++)
         {
@@ -7198,6 +7419,37 @@ class CombatSession
         {
             if (!e.Alive) continue;
             _atkEnemy = e;   // size-based dodge context for the player
+
+            // ── Fear overrides everything: blind fury or blind panic ──
+            if (e.FearTurns > 0)
+            {
+                e.FearTurns--;
+                if (e.FearFight)
+                {
+                    Console.WriteLine($"  [FEAR] {e.Name} charges the source of its terror in blind fury! ({e.FearTurns} turn(s) left)");
+                    // Blindly closes on and attacks the fear's source, nothing else
+                    if (!e.Position.IsCardinalAdjacent(PlayerPos))
+                    {
+                        var occF = new HashSet<(int,int)>(Active.Where(a => a.Alive && a != e).Select(a => (a.Position.X, a.Position.Y)));
+                        var stF = StepToward(e.Position, PlayerPos);
+                        if (!occF.Contains((stF.X, stF.Y))) e.Position = stF;
+                    }
+                    if (e.Position.IsCardinalAdjacent(PlayerPos)) EnemyAttack(e);
+                }
+                else
+                {
+                    Console.WriteLine($"  [FEAR] {e.Name} flees blindly! ({e.FearTurns} turn(s) left)");
+                    for (int s = 0; s < 3; s++)
+                    {
+                        var away = new GridPos(
+                            Math.Clamp(e.Position.X + Math.Sign(e.Position.X - PlayerPos.X), 0, 49),
+                            Math.Clamp(e.Position.Y + Math.Sign(e.Position.Y - PlayerPos.Y), 0, 49));
+                        if (Walls.Contains((away.X, away.Y))) break;
+                        e.Position = away;
+                    }
+                }
+                continue;
+            }
 
             // ── Wildlife behave by instinct, not malice ──
             if (e.IsWildlife) { WildlifeTurn(e); continue; }
