@@ -12,8 +12,18 @@ Split by concern (was one 10k-line Program.cs). Each file opens with a header co
 | `Player.cs` | ~420 | The `Player` class: stats, core traits, gear, pools |
 | `Enemies.cs` | ~790 | `Enemy` base + every monster/animal ("what a troll IS") |
 | `Rules.cs` | ~340 | `SizeRules`, `Shop` (prices/stock/storefronts), `FeatDef`, `BuyOpt` — lookup tables; most balance edits are one line here |
-| `Combat.cs` | ~6.2k | `CombatSession` — one whole fight ("what a troll DOES") |
 | `GraphicsDisplay.cs` | ~990 | Raylib rendering, sprites, clickable UI, reads `SharedGameState` |
+
+`CombatSession` is one class split across six files with `partial` — any part can call any other freely:
+
+| File | Lines | Contents |
+|---|---|---|
+| `Combat.cs` | ~450 | **Start here.** Fields, constructor, `Run()` (the round loop) |
+| `CombatPlayerTurn.cs` | ~1.5k | `PlayerTurn`: upkeep → `BuildOpts` → the action switch |
+| `CombatAttacks.cs` | ~1.6k | `DoAttack`/`PerformAttack`, bows, spells, grapples, `HandleKill` |
+| `CombatEnemyAI.cs` | ~2.2k | `EnemyTurn` + per-type AI + wildlife ("what a troll DOES") |
+| `CombatTerrain.cs` | ~310 | 50×50 grid, camps, wall-aware `StepToward`, map view |
+| `CombatHelpers.cs` | ~400 | Reach, `PDodgeSize`, chi, fear, songs, `MitigateMagic` |
 
 ## Architecture notes
 
