@@ -2848,6 +2848,10 @@ class Player
     public int SpellDurBonus = 0, PrayerDurBonus = 0, SongDurBonus = 0;
     public bool RaceFrenzy = false;          // Troll: enter a rage at low HP
     public bool Frenzied = false;            // currently frenzied (combat-scoped)
+    // Fear worked on the player (troll fear song): fight = you may only attack
+    // the source, flight = you may only flee from it, for FearTurns turns.
+    public int FearTurns = 0;
+    public bool FearFight = false;
     public long Copper = 0;                  // purse (100c=1s, 100s=1g, 100g=1p)
     public int BluntArrows = 0;              // non-lethal
     public int BarbedArrows = 0;             // +1d4 damage
@@ -3512,11 +3516,13 @@ class TrollMusician : Troll
 {
     public bool PlayedSilence = false;
     public bool WarSongActive = false;
+    public bool DrewAxe = false;                 // slung the drum for a hand axe
+    public int FearSongCooldown = 0;             // won't spam the dread chord
     public List<Enemy> WarSongTargets = new();   // buffed allies — buff dies with the drummer
     public TrollMusician(Random rng, string name) : base(rng, name)
     {
         TypeName = "Troll Musician";
-        EquippedAxes = 0; SpareAxes = 0;  // hands full of war drums
+        EquippedAxes = 0; SpareAxes = 0;  // hands full of war drums — until the songs run out
         MinDamage = 2; MaxDamage = 9;
         XPValue = 58;
     }
@@ -3984,6 +3990,7 @@ class CombatSession
         {
             pl.Climbed = false;
             pl.Frenzied = false;
+            pl.FearTurns = 0;
             pl.RecoverRegular = pl.RecoverBlunt = pl.RecoverBarbed = pl.RecoverSpiral = 0;
         }
         GenerateTerrain();
@@ -4501,6 +4508,17 @@ class CombatSession
             }
 
             var opts = BuildOpts(justBlocked, alive, blockTarget);
+            // Fear grips you: blind fury can only swing, panic can only run.
+            if (P.FearTurns > 0)
+            {
+                Console.WriteLine(P.FearFight
+                    ? $"  [TERRIFIED — blind fury: you can only attack, {P.FearTurns} turn(s) left]"
+                    : $"  [TERRIFIED — panic: you can only flee, {P.FearTurns} turn(s) left]");
+                opts = P.FearFight
+                    ? opts.Where(o => o is "attack" or "chi").ToList()
+                    : opts.Where(o => o is "move" or "sprint" or "run away" or "chi").ToList();
+                if (!opts.Any()) { Console.WriteLine("  ...but there is nothing you can do. You cower."); break; }
+            }
             for (int i = 0; i < opts.Count; i++) Console.Write($"[{i + 1}]{opts[i]}  ");
             Console.WriteLine();
             Console.Write("  Action: ");
@@ -5701,6 +5719,7 @@ class CombatSession
 
         P.SprintPenalty = 0;
         ChiDoubleMonkDmg = ChiDoubleNonLethal = false;   // chi damage boosts last one turn
+        if (P.FearTurns > 0 && --P.FearTurns <= 0) Console.WriteLine("  The terror loosens its grip — your nerve returns.");
         return fled;
     }
 
@@ -8262,11 +8281,37 @@ class CombatSession
                     }
                 }
 
+                // Out of songs? Sling the drum and draw a hand axe.
+                if (e is TrollMusician tmDry && tmDry.SongUsesLeft <= 0 && !tmDry.DrewAxe)
+                {
+                    tmDry.DrewAxe = true;
+                    tmDry.EquippedAxes = 1; tmDry.SpareAxes = 1;
+                    Console.WriteLine($"  {e.Name}'s songs run dry — it slings the drum and draws a hand axe!");
+                }
+
                 // Troll Musician: silences the party's magic, then drums the horde into a frenzy
                 if (e is TrollMusician tmus && tmus.SongUsesLeft > 0 && SilenceTurns <= 0 && actions > 0)
                 {
                     bool playerHasMagic = P.KnownSpells.Any() || P.CanPray || P.CanSing;
-                    if (!tmus.PlayedSilence && playerHasMagic)
+                    tmus.FearSongCooldown = Math.Max(0, tmus.FearSongCooldown - 1);
+                    // Someone's in its face — strike up the dread chord first
+                    if (tmus.Position.ManhattanDist(PlayerPos) <= 5 && tmus.FearSongCooldown <= 0 && P.FearTurns <= 0)
+                    {
+                        tmus.SongUsesLeft--;
+                        tmus.FearSongCooldown = 4;
+                        actions--;
+                        int fRoll = Rng.Next(1, 5) + Rng.Next(1, 5) + (int)(tmus.Charisma * 1.5);
+                        Console.WriteLine($"  {e.Name} hammers a DREAD CHORD as you close! Fear roll {fRoll} vs your {P.HP} HP.");
+                        if (P.FearImmune) Console.WriteLine("  Your mind is fearless — the chord washes over you.");
+                        else if (P.HP > fRoll) Console.WriteLine("  You steel yourself against the dread.");
+                        else
+                        {
+                            P.FearTurns = Rng.Next(1, 5);
+                            P.FearFight = Rng.Next(2) == 0;
+                            Console.WriteLine($"  Terror takes you! {(P.FearFight ? "Blind FURY — you can only attack the drummer" : "PANIC — you can only flee")} for {P.FearTurns} turn(s)!");
+                        }
+                    }
+                    else if (!tmus.PlayedSilence && playerHasMagic)
                     {
                         tmus.SongUsesLeft--;
                         tmus.PlayedSilence = true;
