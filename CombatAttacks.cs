@@ -176,7 +176,7 @@ partial class CombatSession
         for (int fi = 0; fi < flurryCount && target.Alive; fi++)
         {
             if (fi > 0) Console.WriteLine($"  [Flurry hit {fi + 1}]");
-            int rawRoll = Rng.Next(minAtk, maxAtk + 1);
+            int rawRoll = ChiReroll(ref ChiRerollAttack, Rng.Next(minAtk, maxAtk + 1), minAtk, maxAtk, "attack");
             PerformAttack(target, rawRoll + atkPen + warriorAtkBonus - brokenArmPenalty + trueSightAtkBonus + songAtkBonus + sizeAtk + specAtk + frenzyAtk + traitAtk + HighGround(), minDmg, maxDmg, fi == 0 ? dmgBonus : 0, useSunder, useDisarm, fi == 0 && useSap, rawRoll == maxAtk, rawRoll == minAtk);
         }
 
@@ -587,7 +587,7 @@ partial class CombatSession
         if (SilenceTurns > 0) { Console.WriteLine($"  {necro.Name} chants over a corpse — but the silence smothers the ritual!"); return; }
         corpse.HP = corpse.MaxHP;
         corpse.Fled = false;
-        corpse.IsUndead = true;
+        corpse.IsUndead = true; corpse.FearImmune = true;   // the dead know no fear
         // Clear status effects and strip all feats / special abilities
         corpse.KnockedOut = false; corpse.KnockedDown = false; corpse.OffBalance = false;
         corpse.Disarmed = false; corpse.Grappled = false; corpse.Charmed = false;
@@ -606,7 +606,7 @@ partial class CombatSession
 
     Enemy MakeUndeadEnemy(Enemy e)
     {
-        e.IsUndead = true;
+        e.IsUndead = true; e.FearImmune = true;   // the dead know no fear
         e.HasDoubleTap = false; e.HasParry = false; e.HasBlock = false;
         e.HasKick = false; e.HasArmBlock = false;
         e.MagicResistant = false; e.MagicVulnerable = false;
@@ -626,7 +626,7 @@ partial class CombatSession
     void NecromancerTouchPlayer(Enemy necro)
     {
         int atk = Rng.Next(necro.MinAttack, necro.MaxAttack + 1) - necro.AttackPenalty - necro.FrostPenalty;
-        int ddg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize();
+        int ddg = PDodgeRoll() + PDodgeSize();
         Console.WriteLine($"  {necro.Name} reaches out with a NEGATIVE TOUCH! {atk} vs your dodge {ddg}.");
         if (atk >= ddg)
         {
@@ -818,6 +818,7 @@ partial class CombatSession
             Console.WriteLine($"  [{char.ToUpper(arrowType[0])}{arrowType[1..]} arrow]{(arrowAtkBonus > 0 ? $" +{arrowAtkBonus} atk" : "")}{(arrowDmgBonus > 0 ? $" +{arrowDmgBonus} dmg" : "")}{(arrowType == "blunt" ? " (non-lethal)" : "")}");
         void SpendArrow()
         {
+            if (P.HasQuiverOfHolding) return;   // the quiver never runs dry
             switch (arrowType)
             {
                 case "blunt": P.BluntArrows--; break;
@@ -831,7 +832,7 @@ partial class CombatSession
         if (feet > 60f) { Console.WriteLine($"  Too far! ({feet:F1}ft, max 60ft)"); return; }
         bool huntingBow = P.HeldWeapon == "Hunting Bow";
 
-        bool HasAmmo() => arrowType switch
+        bool HasAmmo() => P.HasQuiverOfHolding || arrowType switch
         {
             "blunt" => P.BluntArrows > 0,
             "barbed" => P.BarbedArrows > 0,
@@ -1428,7 +1429,7 @@ partial class CombatSession
                 var corpse = corpses[rdi - 1];
                 int rdTurns = ExtDur(Rng.Next(2, 10));
                 corpse.HP = Math.Max(1, corpse.MaxHP / 2);
-                corpse.IsUndead = true; corpse.IsPlayerAlly = true; corpse.AllyTurnsLeft = rdTurns;
+                corpse.IsUndead = true; corpse.FearImmune = true; corpse.IsPlayerAlly = true; corpse.AllyTurnsLeft = rdTurns;
                 corpse.Fled = false;
                 Console.WriteLine($"  RAISE DEAD! {corpse.Name} rises as an undead ally for {rdTurns} turns! HP:{corpse.HP}/{corpse.MaxHP}");
                 break;

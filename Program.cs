@@ -897,13 +897,13 @@ List<BuyOpt> BuyCatalogue()
     Add(3, "Defense",  "Crafted Armor/Robe Absorb +10%", MagicCraft, p => p.ArmorAbsorbPct += 10);
     Add(3, "Spell",    "Gnome Spell Absorb +5%", Gnome, p => p.RaceAbsorbPct += 5);
 
-    // ── 5 points: core traits ──
-    Add(5, "Core Trait", "Agility +1",       Any, p => p.Agility++);
+    // ── 5 points: core traits (each also grants what it gave at creation) ──
+    Add(5, "Core Trait", "Agility +1",       Any, p => { p.Agility++; if (p.Agility % 2 == 0) p.AdditionalActions++; });
     Add(5, "Core Trait", "Charisma +1",      Any, p => p.Charisma++);
-    Add(5, "Core Trait", "Constitution +1",  Any, p => { p.Constitution++; p.MaxHP++; p.HP++; });
+    Add(5, "Core Trait", "Constitution +1",  Any, p => { p.Constitution++; p.MaxHP++; p.HP++; p.RagePoints++; });
     Add(5, "Core Trait", "Dexterity +1",     Any, p => p.Dexterity++);
     Add(5, "Core Trait", "Intelligence +1",  Any, p => p.Intelligence++);
-    Add(5, "Core Trait", "Smarts +1",        Any, p => p.Smarts++);
+    Add(5, "Core Trait", "Smarts +1",        Any, p => { p.Smarts++; p.DuelistPoints++; });
     Add(5, "Core Trait", "Strength +1",      Any, p => p.Strength++);
     Add(5, "Core Trait", "Wisdom +1",        Any, p => p.Wisdom++);
     return L;
@@ -1587,7 +1587,10 @@ void BrowseStorefront(Player pl, string shop)
         // Armor Store also carries the armor list; Magic Shop marks up by 3 gold
         IEnumerable<string>? extra = shop == "Armor Store" ? Shop.Armors.Keys : null;
         var stock = Shop.RollStock(shop, rng, extra);
-        long Markup(string it) => Shop.CostOf(it) + (shop == "Magic Shop" ? 3 * Shop.Gold : 0);
+        // Storefront prices are as listed — the robes etc. were priced as
+        // final. (The old +3g magic markup lives only in the merchant's own
+        // [9] magic stall, which predates the storefronts.)
+        long Markup(string it) => Shop.CostOf(it);
 
         Console.WriteLine($"\n── {shop} ──  Purse: {Shop.Fmt(pl.Copper)}   (stock rotates each visit)");
         for (int i = 0; i < stock.Length; i++)

@@ -225,7 +225,7 @@ partial class CombatSession
                         {
                             e.GrappleNextTurn = false;
                             int gAtk = Rng.Next(e.MinGrapple, e.MaxGrapple + 1) - e.AttackPenalty;
-                            int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize();
+                            int pDdg = PDodgeRoll() + PDodgeSize();
                             Console.WriteLine($"  {e.Name} grapples! {gAtk} vs your dodge {pDdg}.");
                             if (gAtk >= pDdg) { int gDmg = Rng.Next(e.GrappleDmgMin, e.GrappleDmgMax + 1); P.HP -= gDmg; Console.WriteLine($"  Grappled! {gDmg} crush damage. HP:{P.HP}/{P.MaxHP}"); }
                             else Console.WriteLine($"  Grapple attempt failed!");
@@ -280,7 +280,7 @@ partial class CombatSession
                 {
                     e.GrappleNextTurn = false;
                     int gAtk = Rng.Next(e.MinGrapple, e.MaxGrapple + 1) - e.AttackPenalty;
-                    int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize();
+                    int pDdg = PDodgeRoll() + PDodgeSize();
                     Console.WriteLine($"  {e.Name} grapples! {gAtk} vs your dodge {pDdg}.");
                     if (gAtk >= pDdg)
                     {
@@ -578,7 +578,7 @@ partial class CombatSession
                     else if (e.Position.IsCardinalAdjacent(PlayerPos))
                     {
                         // Dark power spent — reduced to clawing
-                        int ncAtk = Rng.Next(1, 7), ncDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize();
+                        int ncAtk = Rng.Next(1, 7), ncDdg = PDodgeRoll() + PDodgeSize();
                         Console.WriteLine($"  {e.Name}'s dark power is spent — it claws! Roll {ncAtk} vs dodge {ncDdg}.");
                         if (ncAtk >= ncDdg)
                         {
@@ -685,7 +685,7 @@ partial class CombatSession
                     {
                         tpri.PrayerUsesLeft--;
                         int smAtk = Rng.Next(2, 11);
-                        int smDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize();
+                        int smDdg = PDodgeRoll() + PDodgeSize();
                         Console.WriteLine($"  {e.Name} calls down a dark smite! Roll {smAtk} vs your dodge {smDdg}.");
                         if (smAtk >= smDdg)
                         {
@@ -811,7 +811,7 @@ partial class CombatSession
                     {
                         gdu.HandAxes--;
                         int haAtk = Rng.Next(e.MinAttack, e.MaxAttack + 1);
-                        int haDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize();
+                        int haDdg = PDodgeRoll() + PDodgeSize();
                         Console.WriteLine($"  {e.Name} hurls a hand axe! Roll {haAtk} vs your dodge {haDdg}. ({gdu.HandAxes} left)");
                         if (haAtk >= haDdg)
                         {
@@ -830,7 +830,7 @@ partial class CombatSession
                     {
                         giant.GiantArrows--;
                         int gbAtk = Rng.Next(e.MinAttack, e.MaxAttack + 1);
-                        int gbDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize();
+                        int gbDdg = PDodgeRoll() + PDodgeSize();
                         Console.WriteLine($"  {e.Name} looses a giant arrow! Roll {gbAtk} vs your dodge {gbDdg}. ({giant.GiantArrows} arrows left)");
                         if (gbAtk >= gbDdg)
                         {
@@ -1091,7 +1091,7 @@ partial class CombatSession
         else
         {
             int gAtk = Rng.Next(e.MinGrapple, e.MaxGrapple + 1) - e.AttackPenalty;
-            int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize();
+            int pDdg = PDodgeRoll() + PDodgeSize();
             Console.WriteLine($"  {e.Name} goes for a grapple! {gAtk} vs your dodge {pDdg}.");
             if (gAtk >= pDdg)
             {
@@ -1168,7 +1168,7 @@ partial class CombatSession
         else
         {
             int gAtk = Rng.Next(e.MinGrapple, e.MaxGrapple + 1) - e.AttackPenalty;
-            int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize();
+            int pDdg = PDodgeRoll() + PDodgeSize();
             Console.WriteLine($"  {e.Name} lunges to grapple{(bothHands ? " with both hands" : "")}! {gAtk} vs your dodge {pDdg}.");
             Console.WriteLine($"  (You can only counter-grapple 8-12 or dodge to escape an Ogre's grab!)");
             if (gAtk >= pDdg)
@@ -1218,7 +1218,7 @@ partial class CombatSession
     {
         if (!e.HasKick || !e.Alive || P.HP <= 0) return;
         int kAtk = Rng.Next(1, 7);
-        int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize();
+        int pDdg = PDodgeRoll() + PDodgeSize();
         Console.WriteLine($"  {e.Name} kicks! Roll {kAtk} vs your dodge {pDdg}.");
         if (kAtk >= pDdg)
         {
@@ -1381,7 +1381,7 @@ partial class CombatSession
         }
         if (e.PowerAttackMode) eAtk = Math.Max(1, eAtk - 2); // power attack penalty
         int brokenLegPenalty = P.BrokenLimbs.Count(l => l.Contains("Leg"));
-        int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize() - P.FrostPenalty - brokenLegPenalty;
+        int pDdg = PDodgeRoll() + PDodgeSize() - P.FrostPenalty - brokenLegPenalty;
         if (P.EnlargeActive) pDdg = Math.Max(1, pDdg / 2);
         if (P.TrueSightTurns > 0 && P.TrueSightStat == "dodge") pDdg += P.TrueSightBonus;
         Console.WriteLine($"  {e.Name} attacks{(e.PowerAttackMode ? " (POWER)" : "")}! Roll {eAtk} vs your dodge {pDdg}.");
@@ -1410,7 +1410,7 @@ partial class CombatSession
             if (e.HasDoubleTap && P.HP > 0 && !e.DroppedWeapon)
             {
                 int ofAtk = Rng.Next(e.OffhandMinAtk, e.OffhandMaxAtk + 1) - e.AttackPenalty;
-                int ofDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize();
+                int ofDdg = PDodgeRoll() + PDodgeSize();
                 string offhandLabel = e.OffhandNonLethal ? "War Mace (non-lethal)" : "off-hand";
                 Console.WriteLine($"  {e.Name} {offhandLabel}! Roll {ofAtk} vs your dodge {ofDdg}.");
                 if (ofAtk >= ofDdg)
@@ -1470,7 +1470,7 @@ partial class CombatSession
     void WildAttackPlayer(Enemy w, string label, int atkMin, int atkMax, int dmgMin, int dmgMax)
     {
         int atk = Rng.Next(atkMin, atkMax + 1);
-        int ddg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize();
+        int ddg = PDodgeRoll() + PDodgeSize();
         Console.WriteLine($"  {w.Name} {label}! Roll {atk} vs your dodge {ddg}.");
         if (atk >= ddg)
         {
@@ -1670,7 +1670,7 @@ partial class CombatSession
         }
         gm.SpellUsesLeft--;
         int sAtk = Rng.Next(gm.MinAttack, gm.MaxAttack + 1);
-        int sDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize();
+        int sDdg = PDodgeRoll() + PDodgeSize();
         string elem = gm.Grimoire == "boost" ? "lightning" : gm.Grimoire;   // boost fallback when no allies
         Console.WriteLine($"  {gm.Name} hurls {elem} from its grimoire! Roll {sAtk} vs your dodge {sDdg}.");
         if (sAtk >= sDdg)
@@ -1710,7 +1710,7 @@ partial class CombatSession
             Console.WriteLine($"  {sg.Name} is out of magic!");
             if (sg.Position.IsCardinalAdjacent(PlayerPos))
             {
-                int cAtk = Rng.Next(1, 7), cDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize();
+                int cAtk = Rng.Next(1, 7), cDdg = PDodgeRoll() + PDodgeSize();
                 Console.WriteLine($"  {sg.Name} claws at you! Roll {cAtk} vs dodge {cDdg}.");
                 if (cAtk >= cDdg)
                 {
@@ -1828,7 +1828,7 @@ partial class CombatSession
     {
         float feet = ob.Position.Feet(PlayerPos);
         int atkRoll = Rng.Next(ob.MinAttack, ob.MaxAttack + 1) - ob.AttackPenalty;
-        int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize() - P.FrostPenalty - P.BrokenLimbs.Count(l => l.Contains("Leg"));
+        int pDdg = PDodgeRoll() + PDodgeSize() - P.FrostPenalty - P.BrokenLimbs.Count(l => l.Contains("Leg"));
         Console.WriteLine($"  {ob.Name} hurls a hand axe! ({feet:F0}ft) Roll {atkRoll} vs your dodge {pDdg}. ({ob.HandAxeCount - 1} axes left)");
         ob.HandAxeCount--;
         if (atkRoll >= pDdg)
@@ -1849,7 +1849,7 @@ partial class CombatSession
     {
         float feet = rg.Position.Feet(PlayerPos);
         int atkRoll = Rng.Next(rg.MinAttack, rg.MaxAttack + 1) - rg.AttackPenalty;
-        int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize() - P.FrostPenalty - P.BrokenLimbs.Count(l => l.Contains("Leg"));
+        int pDdg = PDodgeRoll() + PDodgeSize() - P.FrostPenalty - P.BrokenLimbs.Count(l => l.Contains("Leg"));
         rg.DaggerCount--;
         int daggersLeft = rg.DaggerCount;
         Console.WriteLine($"  {rg.Name} hurls a dagger! ({feet:F0}ft) Roll {atkRoll} vs your dodge {pDdg}. ({daggersLeft} daggers left)");
@@ -1932,7 +1932,7 @@ partial class CombatSession
     {
         if (hbf.ArrowCount <= 0) return;
         int atkRoll = Rng.Next(hbf.MinAttack, hbf.MaxAttack + 1) - hbf.AttackPenalty;
-        int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize() - P.FrostPenalty;
+        int pDdg = PDodgeRoll() + PDodgeSize() - P.FrostPenalty;
         int dmgMin, dmgMax;
         if (feet <= 14f) { dmgMin = 3; dmgMax = 8; }
         else if (feet <= 40f) { dmgMin = 2; dmgMax = 6; }
@@ -1957,7 +1957,7 @@ partial class CombatSession
     {
         float feet = hbt.Position.Feet(PlayerPos);
         int atkRoll = Rng.Next(hbt.MinAttack, hbt.MaxAttack + 1) - hbt.AttackPenalty;
-        int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize() - P.FrostPenalty;
+        int pDdg = PDodgeRoll() + PDodgeSize() - P.FrostPenalty;
         hbt.DaggerCount--;
         Console.WriteLine($"  {hbt.Name} hurls a dagger! ({feet:F0}ft) Roll {atkRoll} vs your dodge {pDdg}. ({hbt.DaggerCount} daggers left)");
         if (atkRoll >= pDdg)
@@ -2089,7 +2089,7 @@ partial class CombatSession
         int rawAtk = Rng.Next(orr.BowMinAtk, orr.BowMaxAtk + 1) - orr.AttackPenalty;
         bool isCrit = (rawAtk + orr.AttackPenalty) == orr.BowMaxAtk;
         bool isFumble = (rawAtk + orr.AttackPenalty) == orr.BowMinAtk;
-        int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize() - P.FrostPenalty;
+        int pDdg = PDodgeRoll() + PDodgeSize() - P.FrostPenalty;
         Console.WriteLine($"  {orr.Name} draws long bow! ({feet:F0}ft, dmg {orr.BowMinDmg}-{orr.BowMaxDmg}) Roll {rawAtk} vs your dodge {pDdg}.");
         orr.ArrowCount--;
         if (isFumble) { Console.WriteLine($"  FUMBLE! {orr.Name}'s bow string snaps!"); return; }
@@ -2105,7 +2105,7 @@ partial class CombatSession
             if (orr.HasDoubleTap && orr.ArrowCount > 0 && P.HP > 0)
             {
                 int raw2 = Rng.Next(orr.BowMinAtk, orr.BowMaxAtk + 1);
-                int pDdg2 = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize();
+                int pDdg2 = PDodgeRoll() + PDodgeSize();
                 Console.WriteLine($"  {orr.Name} double-taps! Roll {raw2} vs dodge {pDdg2}.");
                 orr.ArrowCount--;
                 if (raw2 >= pDdg2)
@@ -2127,7 +2127,7 @@ partial class CombatSession
     void DoTrollAxeThrow(Troll tr, float feet)
     {
         int atkRoll = Rng.Next(tr.MinAttack, tr.MaxAttack + 1) - tr.AttackPenalty;
-        int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize() - P.FrostPenalty;
+        int pDdg = PDodgeRoll() + PDodgeSize() - P.FrostPenalty;
         int dmgMin, dmgMax;
         if (feet <= 7.5f) { dmgMin = 2; dmgMax = 6; }
         else if (feet <= 10f) { dmgMin = 1; dmgMax = 6; }

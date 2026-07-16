@@ -148,8 +148,15 @@ partial class CombatSession
     // an enemy's attack. Rerolls are handled by the flags below, which the
     // dodge/block/parry/attack sites consume.
     public bool ChiRerollDodge, ChiRerollBlock, ChiRerollParry, ChiRerollAttack, ChiRerollRunAway;
-    public bool ChiDoubleMonkDmg, ChiDoubleNonLethal, ChiFreeSprint, ChiNoSprintPenalty;
-    public int ChiExtraAttacks;
+    public bool ChiDoubleMonkDmg, ChiDoubleNonLethal;
+
+    // Every player dodge roll funnels through here so the chi dodge-reroll
+    // has one place to fire, whatever prompted the dodge.
+    int PDodgeRoll()
+    {
+        int r = Rng.Next(P.MinDodge, P.MaxDodge + 1);
+        return ChiReroll(ref ChiRerollDodge, r, P.MinDodge, P.MaxDodge, "dodge");
+    }
 
     void DoChi(List<Enemy> alive)
     {
@@ -183,6 +190,11 @@ partial class CombatSession
         string key;
         if (int.TryParse(r, out int ci) && ci >= 1 && ci <= uses.Length) key = uses[ci - 1].Key;
         else { var m = uses.FirstOrDefault(u => u.Key.StartsWith(r)); if (m.Key == null) return; key = m.Key; }
+
+        // Reach is checked BEFORE the point is spent — no wasted chi
+        bool needsReach = key is "attack" or "flurry" or "grapple" or "throw" or "limb" or "disarm";
+        if (needsReach && !alive.Any(InMeleeReach))
+        { Console.WriteLine("  Nobody within reach — your chi is not spent."); return; }
 
         P.ChiUses--;
         Console.WriteLine($"  You focus your chi. ({P.ChiUses} left)");
@@ -370,7 +382,8 @@ partial class CombatSession
     {
         int dice = P.FearDiceCount();
         int roll = P.SongFear;                                    // base song fear vs HP
-        for (int d = 0; d < dice; d++) roll += Rng.Next(1, 7 + P.SongFearMax);
+        // "+1 max fear" purchases widen only the first die, not every die
+        for (int d = 0; d < dice; d++) roll += Rng.Next(1, 7 + (d == 0 ? P.SongFearMax : 0));
         int radius = P.SongRadiusSquares();
         Console.WriteLine($"  ♪ DEATHTONE! Dread chord: {roll} ({dice}d6) within {radius} squares. Enemies with {roll} HP or less flee!");
         foreach (var fe in Active.Where(e => e.Alive && !e.IsPlayerAlly && e.HP <= roll
@@ -384,6 +397,7 @@ partial class CombatSession
 
     Enemy? PickTarget(List<Enemy> alive)
     {
+        if (alive.Count == 0) return null;   // nothing to aim at — never prompt
         if (alive.Count == 1) return alive[0];
         for (int i = 0; i < alive.Count; i++) Console.Write($"[{i + 1}]{alive[i].Name}  ");
         Console.WriteLine();
