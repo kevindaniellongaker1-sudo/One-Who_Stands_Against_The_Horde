@@ -960,31 +960,44 @@ void AskName(Player p)
 
 void SelectRace(Player p)
 {
-    var races = new[]
+    // Listed by size (small → medium → large), then kin-group, then alphabetically,
+    // so relatives like the three elves always sit together.
+    var raceInfo = new (string Name, string Kin, string Blurb)[]
     {
-        "Moon Elf", "Human", "Stone Dwarf", "Light-Foot Hobbit",
-        "Sun Elf", "Wood Elf", "Orc", "Goblin", "Troll", "Iron Dwarf", "Brave Minds Hobbit",
-        "Gem Gnome", "Glass Gnome", "Hobgoblin", "Ogre", "Giant"
+        ("Gem Gnome",          "Gnome",     "25% magic absorb, +2 spell hit; frail, takes more dmg"),
+        ("Glass Gnome",        "Gnome",     "+2 spell/prayer power & hit; takes more damage"),
+        ("Goblin",             "Goblinoid", "quick (+1 action), sharp attacks; frail & weak hits"),
+        ("Hobgoblin",          "Goblinoid", "+1 melee/ranged, tough; poor caster, clumsy defense"),
+        ("Brave Minds Hobbit", "Hobbit",    "+1 defenses & attacks, fearless; deals less damage"),
+        ("Light-Foot Hobbit",  "Hobbit",    "+2 dodge/block/parry, nimble, -1 dmg taken"),
+        ("Iron Dwarf",         "Dwarf",     "-2 dmg taken, +2 attacks, free combat feat"),
+        ("Stone Dwarf",        "Dwarf",     "double HP, -2 dmg taken, +1 rage; slow & poor caster"),
+        ("Moon Elf",           "Elf",       "spell/prayer power & attacks up; frail (-2 HP/dmg)"),
+        ("Sun Elf",            "Elf",       "+2 attacks & healing; frail (-2 HP/dmg)"),
+        ("Wood Elf",           "Elf",       "+2 all attacks & damage, fast; frail, poor grappler"),
+        ("Human",              "Human",     "+6 stat points, +1 action, TWO bonus feats"),
+        ("Orc",                "Orc",       "+2 melee/throw dmg, +2 HP, +1 rage; poor caster"),
+        ("Troll",              "Troll",     "regen 2/turn; FRENZY at low HP; poor at magic"),
+        ("Giant",              "Giant",     "+2 melee dmg, +4 HP, +1 move, free Giant's Strength; clumsy vs smaller foes"),
+        ("Ogre",               "Ogre",      "+2 dmg, double HP, half dodge, -1 move, -2 dmg taken, free Giant's Strength"),
     };
+    var sorted = raceInfo.OrderBy(r => SizeRules.Of(r.Name)).ThenBy(r => r.Kin).ThenBy(r => r.Name).ToArray();
+    var races = sorted.Select(r => r.Name).ToArray();
+
     Console.WriteLine("\nChoose your race:");
-    Console.WriteLine("  [1]  Moon Elf          — spell/prayer power & attacks up; frail (-2 HP/dmg)");
-    Console.WriteLine("  [2]  Human             — +6 stat points, +1 action, TWO bonus feats");
-    Console.WriteLine("  [3]  Stone Dwarf       — double HP, -2 dmg taken, +1 rage; slow & poor caster");
-    Console.WriteLine("  [4]  Light-Foot Hobbit — +2 dodge/block/parry, nimble, -1 dmg taken");
-    Console.WriteLine("  [5]  Sun Elf           — +2 attacks & healing; frail (-2 HP/dmg)");
-    Console.WriteLine("  [6]  Wood Elf          — +2 all attacks & damage, fast; frail, poor grappler");
-    Console.WriteLine("  [7]  Orc               — +2 melee/throw dmg, +2 HP, +1 rage; poor caster");
-    Console.WriteLine("  [8]  Goblin            — quick (+1 action), sharp attacks; frail & weak hits");
-    Console.WriteLine("  [9]  Troll             — regen 2/turn; FRENZY at low HP; poor at magic");
-    Console.WriteLine("  [10] Iron Dwarf        — -2 dmg taken, +2 attacks, free combat feat");
-    Console.WriteLine("  [11] Brave Minds Hobbit — +1 defenses & attacks, fearless; deals less damage");
-    Console.WriteLine("  [12] Gem Gnome          — 25% magic absorb, +2 spell hit; frail, takes more dmg");
-    Console.WriteLine("  [13] Glass Gnome        — +2 spell/prayer power & hit; takes more damage");
-    Console.WriteLine("  [14] Hobgoblin          — +1 melee/ranged, tough; poor caster, clumsy defense");
-    Console.WriteLine("  [15] Ogre               — +2 dmg, double HP, half dodge, -1 move, -2 dmg taken, free Giant's Strength");
-    Console.WriteLine("  [16] Giant              — +2 melee dmg, +4 HP, +1 move, free Giant's Strength; clumsy vs smaller foes");
+    int lastSize = -1;
+    for (int i = 0; i < sorted.Length; i++)
+    {
+        int sz = SizeRules.Of(sorted[i].Name);
+        if (sz != lastSize)
+        {
+            Console.WriteLine($"  ── {(sz == 0 ? "Small" : sz == 2 ? "Large" : "Medium")} ──");
+            lastSize = sz;
+        }
+        Console.WriteLine($"  [{i + 1,2}] {sorted[i].Name,-19} — {sorted[i].Blurb}");
+    }
     Console.WriteLine("  (Size matters: small races get attack/dodge bonuses vs bigger foes; see race notes)");
-    Console.Write("  Choice (1-16 or name): ");
+    Console.Write($"  Choice (1-{races.Length} or name): ");
     string raw = (GameIO.ReadLine() ?? "").Trim();
     string chosen = "Human";
     if (int.TryParse(raw, out int ridx) && ridx >= 1 && ridx <= races.Length)
