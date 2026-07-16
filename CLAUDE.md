@@ -50,6 +50,12 @@ Wired so far: melee attack+damage via `CombatSession.MeleeTraitBonus()` (picks t
 
 NPCs have traits too: `Enemy.ApplyNpcTraits()` assigns a 0-4 spread per `TypeName` (brutes Str/Con, casters Int/Wis, skirmishers Dex/Agi), called from the Enemy constructor.
 
+## Point buy (data-driven)
+
+`BuyCatalogue()` returns `List<BuyOpt>` — `record BuyOpt(int Cost, string Type, string Name, Func<Player,bool> Show, Action<Player> Apply)`. `SpendStatPoints` filters by `Show(p) && Cost <= points`, sorts **price → type → name**, and numbers the surviving rows dynamically (so indices shift with the filter — never hardcode them). Gates: `Pray`/`Sing`/`Cast`/`Craft`/`Arrows`/`Alch`(Alchemist)/`Gnome`/`MagicCraft`. Tiers: 1pt max stats, 2pt base stats + uses, 3pt HP/crafting/shield/absorb, 5pt core traits. Gear point (3), extra action (4) and feat (4) are appended after the table with their own indices.
+
+Backing fields live on `Player` (base/max pairs, e.g. `PrayerHealBonus`/`PrayerHealMaxBonus`, `SongFear`/`SongFearMax`, `SprintBonus`/`SprintMaxBonus`, `BonusSpellUses` etc.), all saved/loaded and defaulting to 0 on older saves. Wired so far: pool bonuses into `MaxSpellUses`/`MaxPrayerUses`/`MaxSongTokens`, `SprintMaxBonus` into the 2d6 sprint, `SongFear`/`SongFearMax` into DeathTone + `RadiateFear`, `PrayerHealMaxBonus` into prayer healing. Several others (crafting, potions, ranges) have fields + purchase but still need their consuming system wired.
+
 ## Enemy roster
 
 | Enemy | First appears | Notes |

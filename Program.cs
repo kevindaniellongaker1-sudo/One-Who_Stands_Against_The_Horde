@@ -723,80 +723,168 @@ void SelectFeats(Player p)
     }
 }
 
+// The full point-buy catalogue, ordered by price → type → name (the display
+// sorts it, so entries can be listed here in any order).
+List<BuyOpt> BuyCatalogue()
+{
+    bool Any(Player p) => true;
+    bool Pray(Player p) => p.CanPray;
+    bool Sing(Player p) => p.CanSing;
+    bool Cast(Player p) => p.KnownSpells.Any() || Player.SpellFeats.Any(p.HasFeat) || p.CharacterType == "Mage";
+    bool Craft(Player p) => p.CharacterType == "Artisan" || p.HasFeat("Gatherer") || p.HasFeat("Hunter/Gatherer") || p.HasFeat("Magic Crafting");
+    bool Arrows(Player p) => p.CharacterType == "Archer" || p.CharacterType == "Artisan";
+    bool Alch(Player p) => p.HasFeat("Alchemist");
+    bool Gnome(Player p) => p.Race.Contains("Gnome");
+    bool MagicCraft(Player p) => p.HasFeat("Magic Crafting");
+
+    var L = new List<BuyOpt>();
+    void Add(int c, string t, string n, Func<Player, bool> show, Action<Player> ap) => L.Add(new BuyOpt(c, t, n, show, ap));
+
+    // ── 1 point: max (high end) ──
+    Add(1, "Melee",    "Max Attack",         Any, p => p.MaxAttack++);
+    Add(1, "Melee",    "Max Grapple",        Any, p => p.MaxGrapple++);
+    Add(1, "Melee",    "Max Grapple Damage", Any, p => p.MaxGrappleDmg++);
+    Add(1, "Melee",    "Max Limb Break",     Any, p => p.MaxLimbBreak++);
+    Add(1, "Melee",    "Max Melee Damage",   Any, p => p.MaxDamage++);
+    Add(1, "Melee",    "Max Power Attack",   Any, p => p.MaxPowerAtk++);
+    Add(1, "Melee",    "Max Disarm Chance",  Any, p => p.DisarmMaxBonus++);
+    Add(1, "Defense",  "Max Block",          Any, p => p.MaxBlock++);
+    Add(1, "Defense",  "Max Dodge",          Any, p => p.MaxDodge++);
+    Add(1, "Defense",  "Max Parry",          Any, p => p.MaxParry++);
+    Add(1, "Vitality", "Max HP",             Any, p => p.MaxHP++);
+    Add(1, "Movement", "Max Move",           Any, p => p.MaxMovement++);
+    Add(1, "Movement", "Max Sprint (+2)",    Any, p => p.SprintMaxBonus += 2);
+    Add(1, "Movement", "Max Run Away",       Any, p => p.RunAwayMaxBonus++);
+    Add(1, "Ranged",   "Max Ranged Attack",  Any, p => p.MaxRangedAtk++);
+    Add(1, "Ranged",   "Max Ranged Damage",  Any, p => p.MaxRangedDmgBonus++);
+    Add(1, "Ranged",   "Ranged Range +5ft",  Any, p => p.RangedRangeBonusFt += 5);
+    Add(1, "Spell",    "Max Spell Attack",   Cast, p => p.MaxSpellAtk++);
+    Add(1, "Spell",    "Max Spell Damage",   Cast, p => p.MaxSpellDmgBonus++);
+    Add(1, "Spell",    "Max Spell Duration", Cast, p => p.SpellDurMax++);
+    Add(1, "Spell",    "Max Spell Roll Bonus", Cast, p => p.SpellRollMaxBonus++);
+    Add(1, "Spell",    "Spell Range +5ft",   Cast, p => p.SpellRangeBonusFt += 5);
+    Add(1, "Prayer",   "Max Prayer Ability Bonus", Pray, p => p.PrayerAbilMaxBonus++);
+    Add(1, "Prayer",   "Max Prayer Damage",  Pray, p => p.PrayerDmgMaxBonus++);
+    Add(1, "Prayer",   "Max Prayer Healing", Pray, p => p.PrayerHealMaxBonus++);
+    Add(1, "Prayer",   "Max Prayer Roll vs HP", Pray, p => p.PrayerVsHpMax++);
+    Add(1, "Prayer",   "Max Prayer Turns",   Pray, p => p.PrayerTurnsMax++);
+    Add(1, "Prayer",   "Prayer Range +5ft",  Pray, p => p.PrayerRangeBonusFt += 5);
+    Add(1, "Song",     "Max Song Duration",  Sing, p => p.SongDurMax++);
+    Add(1, "Song",     "Max Song Fear vs HP", Sing, p => p.SongFearMax++);
+    Add(1, "Song",     "Max Song Heal",      Sing, p => p.SongHealMax++);
+    Add(1, "Song",     "Max Song Roll Bonus", Sing, p => p.MaxBardSong++);
+    Add(1, "Song",     "Song Range +5ft",    Sing, p => p.SongRangeBonusFt += 5);
+    Add(1, "Potion",   "Max Potion Bonus",   Alch, p => p.PotionMaxBonus++);
+    Add(1, "Potion",   "Max Potion Duration", Alch, p => p.PotionDurMaxBonus++);
+    Add(1, "Potion",   "Max Potion Heal",    Any, p => p.MaxPotionHeal++);
+    Add(1, "Craft",    "Max Arrows Crafted (+2)", Arrows, p => p.ArrowsCraftedMax += 2);
+    Add(1, "Craft",    "Max Crafted Armor Bonus", Craft, p => p.CraftedArmorMaxBonus++);
+    Add(1, "Craft",    "Max Goods Collected", Craft, p => p.GoodsCollectedMax++);
+    Add(1, "Special",  "Max Money Collected", Any, p => p.MoneyMaxBonus++);
+
+    // ── 2 points: base (low end) ──
+    Add(2, "Melee",    "Base Attack",        Any, p => p.MinAttack++);
+    Add(2, "Melee",    "Base Grapple",       Any, p => p.MinGrapple++);
+    Add(2, "Melee",    "Base Grapple Damage", Any, p => p.MinGrappleDmg++);
+    Add(2, "Melee",    "Base Limb Break",    Any, p => p.MinLimbBreak++);
+    Add(2, "Melee",    "Base Melee Damage",  Any, p => p.MinDamage++);
+    Add(2, "Melee",    "Base Power Attack",  Any, p => p.MinPowerAtk++);
+    Add(2, "Melee",    "Base Disarm Chance", Any, p => p.DisarmBonus++);
+    Add(2, "Defense",  "Base Block",         Any, p => p.MinBlock++);
+    Add(2, "Defense",  "Base Dodge",         Any, p => p.MinDodge++);
+    Add(2, "Defense",  "Base Parry",         Any, p => p.MinParry++);
+    Add(2, "Vitality", "Max HP (+3)",        Any, p => p.MaxHP += 3);
+    Add(2, "Movement", "Base Move",          Any, p => p.MinMovement++);
+    Add(2, "Movement", "Base Sprint (+2)",   Any, p => p.SprintBonus += 2);
+    Add(2, "Movement", "Base Run Away",      Any, p => p.RunAwayBonus++);
+    Add(2, "Ranged",   "Base Ranged Attack", Any, p => p.MinRangedAtk++);
+    Add(2, "Ranged",   "Base Ranged Damage", Any, p => p.MinRangedDmgBonus++);
+    Add(2, "Spell",    "Base Spell Attack",  Cast, p => p.MinSpellAtk++);
+    Add(2, "Spell",    "Base Spell Damage",  Cast, p => p.MinSpellDmgBonus++);
+    Add(2, "Spell",    "Base Spell Roll Bonus", Cast, p => p.SpellRollBonus++);
+    Add(2, "Spell",    "Spell Uses +1",      Cast, p => { p.BonusSpellUses++; p.SpellUses++; });
+    Add(2, "Prayer",   "Base Prayer Ability Bonus", Pray, p => p.PrayerAbilBonus++);
+    Add(2, "Prayer",   "Base Prayer Damage", Pray, p => p.PrayerDmgBonus++);
+    Add(2, "Prayer",   "Base Prayer Healing", Pray, p => p.PrayerHealBonus++);
+    Add(2, "Prayer",   "Base Prayer Roll vs HP", Pray, p => p.PrayerVsHp++);
+    Add(2, "Prayer",   "Base Prayer Turns",  Pray, p => p.PrayerDurBonus++);
+    Add(2, "Prayer",   "Prayer Uses +1",     Pray, p => { p.BonusPrayerUses++; p.PrayerUses++; });
+    Add(2, "Song",     "Base Song Duration", Sing, p => p.SongDurBonus++);
+    Add(2, "Song",     "Base Song Fear vs HP", Sing, p => p.SongFear++);
+    Add(2, "Song",     "Base Song Heal",     Sing, p => p.SongHeal++);
+    Add(2, "Song",     "Base Song Roll Bonus", Sing, p => p.MinBardSong++);
+    Add(2, "Song",     "Song Uses +1",       Sing, p => { p.BonusSongUses++; p.SongTokens++; });
+    Add(2, "Potion",   "Base Potion Bonus",  Alch, p => p.PotionBonus++);
+    Add(2, "Potion",   "Base Potion Duration", Alch, p => p.PotionDurBonus++);
+    Add(2, "Potion",   "Base Potion Heal",   Any, p => p.MinPotionHeal++);
+    Add(2, "Craft",    "Base Arrows Crafted (+2)", Arrows, p => p.ArrowsCrafted += 2);
+    Add(2, "Craft",    "Base Goods Collected", Craft, p => p.GoodsCollected++);
+    Add(2, "Special",  "Base Money Collected", Any, p => p.MoneyBonus++);
+
+    // ── 3 points ──
+    Add(3, "Vitality", "Hit Points (+5)",    Any, p => p.MaxHP += 5);
+    Add(3, "Craft",    "Base Crafted Armor Bonus", Craft, p => p.CraftedArmorBonus++);
+    Add(3, "Craft",    "Base Crafted Weapon Damage", Craft, p => p.CraftedWeaponDmg++);
+    Add(3, "Defense",  "Shield Bonus",       Any, p => p.ShieldBonus++);
+    Add(3, "Defense",  "Crafted Shield Reflect +5%", MagicCraft, p => p.ShieldReflectPct += 5);
+    Add(3, "Defense",  "Crafted Armor/Robe Absorb +10%", MagicCraft, p => p.ArmorAbsorbPct += 10);
+    Add(3, "Spell",    "Gnome Spell Absorb +5%", Gnome, p => p.RaceAbsorbPct += 5);
+
+    // ── 5 points: core traits ──
+    Add(5, "Core Trait", "Agility +1",       Any, p => p.Agility++);
+    Add(5, "Core Trait", "Charisma +1",      Any, p => p.Charisma++);
+    Add(5, "Core Trait", "Constitution +1",  Any, p => { p.Constitution++; p.MaxHP++; p.HP++; });
+    Add(5, "Core Trait", "Dexterity +1",     Any, p => p.Dexterity++);
+    Add(5, "Core Trait", "Intelligence +1",  Any, p => p.Intelligence++);
+    Add(5, "Core Trait", "Smarts +1",        Any, p => p.Smarts++);
+    Add(5, "Core Trait", "Strength +1",      Any, p => p.Strength++);
+    Add(5, "Core Trait", "Wisdom +1",        Any, p => p.Wisdom++);
+    return L;
+}
+
 void SpendStatPoints(Player p)
 {
+    var all = BuyCatalogue();
     while (p.SavedStatPoints > 0)
     {
+        // Only what they can afford AND can actually use, sorted price → type → name
+        var menu = all.Where(o => o.Show(p) && o.Cost <= p.SavedStatPoints)
+                      .OrderBy(o => o.Cost).ThenBy(o => o.Type).ThenBy(o => o.Name).ToList();
         Console.WriteLine($"\n═══ STAT POINTS: {p.SavedStatPoints} available ═══");
-        Console.WriteLine("  ── 1 point: max stat ──");
-        Console.WriteLine($"  [1]  Max Dodge→{p.MaxDodge+1}     [2]  Max Attack→{p.MaxAttack+1}     [3]  Max Grapple→{p.MaxGrapple+1}    [4]  Max Block→{p.MaxBlock+1}");
-        Console.WriteLine($"  [5]  Max Melee Dmg→{p.MaxDamage+1}  [6]  Max HP→{p.MaxHP+1}       [7]  Max Parry→{p.MaxParry+1}      [8]  Max Bard Song→{p.MaxBardSong+1}");
-        Console.WriteLine($"  [9]  Max Grapple Dmg→{p.MaxGrappleDmg+1}  [10] Max Potion Heal→{p.MaxPotionHeal+1}  [11] Max Power Atk→{p.MaxPowerAtk+1}  [12] Max Limb Break→{p.MaxLimbBreak+1}");
-        Console.WriteLine($"  [28] Max Move→{p.MaxMovement+1}    [29] Max Spell Atk→{p.MaxSpellAtk+1}  [30] Max Spell Dmg→{p.MaxSpellDmgBonus+1}");
-        Console.WriteLine($"  [31] Max Ranged Atk→{p.MaxRangedAtk+1}  [32] Max Ranged Dmg→{p.MaxRangedDmgBonus+1}");
-        if (p.SavedStatPoints >= 2)
+        int lastCost = -1; string lastType = "";
+        for (int i = 0; i < menu.Count; i++)
         {
-            Console.WriteLine("  ── 2 points: base stat ──");
-            Console.WriteLine($"  [13] Base Dodge→{p.MinDodge+1}  [14] Base Attack→{p.MinAttack+1}  [15] Base Grapple→{p.MinGrapple+1}  [16] Base Block→{p.MinBlock+1}");
-            Console.WriteLine($"  [17] Base Melee Dmg→{p.MinDamage+1}  [18] Base Parry→{p.MinParry+1}  [19] Base Bard Song→{p.MinBardSong+1}  [20] Base Grapple Dmg→{p.MinGrappleDmg+1}");
-            Console.WriteLine($"  [21] Base Power Atk→{p.MinPowerAtk+1}  [22] Base Limb Break→{p.MinLimbBreak+1}  [23] Base Potion Heal→{p.MinPotionHeal+1}");
-            Console.WriteLine($"  [33] Base Move→{p.MinMovement+1}  [34] Base Spell Atk→{p.MinSpellAtk+1}  [35] Base Spell Dmg→{p.MinSpellDmgBonus+1}");
-            Console.WriteLine($"  [36] Base Ranged Atk→{p.MinRangedAtk+1}  [37] Base Ranged Dmg→{p.MinRangedDmgBonus+1}");
+            var o = menu[i];
+            if (o.Cost != lastCost) { Console.WriteLine($"  ── {o.Cost} point{(o.Cost > 1 ? "s" : "")} ──"); lastCost = o.Cost; lastType = ""; }
+            if (o.Type != lastType) { Console.WriteLine($"   {o.Type}:"); lastType = o.Type; }
+            Console.WriteLine($"      [{i + 1,2}] {o.Name}");
         }
-        if (p.SavedStatPoints >= 3)
-            Console.WriteLine("  ── 3 points: [25] Gear point   [26] Keep saving (exit)");
-        if (p.SavedStatPoints >= 4)
-            Console.WriteLine("  ── 4 points: [24] Extra action/turn   [27] Pick a feat");
-        Console.Write("  Choice ([S]ave all for later): ");
+        // Special purchases keep their own costs
+        if (p.SavedStatPoints >= 3) Console.WriteLine($"  ── 3 points ──\n      [{menu.Count + 1}] Gear point");
+        if (p.SavedStatPoints >= 4) Console.WriteLine($"  ── 4 points ──\n      [{menu.Count + 2}] Extra action per turn      [{menu.Count + 3}] Pick a feat");
+        Console.Write("  Choice ([S]ave the rest for later): ");
         string raw = (GameIO.ReadLine() ?? "s").Trim().ToLower();
-        if (raw == "s" || raw == "save") break;
-        if (!int.TryParse(raw, out int ch)) { Console.WriteLine("  Invalid."); continue; }
-        bool exitLoop = false;
-        switch (ch)
+        if (raw is "s" or "save" or "") break;
+        if (!int.TryParse(raw, out int ch) || ch < 1) { Console.WriteLine("  Invalid."); continue; }
+
+        if (ch <= menu.Count)
         {
-            case 1:  p.MaxDodge++;      p.SavedStatPoints--;  Console.WriteLine($"  Max Dodge → {p.MaxDodge}"); break;
-            case 2:  p.MaxAttack++;     p.SavedStatPoints--;  Console.WriteLine($"  Max Attack → {p.MaxAttack}"); break;
-            case 3:  p.MaxGrapple++;    p.SavedStatPoints--;  Console.WriteLine($"  Max Grapple → {p.MaxGrapple}"); break;
-            case 4:  p.MaxBlock++;      p.SavedStatPoints--;  Console.WriteLine($"  Max Block → {p.MaxBlock}"); break;
-            case 5:  p.MaxDamage++;     p.SavedStatPoints--;  Console.WriteLine($"  Max Damage → {p.MaxDamage}"); break;
-            case 6:  p.MaxHP++;         p.SavedStatPoints--;  Console.WriteLine($"  Max HP → {p.MaxHP}"); break;
-            case 7:  p.MaxParry++;      p.SavedStatPoints--;  Console.WriteLine($"  Max Parry → {p.MaxParry}"); break;
-            case 8:  p.MaxBardSong++;   p.SavedStatPoints--;  Console.WriteLine($"  Max Bard Song → {p.MaxBardSong}"); break;
-            case 9:  p.MaxGrappleDmg++; p.SavedStatPoints--;  Console.WriteLine($"  Max Grapple Dmg → {p.MaxGrappleDmg}"); break;
-            case 10: p.MaxPotionHeal++; p.SavedStatPoints--;  Console.WriteLine($"  Max Potion Heal → {p.MaxPotionHeal}"); break;
-            case 11: p.MaxPowerAtk++;   p.SavedStatPoints--;  Console.WriteLine($"  Max Power Atk → {p.MaxPowerAtk}"); break;
-            case 12: p.MaxLimbBreak++;  p.SavedStatPoints--;  Console.WriteLine($"  Max Limb Break → {p.MaxLimbBreak}"); break;
-            case 13 when p.SavedStatPoints >= 2: p.MinDodge++;      p.SavedStatPoints -= 2; Console.WriteLine($"  Min Dodge → {p.MinDodge}"); break;
-            case 14 when p.SavedStatPoints >= 2: p.MinAttack++;     p.SavedStatPoints -= 2; Console.WriteLine($"  Min Attack → {p.MinAttack}"); break;
-            case 15 when p.SavedStatPoints >= 2: p.MinGrapple++;    p.SavedStatPoints -= 2; Console.WriteLine($"  Min Grapple → {p.MinGrapple}"); break;
-            case 16 when p.SavedStatPoints >= 2: p.MinBlock++;      p.SavedStatPoints -= 2; Console.WriteLine($"  Min Block → {p.MinBlock}"); break;
-            case 17 when p.SavedStatPoints >= 2: p.MinDamage++;     p.SavedStatPoints -= 2; Console.WriteLine($"  Min Damage → {p.MinDamage}"); break;
-            case 18 when p.SavedStatPoints >= 2: p.MinParry++;      p.SavedStatPoints -= 2; Console.WriteLine($"  Min Parry → {p.MinParry}"); break;
-            case 19 when p.SavedStatPoints >= 2: p.MinBardSong++;   p.SavedStatPoints -= 2; Console.WriteLine($"  Min Bard Song → {p.MinBardSong}"); break;
-            case 20 when p.SavedStatPoints >= 2: p.MinGrappleDmg++; p.SavedStatPoints -= 2; Console.WriteLine($"  Min Grapple Dmg → {p.MinGrappleDmg}"); break;
-            case 21 when p.SavedStatPoints >= 2: p.MinPowerAtk++;   p.SavedStatPoints -= 2; Console.WriteLine($"  Min Power Atk → {p.MinPowerAtk}"); break;
-            case 22 when p.SavedStatPoints >= 2: p.MinLimbBreak++;  p.SavedStatPoints -= 2; Console.WriteLine($"  Min Limb Break → {p.MinLimbBreak}"); break;
-            case 23 when p.SavedStatPoints >= 2: p.MinPotionHeal++; p.SavedStatPoints -= 2; Console.WriteLine($"  Min Potion Heal → {p.MinPotionHeal}"); break;
-            case 28: p.MaxMovement++;      p.SavedStatPoints--; Console.WriteLine($"  Max Move → {p.MaxMovement}"); break;
-            case 29: p.MaxSpellAtk++;      p.SavedStatPoints--; Console.WriteLine($"  Max Spell Atk → {p.MaxSpellAtk}"); break;
-            case 30: p.MaxSpellDmgBonus++; p.SavedStatPoints--; Console.WriteLine($"  Max Spell Dmg bonus → {p.MaxSpellDmgBonus}"); break;
-            case 31: p.MaxRangedAtk++;     p.SavedStatPoints--; Console.WriteLine($"  Max Ranged Atk → {p.MaxRangedAtk}"); break;
-            case 32: p.MaxRangedDmgBonus++;p.SavedStatPoints--; Console.WriteLine($"  Max Ranged Dmg bonus → {p.MaxRangedDmgBonus}"); break;
-            case 33 when p.SavedStatPoints >= 2: p.MinMovement++;      p.SavedStatPoints -= 2; Console.WriteLine($"  Base Move → {p.MinMovement}"); break;
-            case 34 when p.SavedStatPoints >= 2: p.MinSpellAtk++;      p.SavedStatPoints -= 2; Console.WriteLine($"  Base Spell Atk → {p.MinSpellAtk}"); break;
-            case 35 when p.SavedStatPoints >= 2: p.MinSpellDmgBonus++; p.SavedStatPoints -= 2; Console.WriteLine($"  Base Spell Dmg bonus → {p.MinSpellDmgBonus}"); break;
-            case 36 when p.SavedStatPoints >= 2: p.MinRangedAtk++;     p.SavedStatPoints -= 2; Console.WriteLine($"  Base Ranged Atk → {p.MinRangedAtk}"); break;
-            case 37 when p.SavedStatPoints >= 2: p.MinRangedDmgBonus++;p.SavedStatPoints -= 2; Console.WriteLine($"  Base Ranged Dmg bonus → {p.MinRangedDmgBonus}"); break;
-            case 24 when p.SavedStatPoints >= 4: p.AdditionalActions++; p.SavedStatPoints -= 4; Console.WriteLine($"  +1 action/turn! Bonus actions: {p.AdditionalActions}"); break;
-            case 25 when p.SavedStatPoints >= 3: p.GearPointsAvailable++; p.SavedStatPoints -= 3; Console.WriteLine("  Gear point gained!"); SpendGearPoints(p); break;
-            case 26 when p.SavedStatPoints >= 3: exitLoop = true; break;
-            case 27 when p.SavedStatPoints >= 4: p.SavedStatPoints -= 4; p.PendingFeats++; SelectFeats(p); break;
-            default: Console.WriteLine("  Invalid choice or insufficient points."); break;
+            var o = menu[ch - 1];
+            o.Apply(p);
+            p.SavedStatPoints -= o.Cost;
+            Console.WriteLine($"  ✓ {o.Name} ({o.Cost} pt) — {p.SavedStatPoints} left.");
         }
-        if (exitLoop) break;
+        else if (ch == menu.Count + 1 && p.SavedStatPoints >= 3)
+        { p.GearPointsAvailable++; p.SavedStatPoints -= 3; Console.WriteLine("  Gear point gained!"); SpendGearPoints(p); }
+        else if (ch == menu.Count + 2 && p.SavedStatPoints >= 4)
+        { p.AdditionalActions++; p.SavedStatPoints -= 4; Console.WriteLine($"  +1 action/turn! Bonus actions: {p.AdditionalActions}"); }
+        else if (ch == menu.Count + 3 && p.SavedStatPoints >= 4)
+        { p.SavedStatPoints -= 4; p.PendingFeats++; SelectFeats(p); }
+        else Console.WriteLine("  Invalid choice or insufficient points.");
     }
-    if (p.SavedStatPoints > 0) Console.WriteLine($"  {p.SavedStatPoints} stat point(s) saved for later.");
+    if (p.SavedStatPoints > 0) Console.WriteLine($"  Saving {p.SavedStatPoints} point(s) for later.");
 }
+
 
 void SpendGearPoints(Player p)
 {
@@ -2219,6 +2307,24 @@ void SaveGame(Player p, int groups)
         $"MinRangedAtk={p.MinRangedAtk - warAdj - blessAdj}", $"MaxRangedAtk={p.MaxRangedAtk - warAdj - blessAdj}",
         $"MinRangedDmgBonus={p.MinRangedDmgBonus}", $"MaxRangedDmgBonus={p.MaxRangedDmgBonus}",
         $"ChiUses={p.ChiUses}",
+        $"PrayerHealMaxBonus={p.PrayerHealMaxBonus}", $"PrayerDmgBonus={p.PrayerDmgBonus}",
+        $"PrayerDmgMaxBonus={p.PrayerDmgMaxBonus}", $"PrayerVsHp={p.PrayerVsHp}", $"PrayerVsHpMax={p.PrayerVsHpMax}",
+        $"PrayerAbilBonus={p.PrayerAbilBonus}", $"PrayerAbilMaxBonus={p.PrayerAbilMaxBonus}", $"PrayerTurnsMax={p.PrayerTurnsMax}",
+        $"SongDurMax={p.SongDurMax}", $"SongHeal={p.SongHeal}", $"SongHealMax={p.SongHealMax}",
+        $"SongFear={p.SongFear}", $"SongFearMax={p.SongFearMax}",
+        $"SpellRollBonus={p.SpellRollBonus}", $"SpellRollMaxBonus={p.SpellRollMaxBonus}", $"SpellDurMax={p.SpellDurMax}",
+        $"SprintMaxBonus={p.SprintMaxBonus}", $"RunAwayBonus={p.RunAwayBonus}", $"RunAwayMaxBonus={p.RunAwayMaxBonus}",
+        $"ArrowsCrafted={p.ArrowsCrafted}", $"ArrowsCraftedMax={p.ArrowsCraftedMax}",
+        $"PotionDurBonus={p.PotionDurBonus}", $"PotionDurMaxBonus={p.PotionDurMaxBonus}",
+        $"PotionBonus={p.PotionBonus}", $"PotionMaxBonus={p.PotionMaxBonus}",
+        $"GoodsCollected={p.GoodsCollected}", $"GoodsCollectedMax={p.GoodsCollectedMax}",
+        $"CraftedArmorBonus={p.CraftedArmorBonus}", $"CraftedArmorMaxBonus={p.CraftedArmorMaxBonus}",
+        $"DisarmBonus={p.DisarmBonus}", $"DisarmMaxBonus={p.DisarmMaxBonus}",
+        $"MoneyBonus={p.MoneyBonus}", $"MoneyMaxBonus={p.MoneyMaxBonus}",
+        $"SpellRangeBonusFt={p.SpellRangeBonusFt}", $"PrayerRangeBonusFt={p.PrayerRangeBonusFt}",
+        $"SongRangeBonusFt={p.SongRangeBonusFt}", $"RangedRangeBonusFt={p.RangedRangeBonusFt}",
+        $"CraftedWeaponDmg={p.CraftedWeaponDmg}", $"ShieldBonus={p.ShieldBonus}", $"ShieldReflectPct={p.ShieldReflectPct}",
+        $"BonusSongUses={p.BonusSongUses}", $"BonusSpellUses={p.BonusSpellUses}", $"BonusPrayerUses={p.BonusPrayerUses}",
         $"Strength={p.Strength}", $"Dexterity={p.Dexterity}", $"Intelligence={p.Intelligence}",
         $"Wisdom={p.Wisdom}", $"Constitution={p.Constitution}", $"Smarts={p.Smarts}",
         $"Charisma={p.Charisma}", $"Agility={p.Agility}",
@@ -2352,6 +2458,28 @@ bool TryLoadGame(Player p, string filePath)
 
         p.GroupsDefeated = I("GroupsDefeated");
         if (dict.ContainsKey("ChiUses")) p.ChiUses = I("ChiUses");
+        // Point-buy investments — absent in older saves, so they default to 0
+        if (dict.ContainsKey("PrayerHealMaxBonus"))
+        {
+            p.PrayerHealMaxBonus = I("PrayerHealMaxBonus"); p.PrayerDmgBonus = I("PrayerDmgBonus");
+            p.PrayerDmgMaxBonus = I("PrayerDmgMaxBonus"); p.PrayerVsHp = I("PrayerVsHp"); p.PrayerVsHpMax = I("PrayerVsHpMax");
+            p.PrayerAbilBonus = I("PrayerAbilBonus"); p.PrayerAbilMaxBonus = I("PrayerAbilMaxBonus"); p.PrayerTurnsMax = I("PrayerTurnsMax");
+            p.SongDurMax = I("SongDurMax"); p.SongHeal = I("SongHeal"); p.SongHealMax = I("SongHealMax");
+            p.SongFear = I("SongFear"); p.SongFearMax = I("SongFearMax");
+            p.SpellRollBonus = I("SpellRollBonus"); p.SpellRollMaxBonus = I("SpellRollMaxBonus"); p.SpellDurMax = I("SpellDurMax");
+            p.SprintMaxBonus = I("SprintMaxBonus"); p.RunAwayBonus = I("RunAwayBonus"); p.RunAwayMaxBonus = I("RunAwayMaxBonus");
+            p.ArrowsCrafted = I("ArrowsCrafted"); p.ArrowsCraftedMax = I("ArrowsCraftedMax");
+            p.PotionDurBonus = I("PotionDurBonus"); p.PotionDurMaxBonus = I("PotionDurMaxBonus");
+            p.PotionBonus = I("PotionBonus"); p.PotionMaxBonus = I("PotionMaxBonus");
+            p.GoodsCollected = I("GoodsCollected"); p.GoodsCollectedMax = I("GoodsCollectedMax");
+            p.CraftedArmorBonus = I("CraftedArmorBonus"); p.CraftedArmorMaxBonus = I("CraftedArmorMaxBonus");
+            p.DisarmBonus = I("DisarmBonus"); p.DisarmMaxBonus = I("DisarmMaxBonus");
+            p.MoneyBonus = I("MoneyBonus"); p.MoneyMaxBonus = I("MoneyMaxBonus");
+            p.SpellRangeBonusFt = I("SpellRangeBonusFt"); p.PrayerRangeBonusFt = I("PrayerRangeBonusFt");
+            p.SongRangeBonusFt = I("SongRangeBonusFt"); p.RangedRangeBonusFt = I("RangedRangeBonusFt");
+            p.CraftedWeaponDmg = I("CraftedWeaponDmg"); p.ShieldBonus = I("ShieldBonus"); p.ShieldReflectPct = I("ShieldReflectPct");
+            p.BonusSongUses = I("BonusSongUses"); p.BonusSpellUses = I("BonusSpellUses"); p.BonusPrayerUses = I("BonusPrayerUses");
+        }
         // Core traits — absent in older saves, so they default to 0
         if (dict.ContainsKey("Strength"))
         {
@@ -2649,6 +2777,31 @@ class Player
     public string Headwear = "nothing";      // fedora/pointy hat/mask/hood/circlet/top hat/nothing
     public string ClothingColor = "black";   // 9 colors
     public string FacialHair = "none";       // males: beard/goatee/mustache/fu manchu/handlebars/soul patch/none
+    // ── Point-buy investments (base = the low end of a roll, max = the high end) ──
+    public int PrayerHealMaxBonus = 0;                    // base lives in PrayerHealBonus
+    public int PrayerDmgBonus = 0, PrayerDmgMaxBonus = 0;
+    public int PrayerVsHp = 0, PrayerVsHpMax = 0;         // prayer roll vs enemy HP
+    public int PrayerAbilBonus = 0, PrayerAbilMaxBonus = 0;
+    public int PrayerTurnsMax = 0;                        // base lives in PrayerDurBonus
+    public int SongDurMax = 0;                            // base lives in SongDurBonus
+    public int SongHeal = 0, SongHealMax = 0;
+    public int SongFear = 0, SongFearMax = 0;             // song fear roll vs enemy HP
+    public int SpellRollBonus = 0, SpellRollMaxBonus = 0;
+    public int SpellDurMax = 0;                           // base lives in SpellDurBonus
+    public int SprintMaxBonus = 0;                        // base lives in SprintBonus
+    public int RunAwayBonus = 0, RunAwayMaxBonus = 0;
+    public int ArrowsCrafted = 0, ArrowsCraftedMax = 0;
+    public int PotionDurBonus = 0, PotionDurMaxBonus = 0;
+    public int PotionBonus = 0, PotionMaxBonus = 0;
+    public int GoodsCollected = 0, GoodsCollectedMax = 0;
+    public int CraftedArmorBonus = 0, CraftedArmorMaxBonus = 0;
+    public int DisarmBonus = 0, DisarmMaxBonus = 0;
+    public int MoneyBonus = 0, MoneyMaxBonus = 0;
+    public int SpellRangeBonusFt = 0, PrayerRangeBonusFt = 0, SongRangeBonusFt = 0, RangedRangeBonusFt = 0;
+    public int CraftedWeaponDmg = 0;
+    public int ShieldBonus = 0, ShieldReflectPct = 0;
+    public int BonusSongUses = 0, BonusSpellUses = 0, BonusPrayerUses = 0;
+
     // ── Core traits (creation: 16 points, each -2..4) ──
     public int Strength = 0, Dexterity = 0, Intelligence = 0, Wisdom = 0;
     public int Constitution = 0, Smarts = 0, Charisma = 0, Agility = 0;
@@ -2819,13 +2972,13 @@ class Player
     // Monk weapons grant monks an extra attack per attack (stacks with
     // Multishot / Split Shot / Folly of Arrows / Double Tap / Fury / Flurry).
     public int MonkWeaponExtraAttacks(string w) => IsMonk && IsMonkWeapon(w) ? 1 : 0;
-    public int MaxPrayerUses() => Math.Max(1, 5 + (Level / 2) * 2 + Wisdom);       // +Wisdom
-    public int MaxSpellUses()  => Math.Max(1, 6 + (Level / 2) * 2 + Intelligence); // +Intelligence
+    public int MaxPrayerUses() => Math.Max(1, 5 + (Level / 2) * 2 + Wisdom + BonusPrayerUses);
+    public int MaxSpellUses()  => Math.Max(1, 6 + (Level / 2) * 2 + Intelligence + BonusSpellUses);
 
     // ── Musician songs ──
     // Tier: +2 to song bonuses (and +1d6 fear dice) every 3rd level.
     public int SongTier() => Level >= 3 ? Level / 3 : 0;
-    public int MaxSongTokens() => Math.Max(1, 5 + Level / 2 + Charisma);   // +Charisma
+    public int MaxSongTokens() => Math.Max(1, 5 + Level / 2 + Charisma + BonusSongUses);
     public int SongBonusAmount() => 2 + 2 * SongTier();          // Slayer atk / Wind / Hardstone
     public int SlayerDmgBonus() => 1 + 2 * SongTier();
     public int FearDiceCount() => 2 + SongTier();                // DeathTone (2+tier)d6
@@ -3692,6 +3845,10 @@ class OrcRanger : Enemy
     }
 }
 
+// One purchasable point-buy upgrade. Show(p) hides anything the character
+// can't actually use (no prayer options for a non-praying class, etc).
+record BuyOpt(int Cost, string Type, string Name, Func<Player, bool> Show, Action<Player> Apply);
+
 class FeatDef
 {
     public string Name, Desc;
@@ -4423,7 +4580,7 @@ class CombatSession
                     if (P.IsGrappled) { Console.WriteLine("  You can't sprint while grappled!"); continue; }
                     if (P.Climbed) { Console.WriteLine("  You're up high — climb down (action) or jump down first!"); continue; }
                     // Sprint is 2d6 (+ movement/sprint bonuses)
-                    int sprintRoll = Math.Max(1, Rng.Next(1, 7) + Rng.Next(1, 7) + P.MovementBonus + P.SprintBonus + P.SprintTrait());
+                    int sprintRoll = Math.Max(1, Rng.Next(1, 7) + Rng.Next(1 + P.SprintMaxBonus, 7 + P.SprintMaxBonus) + P.MovementBonus + P.SprintBonus + P.SprintTrait());
                     string spNote = P.NoSprintPenalty ? "[no penalty]" : P.DoubleSprintPenalty ? "[-4 to next action]" : "[-2 to next action]";
                     Console.WriteLine($"  SPRINT! {sprintRoll} square(s). {spNote}");
                     StepMovement(sprintRoll);
@@ -5014,7 +5171,7 @@ class CombatSession
                     {
                         int roll = P.PrayerHealBonus;
                         if (P.HasFeat("Elemental") && P.ElementalFocus == "holy") roll += 2;
-                        for (int d = 0; d < healDice; d++) roll += Rng.Next(1, 7);
+                        for (int d = 0; d < healDice; d++) roll += Rng.Next(1, 7 + P.PrayerHealMaxBonus);
 
                         // Healing energy harms undead — offer to smite a nearby undead instead of self-heal
                         var undeadTargets = alive.Where(en => en.IsUndead && PlayerPos.Feet(en.Position) <= 25f).ToList();
@@ -5128,7 +5285,7 @@ class CombatSession
                             {
                                 int roll2 = P.PrayerHealBonus;
                                 if (P.HasFeat("Elemental") && P.ElementalFocus == "holy") roll2 += 2;
-                                for (int d = 0; d < healDice; d++) roll2 += Rng.Next(1, 7);
+                                for (int d = 0; d < healDice; d++) roll2 += Rng.Next(1, 7 + P.PrayerHealMaxBonus);
                                 int heal2 = Math.Min(roll2, P.MaxHP - P.HP);
                                 P.HP += heal2;
                                 Console.WriteLine($"  [Holy Roller] Prayer of Healing! Restored {heal2} HP. ({P.HP}/{P.MaxHP})");
@@ -5908,7 +6065,7 @@ class CombatSession
     // flight (blindly run from it) for 1d4 turns.
     void RadiateFear(string sourceName)
     {
-        int roll = Rng.Next(1, 5) + Rng.Next(1, 5) + P.FearTrait();
+        int roll = Rng.Next(1, 5) + Rng.Next(1, 5) + P.FearTrait() + P.SongFear;
         Console.WriteLine($"  ☠ {sourceName} radiates terror! Dread roll {roll} vs nearby foes' HP.");
         foreach (var e in Active.Where(e => e.Alive && !e.IsPlayerAlly
                                             && PlayerPos.ManhattanDist(e.Position) <= 15).ToList())
@@ -5926,8 +6083,8 @@ class CombatSession
     void DeathTonePulse()
     {
         int dice = P.FearDiceCount();
-        int roll = 0;
-        for (int d = 0; d < dice; d++) roll += Rng.Next(1, 7);
+        int roll = P.SongFear;                                    // base song fear vs HP
+        for (int d = 0; d < dice; d++) roll += Rng.Next(1, 7 + P.SongFearMax);
         int radius = P.SongRadiusSquares();
         Console.WriteLine($"  ♪ DEATHTONE! Dread chord: {roll} ({dice}d6) within {radius} squares. Enemies with {roll} HP or less flee!");
         foreach (var fe in Active.Where(e => e.Alive && !e.IsPlayerAlly && e.HP <= roll
