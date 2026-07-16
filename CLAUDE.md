@@ -34,21 +34,11 @@ Development branch: `claude/todo-implementation-ymd2ro`
 
 ## Races
 
-| Race | Bonus |
-|---|---|
-| Moon Elf | +3 spell damage per hit |
-| Human | Pick one bonus feat at creation |
-| Stone Dwarf | Double starting HP |
-| Light-Foot Hobbit | +3 max dodge |
-| Sun Elf | +3 to Prayer of Healing rolls |
-| Wood Elf | +3 max attack |
-| Orc | +3 max melee damage |
-| Goblin | +1 max dodge, +1 movement per roll |
-| Troll | Regenerate 2 HP per combat turn |
-| Iron Dwarf | -3 incoming damage (stacks with armor) |
-| Brave Minds Hobbit | +1 dodge, +1 attack, -1 damage taken |
+Fully rebalanced (each race has upsides + drawbacks). Numeric bonuses are applied in `SelectRace` (baked into saved stats via the local `Atk/Dmg/Dodge/...` helpers). Behavioral flags are re-derived by `ApplyRaceTraits(p)` (called in SelectRace AND TryLoadGame so loads keep them): `DodgeVsLarge`, `SprintBonus`, `NoSprintPenalty`/`DoubleSprintPenalty`, `RaceAbsorbPct`, `FearImmune`, `SpellDurBonus`/`PrayerDurBonus`/`SongDurBonus`, `RaceFrenzy`.
 
-Race is chosen at character creation (`SelectRace` → calls `SelectCharacterType`). Stats are saved/loaded via `Race`, `SpellDamageBonus`, `PrayerHealBonus`, `RegenPerTurn`, `MovementBonus` fields on `Player`.
+Highlights: Moon/Sun/Wood Elf (elite attackers/casters, frail); Human (+6 stat points, +1 action, TWO feats); Stone/Iron Dwarf (tanky, poor casters, Iron gets a free non-magic feat); Light-Foot/Brave Minds Hobbit (nimble/fearless); Orc (melee brute, poor caster); Goblin (+1 action, sharp, frail); Troll (regen + FRENZY at ≤25% HP: double melee damage, -2 attacks/defenses via `Frenzied`); Gem Gnome (25% innate magic absorption via `RaceAbsorbPct` in MitigateMagic); Glass Gnome (glass-cannon caster); Hobgoblin (tough melee/ranged, clumsy). All 16 keep prior size mechanics.
+
+Wiring: sprint distance = base×2 + MovementBonus + SprintBonus; sprint penalty from the flags; DodgeVsLarge + Frenzy fold into `PDodgeSize()`; durations into `ExtDur`/song-linger/prayer-turn sites; Frenzy also hits block/parry rolls and doubles melee damage in DoAttack.
 
 ## Enemy roster
 

@@ -517,6 +517,34 @@ class GraphicsDisplay
 
     static string Trunc(string s, int max) => s.Length <= max ? s : s[..(max - 1)] + "…";
 
+    // Word-wrap a log line to a character width, so long text flows onto the
+    // next line instead of being cut off. Continuation lines keep a small indent.
+    static List<string> WrapLine(string ln, int maxChars)
+    {
+        var res = new List<string>();
+        if (maxChars < 8) maxChars = 8;
+        if (ln.Length <= maxChars) { res.Add(ln); return res; }
+        string indent = new string(' ', Math.Min(4, ln.Length - ln.TrimStart().Length));
+        string cur = indent;
+        foreach (var word in ln.TrimStart().Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        {
+            string w = word;
+            // Break a single word that's longer than the whole line
+            while (w.Length > maxChars - indent.Length)
+            {
+                if (cur.Trim().Length > 0) { res.Add(cur); cur = indent; }
+                int take = Math.Max(1, maxChars - indent.Length);
+                res.Add(indent + w[..take]);
+                w = w[take..];
+            }
+            if (cur.Trim().Length == 0) cur = indent + w;
+            else if (cur.Length + 1 + w.Length <= maxChars) cur += " " + w;
+            else { res.Add(cur); cur = indent + w; }
+        }
+        if (cur.Trim().Length > 0) res.Add(cur);
+        return res;
+    }
+
     // Keep the END of a string visible within a pixel width (input auto-scroll)
     static string FitEnd(string s, int maxW, int fs)
     {
@@ -605,6 +633,16 @@ class GraphicsDisplay
         string pp = prompt.TrimStart();
         bool nameKeyboard = pp.StartsWith("First name") || pp.StartsWith("Middle name") || pp.StartsWith("Last name");
         bool textEntry = nameKeyboard || pp.StartsWith("How many players");
+        bool moveStep = prompt.Contains("step:");   // square-by-square movement
+
+        // Arrow keys drive movement (up=N, down=S, left=W, right=E)
+        if (waiting && moveStep)
+        {
+            if (Raylib.IsKeyPressed(KeyboardKey.Up)) Send("n");
+            else if (Raylib.IsKeyPressed(KeyboardKey.Down)) Send("s");
+            else if (Raylib.IsKeyPressed(KeyboardKey.Left)) Send("w");
+            else if (Raylib.IsKeyPressed(KeyboardKey.Right)) Send("e");
+        }
 
         // ── Layout: scene-text history (top ~42%), prompt, options (rest) ──
         int regionTop = uiY + 30;
@@ -613,9 +651,13 @@ class GraphicsDisplay
         int sceneH = Math.Max(lineH, (int)((available - promptH) * 0.42f));
         int sceneTop = regionTop, sceneBottom = sceneTop + sceneH;
 
-        // Scene text is scrollable so you can read back through everything
+        // Word-wrap every log line so nothing is cut off; scroll through the
+        // resulting display lines (a long line may become several).
+        var wrapped = new List<string>();
+        foreach (var raw in lines)
+            wrapped.AddRange(WrapLine(raw, maxChars));
         int visLines = Math.Max(1, sceneH / lineH);
-        int maxLog = Math.Max(0, lines.Count - visLines);
+        int maxLog = Math.Max(0, wrapped.Count - visLines);
         bool overScene = mp.X < uiW - scrollColW && mp.Y >= sceneTop && mp.Y < sceneBottom;
         if (overScene && maxLog > 0)
         {
@@ -623,12 +665,12 @@ class GraphicsDisplay
             if (wheel != 0) _logScroll += (int)wheel;   // wheel up = back in history
         }
         _logScroll = Math.Clamp(_logScroll, 0, maxLog);
-        int startLine = Math.Max(0, lines.Count - visLines - _logScroll);
+        int startLine = Math.Max(0, wrapped.Count - visLines - _logScroll);
         Raylib.BeginScissorMode(0, sceneTop, uiW - scrollColW, sceneH);
         int ly = sceneTop;
-        for (int i = startLine; i < lines.Count && ly + lineH <= sceneBottom + 2; i++)
+        for (int i = startLine; i < wrapped.Count && ly + lineH <= sceneBottom + 2; i++)
         {
-            Raylib.DrawText(Trunc(lines[i], maxChars), 8, ly, body, new Color(190, 190, 200, 255));
+            Raylib.DrawText(wrapped[i], 8, ly, body, new Color(190, 190, 200, 255));
             ly += lineH;
         }
         Raylib.EndScissorMode();
@@ -639,7 +681,7 @@ class GraphicsDisplay
             if (UiButton(gx, sceneBottom - 18, scrollColW, 18, "v", arrowBg)) _logScroll = Math.Max(0, _logScroll - 1);
             int tTop = sceneTop + 20, tBot = sceneBottom - 20, tH = Math.Max(4, tBot - tTop);
             Raylib.DrawRectangle(gx + 5, tTop, scrollColW - 10, tH, barBg);
-            int thumbH = Math.Max(10, (int)(tH * (float)visLines / lines.Count));
+            int thumbH = Math.Max(10, (int)(tH * (float)visLines / Math.Max(1, wrapped.Count)));
             int thumbY = tTop + (int)((tH - thumbH) * (1f - (float)_logScroll / maxLog));
             Raylib.DrawRectangle(gx + 5, thumbY, scrollColW - 10, thumbH, barThumb);
         }
@@ -652,7 +694,7 @@ class GraphicsDisplay
         // lines so we stay tied to the current menu, not scrolled-back history).
         // Skipped entirely on free-text prompts so you just type your answer.
         var opts = new List<(string Token, string Label)>();
-        if (!textEntry)
+        if (!textEntry && !moveStep)
         {
             // Scan up from the prompt collecting option tokens. Menus can be big
             // (the feat list is ~45 entries, each a name + a description line), so
@@ -730,6 +772,27 @@ class GraphicsDisplay
             int thumbH = Math.Max(10, (int)(trackH * (float)bandH / contentH));
             int thumbY = trackTop + (int)((trackH - thumbH) * (_optScroll / maxScroll));
             Raylib.DrawRectangle(gx + 5, thumbY, scrollColW - 10, thumbH, new Color(90, 110, 160, 255));
+        }
+
+        // ── Movement compass: North / West / East / South + Stop ──
+        if (moveStep)
+        {
+            var dirBg = new Color(50, 60, 95, 255);
+            int bw = Math.Max(FS(12) + 44, 96), bhh = FS(12) + 12, gap = 6;
+            int col = 8, row = bandTop;
+            void Dir(int c, int r, string label, string key)
+            {
+                int x = col + c * (bw + gap), yy = row + r * (bhh + gap);
+                if (yy + bhh <= bandBottom + bhh && UiButton(x, yy, bw, bhh, label, dirBg) && waiting)
+                    Send(key);
+            }
+            Dir(1, 0, "North ↑", "n");
+            Dir(0, 1, "West ←", "w");
+            Dir(2, 1, "East →", "e");
+            Dir(1, 2, "South ↓", "s");
+            Dir(0, 2, "STOP", "");   // Enter/stop ends the move
+            Raylib.DrawText("(or use the arrow keys)", col + (bw + gap) * 2 + 6,
+                row + bhh + gap + (bhh - FS(11)) / 2, FS(11), Color.Gray);
         }
 
         // ── On-screen A-Z keyboard for the three name prompts ──

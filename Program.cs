@@ -868,20 +868,20 @@ void SelectRace(Player p)
         "Gem Gnome", "Glass Gnome", "Hobgoblin", "Ogre", "Giant"
     };
     Console.WriteLine("\nChoose your race:");
-    Console.WriteLine("  [1]  Moon Elf          — +3 spell damage");
-    Console.WriteLine("  [2]  Human             — pick a bonus feat");
-    Console.WriteLine("  [3]  Stone Dwarf       — double starting HP");
-    Console.WriteLine("  [4]  Light-Foot Hobbit — +3 dodge");
-    Console.WriteLine("  [5]  Sun Elf           — +3 healing on prayers");
-    Console.WriteLine("  [6]  Wood Elf          — +3 attack");
-    Console.WriteLine("  [7]  Orc               — +3 melee damage");
-    Console.WriteLine("  [8]  Goblin            — +1 dodge, +1 movement");
-    Console.WriteLine("  [9]  Troll             — regenerate 2 HP per turn");
-    Console.WriteLine("  [10] Iron Dwarf        — -3 damage taken");
-    Console.WriteLine("  [11] Brave Minds Hobbit — +1 dodge, +1 attack, -1 damage taken");
-    Console.WriteLine("  [12] Gem Gnome          — +1 movement, +2 to hit with spells");
-    Console.WriteLine("  [13] Glass Gnome        — +1 min attack, +1 movement; spell targets may half-dodge");
-    Console.WriteLine("  [14] Hobgoblin          — +1 movement, +1 base damage");
+    Console.WriteLine("  [1]  Moon Elf          — spell/prayer power & attacks up; frail (-2 HP/dmg)");
+    Console.WriteLine("  [2]  Human             — +6 stat points, +1 action, TWO bonus feats");
+    Console.WriteLine("  [3]  Stone Dwarf       — double HP, -2 dmg taken, +1 rage; slow & poor caster");
+    Console.WriteLine("  [4]  Light-Foot Hobbit — +2 dodge/block/parry, nimble, -1 dmg taken");
+    Console.WriteLine("  [5]  Sun Elf           — +2 attacks & healing; frail (-2 HP/dmg)");
+    Console.WriteLine("  [6]  Wood Elf          — +2 all attacks & damage, fast; frail, poor grappler");
+    Console.WriteLine("  [7]  Orc               — +2 melee/throw dmg, +2 HP, +1 rage; poor caster");
+    Console.WriteLine("  [8]  Goblin            — quick (+1 action), sharp attacks; frail & weak hits");
+    Console.WriteLine("  [9]  Troll             — regen 2/turn; FRENZY at low HP; poor at magic");
+    Console.WriteLine("  [10] Iron Dwarf        — -2 dmg taken, +2 attacks, free combat feat");
+    Console.WriteLine("  [11] Brave Minds Hobbit — +1 defenses & attacks, fearless; deals less damage");
+    Console.WriteLine("  [12] Gem Gnome          — 25% magic absorb, +2 spell hit; frail, takes more dmg");
+    Console.WriteLine("  [13] Glass Gnome        — +2 spell/prayer power & hit; takes more damage");
+    Console.WriteLine("  [14] Hobgoblin          — +1 melee/ranged, tough; poor caster, clumsy defense");
     Console.WriteLine("  [15] Ogre               — +2 dmg, double HP, half dodge, -1 move, -2 dmg taken, free Giant's Strength");
     Console.WriteLine("  [16] Giant              — +2 melee dmg, +4 HP, +1 move, free Giant's Strength; clumsy vs smaller foes");
     Console.WriteLine("  (Size matters: small races get attack/dodge bonuses vs bigger foes; see race notes)");
@@ -901,85 +901,119 @@ void SelectRace(Player p)
     // Class selection first so Stone Dwarf can double the class-set HP
     SelectCharacterType(p);
 
+    // Helpers to apply symmetric (min+max) bonuses cleanly
+    void Atk(int d)   { p.MinAttack += d; p.MaxAttack += d; }
+    void Dmg(int d)   { p.MinDamage += d; p.MaxDamage += d; }
+    void Dodge(int d) { p.MinDodge += d; p.MaxDodge += d; }
+    void Block(int d) { p.MinBlock += d; p.MaxBlock += d; }
+    void Parry(int d) { p.MinParry += d; p.MaxParry += d; }
+    void Grap(int d)  { p.MinGrapple += d; p.MaxGrapple += d; }
+    void RAtk(int d)  { p.MinRangedAtk += d; p.MaxRangedAtk += d; }
+    void RDmg(int d)  { p.MinRangedDmgBonus += d; p.MaxRangedDmgBonus += d; }
+    void Hp(int d)    { p.MaxHP = Math.Max(1, p.MaxHP + d); p.HP = p.MaxHP; }
+
     switch (chosen)
     {
         case "Moon Elf":
-            p.SpellDamageBonus = 3;
-            Console.WriteLine("  [Race] Moon Elf: +3 spell damage.");
+            p.SpellDamageBonus += 2; p.PrayerHealBonus += 2; p.SpellAttackBonus += 2;
+            Atk(2); RAtk(2); Dodge(1); Dmg(-2); Hp(-2);
+            Console.WriteLine("  [Race] Moon Elf: +2 spell/prayer damage & spell attack, +2 melee/ranged attack, +1 dodge (+1 vs large), +1 spell/prayer/song duration; -2 melee damage, -2 HP.");
+            break;
+        case "Sun Elf":
+            Atk(2); RAtk(2); Dodge(1); p.PrayerHealBonus += 2; Dmg(-2); Hp(-2);
+            Console.WriteLine("  [Race] Sun Elf: +2 melee/ranged attack, +1 dodge (+1 vs large), +2 all healing, +1 boost abilities; -2 melee damage, -2 HP.");
+            break;
+        case "Wood Elf":
+            Atk(2); RAtk(2); p.SpellAttackBonus += 2; Dmg(2); RDmg(2); Dodge(1);
+            p.MovementBonus += 1; Hp(-2); Grap(-2);
+            Console.WriteLine("  [Race] Wood Elf: +2 all attacks, +2 melee/ranged damage, +1 dodge (+1 vs large), +1 move/+2 sprint (no sprint penalty); -2 HP, -2 grapple.");
             break;
         case "Human":
         {
-            Console.WriteLine("  [Race] Human: choose a bonus feat.");
-            var available = FeatDef.All
-                .Where(f => f.Prerequisite == null && !p.Feats.Contains(f.Name))
-                .ToList();
-            for (int fi = 0; fi < available.Count; fi++)
-                Console.WriteLine($"    [{fi + 1}] {available[fi].Name} — {available[fi].Desc}");
-            Console.Write($"  Choice (1-{available.Count}): ");
-            if (int.TryParse((GameIO.ReadLine() ?? "").Trim(), out int fc) && fc >= 1 && fc <= available.Count)
+            p.SavedStatPoints += 6;
+            p.AdditionalActions += 1;
+            Console.WriteLine("  [Race] Human: +6 starting stat points, +1 action, and TWO bonus feats.");
+            for (int hf = 0; hf < 2; hf++)
             {
-                p.AddFeat(available[fc - 1].Name);
-                Console.WriteLine($"  Gained feat: {available[fc - 1].Name}!");
+                var available = FeatDef.All
+                    .Where(f => f.Prerequisite == null && !p.Feats.Contains(f.Name)).ToList();
+                Console.WriteLine($"  Human bonus feat {hf + 1} of 2:");
+                for (int fi = 0; fi < available.Count; fi++)
+                    Console.WriteLine($"    [{fi + 1}] {available[fi].Name} — {available[fi].Desc}");
+                Console.Write($"  Choice (1-{available.Count}): ");
+                if (int.TryParse((GameIO.ReadLine() ?? "").Trim(), out int fc) && fc >= 1 && fc <= available.Count)
+                {
+                    p.AddFeat(available[fc - 1].Name);
+                    Console.WriteLine($"  Gained feat: {available[fc - 1].Name}!");
+                }
             }
             break;
         }
         case "Stone Dwarf":
-            p.MaxHP *= 2;
-            p.HP = p.MaxHP;
-            Console.WriteLine($"  [Race] Stone Dwarf: HP doubled to {p.MaxHP}!");
-            break;
-        case "Light-Foot Hobbit":
-            p.MaxDodge += 3;
-            Console.WriteLine($"  [Race] Light-Foot Hobbit: +3 dodge (max {p.MaxDodge}).");
-            break;
-        case "Sun Elf":
-            p.PrayerHealBonus = 3;
-            Console.WriteLine("  [Race] Sun Elf: +3 to prayer healing.");
-            break;
-        case "Wood Elf":
-            p.MaxAttack += 3;
-            Console.WriteLine($"  [Race] Wood Elf: +3 attack (max {p.MaxAttack}).");
-            break;
-        case "Orc":
-            p.MaxDamage += 3;
-            Console.WriteLine($"  [Race] Orc: +3 melee damage (max {p.MaxDamage}).");
-            break;
-        case "Goblin":
-            p.MaxDodge += 1;
-            p.MovementBonus = 1;
-            p.AdditionalActions += 1;
-            p.MinAttack = Math.Max(1, p.MinAttack - 1);
-            p.MaxAttack -= 1;
-            Console.WriteLine("  [Race] Goblin: +1 dodge, +1 movement per roll, +1 action per turn, -1 to attack.");
-            break;
-        case "Troll":
-            p.RegenPerTurn = 2;
-            Console.WriteLine("  [Race] Troll: regenerate 2 HP per turn.");
+            p.MaxHP *= 2; p.HP = p.MaxHP;
+            p.ArmorDamageReduction += 2; p.RagePoints += 1;
+            Dmg(1); Dodge(-1); Block(-1); Parry(-1); p.MovementBonus -= 1;
+            p.SpellDamageBonus -= 1; p.PrayerHealBonus -= 1; RAtk(-1);
+            Console.WriteLine($"  [Race] Stone Dwarf: HP doubled ({p.MaxHP}), -2 damage taken, +1 rage, +1 melee/throw damage; -1 dodge/block/parry, -1 move (+2 sprint, double penalty), -1 spell/prayer, -1 ranged attack.");
             break;
         case "Iron Dwarf":
-            p.ArmorDamageReduction += 3;
-            Console.WriteLine($"  [Race] Iron Dwarf: -{p.ArmorDamageReduction} incoming damage.");
+            p.ArmorDamageReduction += 2; Atk(2); RAtk(2);
+            Block(1); Dodge(-1); Parry(-1); Grap(1); p.MinGrappleDmg += 1; p.MaxGrappleDmg += 1;
+            p.MovementBonus -= 1;
+            Console.WriteLine("  [Race] Iron Dwarf: -2 damage taken, +2 melee/ranged attack, +1 block/grapple; -1 dodge/parry, -1 move/-2 sprint. Free non-magic feat:");
+            {
+                var combatFeats = FeatDef.All.Where(f => f.Prerequisite == null && !p.Feats.Contains(f.Name)
+                    && !Player.PrayerFeats.Contains(f.Name) && !Player.SongFeats.Contains(f.Name)
+                    && !Player.SpellFeats.Contains(f.Name) && f.Name != "Alchemist").ToList();
+                for (int fi = 0; fi < combatFeats.Count; fi++)
+                    Console.WriteLine($"    [{fi + 1}] {combatFeats[fi].Name} — {combatFeats[fi].Desc}");
+                Console.Write($"  Choice (1-{combatFeats.Count}): ");
+                if (int.TryParse((GameIO.ReadLine() ?? "").Trim(), out int ic) && ic >= 1 && ic <= combatFeats.Count)
+                { p.AddFeat(combatFeats[ic - 1].Name); Console.WriteLine($"  Gained feat: {combatFeats[ic - 1].Name}!"); }
+            }
+            break;
+        case "Light-Foot Hobbit":
+            Dodge(2); Block(2); Parry(2); Atk(1); RAtk(1);
+            p.MovementBonus += 1; p.ArmorDamageReduction += 1; Hp(-1);
+            Console.WriteLine("  [Race] Light-Foot Hobbit: +2 dodge/block/parry (+1 dodge vs large), +1 melee/ranged attack, +1 move/+2 sprint, -1 damage taken; -1 HP.");
             break;
         case "Brave Minds Hobbit":
-            p.MaxDodge += 1;
-            p.MaxAttack += 1;
-            p.ArmorDamageReduction += 1;
-            Console.WriteLine("  [Race] Brave Minds Hobbit: +1 dodge, +1 attack, -1 damage taken.");
+            Dodge(1); Block(1); Parry(1); Atk(1); RAtk(1); p.SpellAttackBonus += 1;
+            p.ArmorDamageReduction += 1; Dmg(-2); RDmg(-2); Hp(-1);
+            Console.WriteLine("  [Race] Brave Minds Hobbit: +1 dodge/block/parry & all attacks, immune to fear, -1 damage taken; -1 HP, -2 damage dealt.");
+            break;
+        case "Orc":
+            Dmg(2); RDmg(2); Block(1); Parry(1); Hp(2); p.RagePoints += 1;
+            Dodge(-1); Atk(-1); RAtk(-1); p.SpellAttackBonus -= 2; p.SpellDamageBonus -= 2; p.PrayerHealBonus -= 2;
+            p.MovementBonus += 1;
+            Console.WriteLine("  [Race] Orc: +2 melee/throw damage, +1 block/parry, +2 HP, +1 rage, +1 move/+1 sprint (no penalty); -1 dodge, -1 melee/ranged attack, -2 spell, -2 prayer healing.");
+            break;
+        case "Goblin":
+            Dodge(1); Block(-1); Parry(-1); Atk(1); RAtk(1); p.SpellAttackBonus += 1;
+            p.MovementBonus += 2; p.AdditionalActions += 1; Dmg(-1); RDmg(-1); Hp(-2);
+            Console.WriteLine("  [Race] Goblin: +1 dodge, +1 melee/ranged & spell attack, +2 move/+4 sprint (double penalty), +1 action; -1 block/parry, -1 damage dealt, -2 HP.");
+            break;
+        case "Troll":
+            p.RegenPerTurn = 2; Dmg(1); RDmg(1); p.SpellAttackBonus += 1;
+            Block(-1); Parry(-1); Dodge(0);
+            Console.WriteLine("  [Race] Troll: regen 2 HP/turn, +1 melee/ranged damage & throw/spell to-hit, +1 dodge vs spells, +1 sprint; -1 block/parry, -2 spell damage. FRENZY: rages at low HP (double damage, -2 to attacks & defenses).");
             break;
         case "Gem Gnome":
-            p.MovementBonus += 1;
-            p.SpellAttackBonus = 2;
-            Console.WriteLine("  [Race] Gem Gnome: +1 movement, +2 to hit with spells.");
+            p.MovementBonus += 1; p.SpellAttackBonus += 2;
+            p.SpellDamageBonus += 1; p.PrayerHealBonus += 1; Hp(-2);
+            p.ArmorDamageReduction -= 1;   // +1 damage taken (when armored)
+            Console.WriteLine("  [Race] Gem Gnome: +1 move/+2 sprint, 25% spell/prayer absorption, +2 spell to-hit, +1 spell/song duration, +1 spell/prayer damage; -2 HP, +1 damage taken.");
             break;
         case "Glass Gnome":
-            p.MinAttack += 1;
-            p.MovementBonus += 1;
-            Console.WriteLine("  [Race] Glass Gnome: +1 min attack, +1 movement; spells can be half-dodged.");
+            p.MovementBonus += 1; p.SpellDamageBonus += 2; p.PrayerHealBonus += 2; p.SpellAttackBonus += 2;
+            p.ArmorDamageReduction -= 2;   // +2 damage taken (when armored)
+            Console.WriteLine("  [Race] Glass Gnome: +1 move/+2 sprint, +2 spell/prayer damage, +2 spell to-hit, +1 spell/prayer/song/potion duration; +2 damage taken.");
             break;
         case "Hobgoblin":
-            p.MovementBonus += 1;
-            p.MinDamage += 1;
-            Console.WriteLine($"  [Race] Hobgoblin: +1 movement per roll, +1 base damage (min {p.MinDamage}).");
+            p.MovementBonus += 1; Hp(1); p.MinAttack += 1; p.MaxAttack += 1;
+            Dmg(1); RAtk(1); RDmg(1); Dodge(-1); Block(-1); Parry(-1);
+            p.SpellAttackBonus -= 1; p.PrayerHealBonus -= 2;
+            Console.WriteLine("  [Race] Hobgoblin: +1 move/+2 sprint (double penalty), +1 HP, +1 melee attack & damage, +1 ranged attack & damage; -1 spell attack, -2 healing, -1 dodge/block/parry.");
             break;
         case "Ogre":
             p.MinDamage += 2;
@@ -1017,7 +1051,48 @@ void SelectRace(Player p)
         Console.WriteLine($"  [Size] Small frame: -1 max HP ({p.MaxHP}). Bonus attack/dodge vs bigger foes.");
     }
 
+    ApplyRaceTraits(p);
     SelectAppearance(p);
+}
+
+// Behavioral flags derived purely from race. Numeric stat bonuses live in
+// SelectRace (baked into saved stats); these flags are re-derived on load too.
+void ApplyRaceTraits(Player p)
+{
+    p.DodgeVsLarge = 0; p.SprintBonus = 0;
+    p.NoSprintPenalty = false; p.DoubleSprintPenalty = false;
+    p.RaceAbsorbPct = 0; p.FearImmune = false;
+    p.SpellDurBonus = 0; p.PrayerDurBonus = 0; p.SongDurBonus = 0;
+    p.RaceFrenzy = false;
+    switch (p.Race)
+    {
+        case "Moon Elf":
+            p.DodgeVsLarge = 1; p.SpellDurBonus = 1; p.PrayerDurBonus = 1; p.SongDurBonus = 1; break;
+        case "Sun Elf":
+            p.DodgeVsLarge = 1; break;
+        case "Wood Elf":
+            p.DodgeVsLarge = 1; p.SprintBonus = 1; p.NoSprintPenalty = true; break;
+        case "Light-Foot Hobbit":
+            p.DodgeVsLarge = 1; p.SprintBonus = 1; break;
+        case "Brave Minds Hobbit":
+            p.FearImmune = true; break;
+        case "Stone Dwarf":
+            p.SprintBonus = 3; p.DoubleSprintPenalty = true; break;
+        case "Iron Dwarf":
+            p.SprintBonus = -1; break;
+        case "Gem Gnome":
+            p.SprintBonus = 1; p.RaceAbsorbPct = 25; p.SpellDurBonus = 1; p.SongDurBonus = 1; break;
+        case "Glass Gnome":
+            p.SprintBonus = 1; p.SpellDurBonus = 1; p.PrayerDurBonus = 1; p.SongDurBonus = 1; break;
+        case "Orc":
+            p.SprintBonus = 0; p.NoSprintPenalty = true; break;
+        case "Goblin":
+            p.SprintBonus = 2; p.DoubleSprintPenalty = true; break;
+        case "Troll":
+            p.RegenPerTurn = 2; p.SprintBonus = 1; p.RaceFrenzy = true; break;
+        case "Hobgoblin":
+            p.SprintBonus = 1; p.DoubleSprintPenalty = true; break;
+    }
 }
 
 // Gender and full layered appearance, so the on-screen character is theirs.
@@ -2175,6 +2250,7 @@ bool TryLoadGame(Player p, string filePath)
         p.MaxRangedDmgBonus = I("MaxRangedDmgBonus");
 
         p.GroupsDefeated = I("GroupsDefeated");
+        ApplyRaceTraits(p);   // re-derive racial behavioral flags for loaded characters
         // Off-hand shield — only present in newer saves
         if (dict.ContainsKey("OffHandShieldName"))
         {
@@ -2463,6 +2539,16 @@ class Player
     public string Headwear = "nothing";      // fedora/pointy hat/mask/hood/circlet/top hat/nothing
     public string ClothingColor = "black";   // 9 colors
     public string FacialHair = "none";       // males: beard/goatee/mustache/fu manchu/handlebars/soul patch/none
+    // ── Racial behavioral traits (re-derived from Race via ApplyRaceTraits) ──
+    public int DodgeVsLarge = 0;             // extra dodge vs large attackers
+    public int SprintBonus = 0;              // extra sprint distance beyond movement
+    public bool NoSprintPenalty = false;     // ignore the -2 after sprinting
+    public bool DoubleSprintPenalty = false; // -4 after sprinting instead of -2
+    public int RaceAbsorbPct = 0;            // innate spell/prayer absorption %
+    public bool FearImmune = false;
+    public int SpellDurBonus = 0, PrayerDurBonus = 0, SongDurBonus = 0;
+    public bool RaceFrenzy = false;          // Troll: enter a rage at low HP
+    public bool Frenzied = false;            // currently frenzied (combat-scoped)
     public long Copper = 0;                  // purse (100c=1s, 100s=1g, 100g=1p)
     public int BluntArrows = 0;              // non-lethal
     public int BarbedArrows = 0;             // +1d4 damage
@@ -3525,6 +3611,7 @@ class CombatSession
         foreach (var pl in allPlayers)
         {
             pl.Climbed = false;
+            pl.Frenzied = false;
             pl.RecoverRegular = pl.RecoverBlunt = pl.RecoverBarbed = pl.RecoverSpiral = 0;
         }
         GenerateTerrain();
@@ -3956,6 +4043,15 @@ class CombatSession
 
         if (P.IsRaging)
             Console.WriteLine($"  [RAGING — {P.RageTurnsLeft} turn(s) left, +{P.RagePointsSpent*2}d4 dmg/hit]");
+
+        // Troll frenzy: at a quarter HP or less, go berserk for the rest of combat
+        if (P.RaceFrenzy && !P.Frenzied && P.HP > 0 && P.HP * 4 <= P.MaxHP)
+        {
+            P.Frenzied = true;
+            Console.WriteLine("  ⚔ FRENZY! Wounded and wild — melee damage DOUBLES, but -2 to attacks and defenses!");
+        }
+        if (P.Frenzied) Console.WriteLine("  [FRENZIED — double melee damage, -2 attack/dodge/block/parry]");
+
         int actLeft = 3 + P.AdditionalActions;
         if (P.HasFeat("Chidia")) actLeft += 2;
 
@@ -4106,8 +4202,9 @@ class CombatSession
                 {
                     if (P.IsGrappled) { Console.WriteLine("  You can't sprint while grappled!"); continue; }
                     if (P.Climbed) { Console.WriteLine("  You're up high — climb down (action) or jump down first!"); continue; }
-                    int sprintRoll = Rng.Next(P.MinMovement, P.MaxMovement + 1) * 2 + P.MovementBonus;
-                    Console.WriteLine($"  SPRINT! {sprintRoll} square(s). [-2 to next action roll]");
+                    int sprintRoll = Math.Max(1, Rng.Next(P.MinMovement, P.MaxMovement + 1) * 2 + P.MovementBonus + P.SprintBonus);
+                    string spNote = P.NoSprintPenalty ? "[no penalty]" : P.DoubleSprintPenalty ? "[-4 to next action]" : "[-2 to next action]";
+                    Console.WriteLine($"  SPRINT! {sprintRoll} square(s). {spNote}");
                     StepMovement(sprintRoll);
                     justSprinted = true;
                     justBlocked = false;
@@ -4325,7 +4422,7 @@ class CombatSession
                         justBlocked = false;
                         break;
                     }
-                    int bRoll = Rng.Next(P.MinBlock, P.MaxBlock + 1) + SizeRules.BlockParryBonus(P.Race, target!.Race);
+                    int bRoll = Rng.Next(P.MinBlock, P.MaxBlock + 1) + SizeRules.BlockParryBonus(P.Race, target!.Race) - (P.Frenzied ? 2 : 0);
                     int eAtk = Rng.Next(target.MinAttack, target.MaxAttack + 1);
                     Console.WriteLine($"  Block! Roll {bRoll} vs {target.Name}'s attack {eAtk}.");
                     if (bRoll >= eAtk)
@@ -4352,7 +4449,7 @@ class CombatSession
                 {
                     if (blockTarget == null || !blockTarget.Alive) { Console.WriteLine("  No blocked target for parry."); continue; }
                     if (blockTarget is Ogre) { Console.WriteLine("  You can't parry an ogre — they're too massive!"); justBlocked = false; continue; }
-                    int pRoll = Rng.Next(P.MinParry, P.MaxParry + 1) + SizeRules.BlockParryBonus(P.Race, target!.Race);
+                    int pRoll = Rng.Next(P.MinParry, P.MaxParry + 1) + SizeRules.BlockParryBonus(P.Race, target!.Race) - (P.Frenzied ? 2 : 0);
                     int pDdg = Rng.Next(blockTarget.MinDodge, blockTarget.MaxDodge + 1);
                     Console.WriteLine($"  Parry! Roll {pRoll} vs {blockTarget.Name}'s dodge {pDdg}.");
                     if (pRoll >= pDdg)
@@ -4432,7 +4529,7 @@ class CombatSession
                 case "stop song":
                 {
                     P.SongPlaying = false;
-                    P.SongLingerTurns = Rng.Next(1, 5);
+                    P.SongLingerTurns = Rng.Next(1, 5) + P.SongDurBonus;
                     Console.WriteLine($"  ♪ You end {P.ActiveSong}; its echo lingers for {P.SongLingerTurns} turn(s).");
                     continue;   // stopping is a free action
                 }
@@ -4631,7 +4728,7 @@ class CombatSession
                             if (int.TryParse(GameIO.ReadLine()?.Trim(), out int wi) && wi >= 1 && wi <= living.Count)
                                 sancTarget = living[wi - 1];
                         }
-                        sancTarget.SanctuaryTurns = Rng.Next(1, 5);
+                        sancTarget.SanctuaryTurns = Rng.Next(1, 5) + P.PrayerDurBonus;
                         Console.WriteLine($"  SANCTUARY! A divine ward surrounds {sancTarget.Name} for {sancTarget.SanctuaryTurns} turn(s).");
                         Console.WriteLine("  They cannot be attacked — nor raise a hand in anger.");
                         justBlocked = false;
@@ -4667,7 +4764,7 @@ class CombatSession
                         redTarget.RedemptionExtraHP = redTarget.MaxHP;
                         redTarget.MaxHP *= 2;
                         redTarget.HP = redTarget.MaxHP;
-                        redTarget.RedemptionTurns = Rng.Next(1, 5);
+                        redTarget.RedemptionTurns = Rng.Next(1, 5) + P.PrayerDurBonus;
                         Console.WriteLine($"  REDEMPTION! {redTarget.Name} is fully healed and their vigor doubles for {redTarget.RedemptionTurns} turn(s)!");
                         Console.WriteLine($"    HP: {redTarget.HP}/{redTarget.MaxHP}");
                         justBlocked = false;
@@ -4676,7 +4773,7 @@ class CombatSession
                     if (pc == "8") // ── Prayer of Mass Blessings ──────────
                     {
                         int bless = Rng.Next(1, 5);
-                        int blessTurns = Rng.Next(1, 5);
+                        int blessTurns = Rng.Next(1, 5) + P.PrayerDurBonus;
                         Console.WriteLine($"  MASS BLESSINGS! +{bless} to all rolls for every ally, {blessTurns} turn(s)!");
                         foreach (var pl in AllPlayers.Where(pl => pl.HP > 0))
                             pl.ApplyBlessing(bless, blessTurns);
@@ -5140,7 +5237,7 @@ class CombatSession
             actLeft--;
             if (sprintPenaltyPending)
             {
-                if (chosen != "sprint" && chosen != "move") { P.SprintPenalty = 2; sprintPenaltyPending = false; }
+                if (chosen != "sprint" && chosen != "move") { P.SprintPenalty = P.NoSprintPenalty ? 0 : P.DoubleSprintPenalty ? 4 : 2; sprintPenaltyPending = false; }
                 else if (!justSprinted) sprintPenaltyPending = false;
             }
             if (justSprinted) sprintPenaltyPending = true;
@@ -5273,11 +5370,12 @@ class CombatSession
     // rule (full damage + burns), then the armor's spell/prayer reduction.
     int MitigateMagic(int dmg, string channel, string element = "")
     {
-        if (P.ArmorAbsorbPct > 0 && Rng.Next(100) < P.ArmorAbsorbPct)
+        int absorbPct = Math.Min(100, P.ArmorAbsorbPct + P.RaceAbsorbPct);
+        if (absorbPct > 0 && Rng.Next(100) < absorbPct)
         {
             if (channel == "spell") P.SpellUses++;
             else P.PrayerUses++;
-            Console.WriteLine($"  Your armor's runes ABSORB the {channel}! (+1 {channel} use)");
+            Console.WriteLine($"  You ABSORB the {channel}! (+1 {channel} use)");
             return 0;
         }
         // Mirror Shield: 35% chance to hurl the magic back at its caster
@@ -5371,7 +5469,17 @@ class CombatSession
     }
 
     // Player's dodge bonus vs whichever enemy is currently acting (+1 while climbed)
-    int PDodgeSize() => (P.Climbed ? 1 : 0) + (_atkEnemy == null ? 0 : SizeDodgeRoll(P.Race, _atkEnemy.Race));
+    int PDodgeSize()
+    {
+        int b = P.Climbed ? 1 : 0;
+        if (_atkEnemy != null)
+        {
+            b += SizeDodgeRoll(P.Race, _atkEnemy.Race);
+            if (SizeRules.Of(_atkEnemy.Race) == 2) b += P.DodgeVsLarge;   // extra dodge vs large
+        }
+        if (P.Frenzied) b -= 2;   // Troll frenzy: reckless defense
+        return b;
+    }
 
     // ── MUSICIAN SONGS ────────────────────────────────────────────────────
 
@@ -5518,6 +5626,9 @@ class CombatSession
         if (sizeAtk != 0 || sizeDmg != 0)
             Console.WriteLine($"  [Size] {sizeAtk:+0;-0} attack, {sizeDmg:+0;-0} damage vs {(target.Race.Length > 0 ? target.Race : "foe")}.");
         if (P.Climbed) Console.WriteLine("  [High ground] +2 attack!");
+        // Frenzy: -2 to hit, but the base damage roll is added again (doubled)
+        int frenzyAtk = P.Frenzied ? -2 : 0;
+        if (P.Frenzied) { dmgBonus += Rng.Next(minDmg, maxDmg + 1); Console.WriteLine("  [Frenzy] Reckless double-strength blow!"); }
         int specStacks = P.WeaponSpec.GetValueOrDefault(P.HeldWeapon ?? "Unarmed");
         int specAtk = 0;
         if (specStacks > 0)
@@ -5544,7 +5655,7 @@ class CombatSession
         {
             if (fi > 0) Console.WriteLine($"  [Flurry hit {fi + 1}]");
             int rawRoll = Rng.Next(minAtk, maxAtk + 1);
-            PerformAttack(target, rawRoll + atkPen + warriorAtkBonus - brokenArmPenalty + trueSightAtkBonus + songAtkBonus + sizeAtk + specAtk + HighGround(), minDmg, maxDmg, fi == 0 ? dmgBonus : 0, useSunder, useDisarm, fi == 0 && useSap, rawRoll == maxAtk, rawRoll == minAtk);
+            PerformAttack(target, rawRoll + atkPen + warriorAtkBonus - brokenArmPenalty + trueSightAtkBonus + songAtkBonus + sizeAtk + specAtk + frenzyAtk + HighGround(), minDmg, maxDmg, fi == 0 ? dmgBonus : 0, useSunder, useDisarm, fi == 0 && useSap, rawRoll == maxAtk, rawRoll == minAtk);
         }
 
         // Off-hand (Double Tap)
@@ -6517,7 +6628,7 @@ class CombatSession
         bool lastSpellCrit = false, lastSpellFumble = false;
         int SpellAtkRoll() { int raw = Rng.Next(P.MinSpellAtk, P.MaxSpellAtk + 1); lastSpellCrit = raw == P.MaxSpellAtk; lastSpellFumble = raw == P.MinSpellAtk; return raw + SlayerAtk() + HighGround(); }
         int SpellDmg(int dmg, string element) { if (P.HasFeat("Magical Overflow")) dmg *= 2; if (P.HasFeat("Elemental") && P.ElementalFocus == element) dmg += 2; dmg += P.MinSpellDmgBonus + P.MaxSpellDmgBonus + SlayerDmg(); return dmg; }
-        int ExtDur(int turns) => P.HasFeat("Extended Magi") ? turns * 2 : turns;
+        int ExtDur(int turns) => (P.HasFeat("Extended Magi") ? turns * 2 : turns) + P.SpellDurBonus;
         float SpellRange(float range) => P.HasFeat("OverReach Magic") ? range * 2f : range;
 
         switch (spell)
