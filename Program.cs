@@ -4501,16 +4501,23 @@ class CombatSession
                     if (P.IsGrappled) { Console.WriteLine("  You can't run while grappled!"); continue; }
                     Console.WriteLine("  You try to escape!");
                     bool blocked = false;
-                    foreach (var e in alive)
+                    // Only foes in melee reach, or holding a throwable within
+                    // 20ft, get a parting shot — distant enemies can't touch you.
+                    var reactors = alive.Where(CanReactToFlee).ToList();
+                    if (!reactors.Any()) Console.WriteLine("  Nobody is close enough to stop you!");
+                    foreach (var e in reactors)
                     {
                         if (blocked) break;
+                        bool thrown = e.Position.ManhattanDist(PlayerPos) > 1 && !(e is Ogre && e.Position.ManhattanDist(PlayerPos) <= 2);
                         int eAtk = Rng.Next(e.MinAttack, e.MaxAttack + 1) - e.AttackPenalty;
-                        int pDdg = Rng.Next(P.MinDodge, P.MaxDodge + 1) + PDodgeSize() - 2;
-                        Console.WriteLine($"  {e.Name} reacts! Roll {eAtk} vs your dodge-2 ({pDdg}).");
+                        int pDdg = ChiReroll(ref ChiRerollRunAway, Rng.Next(P.MinDodge, P.MaxDodge + 1), P.MinDodge, P.MaxDodge, "escape")
+                                   + PDodgeSize() - 2;
+                        Console.WriteLine($"  {e.Name} {(thrown ? $"hurls a weapon ({e.Position.Feet(PlayerPos):F0}ft)" : "reacts")}! Roll {eAtk} vs your dodge-2 ({pDdg}).");
                         if (eAtk >= pDdg)
                         {
                             int dmg = Rng.Next(e.MinDamage, e.MaxDamage + 1);
                             if (P.Defending) dmg = Math.Max(1, dmg / 2);
+                            dmg = Math.Max(1, dmg - P.ArmorDamageReduction);
                             Console.WriteLine($"  {e.Name} hits you for {dmg}! You fail to escape. HP:{P.HP - dmg}/{P.MaxHP}");
                             P.HP -= dmg;
                             blocked = true;
@@ -5824,6 +5831,28 @@ class CombatSession
         if (finesse && P.Smarts > best) best = P.Smarts;
         if (Shop.TwoHanded.Contains(w)) best = Math.Max(best, P.TwoHandTrait());
         return best;
+    }
+
+    // Does this foe still hold something it can throw?
+    bool HasThrowable(Enemy e) => e switch
+    {
+        Troll t          => t.EquippedAxes > 0,
+        RogueGoblin r    => r.DaggerCount > 0,
+        HobgoblinThief h => h.DaggerCount > 0,
+        GiantDuelist g   => g.HandAxes > 0,
+        OrcBarbarian o   => o.HandAxeCount > 0,
+        _                => false,
+    };
+
+    // A fleeing player only provokes foes that can actually reach them: melee
+    // range (2 squares for an Ogre's club sweep), or a thrown weapon's 20ft
+    // for anyone still carrying one. Not from clear across the map.
+    bool CanReactToFlee(Enemy e)
+    {
+        int d = e.Position.ManhattanDist(PlayerPos);
+        if (d <= 1) return true;                       // adjacent: melee
+        if (e is Ogre && d <= 2) return true;          // club sweep reach
+        return HasThrowable(e) && e.Position.Feet(PlayerPos) <= 20f;
     }
 
     // Chi reroll of a defensive roll: take the better of two rolls.
