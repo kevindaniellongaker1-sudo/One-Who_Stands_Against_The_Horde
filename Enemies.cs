@@ -122,6 +122,12 @@ abstract class Enemy
     public Enemy? ProvokedBy;         // the last creature that injured it (retaliation)
     public bool ProvokedByPlayer;     // a player injured it — beasts hold grudges
     public int CorpseMeals = 0;       // wolf: quarter-corpses left to devour (4 per kill)
+    // ── Late-game equipment (wave 71+, see OutfitLateGameHorde) ──
+    public string ArmorWorn = "";     // what it wears — dropped as loot on death
+    public int ArmorDR = 0;           // physical damage reduction from that armor
+    public int SpellAbsorbPct = 0;    // robes: chance to shrug off player magic
+    public int ChiLeft = 0;           // Orc Monks: chi pool (80% of lowest player level)
+    public bool LichBound = false;    // necromancer trolls at 91+: touch heals them
     // Fear (rage/frenzy/DeathTone): fight = blindly attack the source,
     // flight = blindly run from it, for FearTurns turns.
     public int FearTurns = 0;
@@ -250,11 +256,20 @@ class Goblin : Enemy
 class SpellGoblin : Goblin
 {
     public string SpellName;
+    // One school per spell-granting feat (bar Lich Bound / Advanced Cantrips):
+    // mage (the classic elemental trio), cantrips, necromancer, divination.
+    public string School;
     public SpellGoblin(Random rng, string name) : base(rng, name)
     {
         TypeName = "Spell Goblin";
-        string[] spells = { "Fire Blast", "Chain Lightning", "Frost Burst" };
-        SpellName = spells[rng.Next(3)];
+        School = new[] { "mage", "cantrips", "necromancer", "divination" }[rng.Next(4)];
+        SpellName = School switch
+        {
+            "cantrips"    => "Spark Volley",
+            "necromancer" => "Negative Touch",
+            "divination"  => "Foretold Strike",
+            _             => new[] { "Fire Blast", "Chain Lightning", "Frost Burst" }[rng.Next(3)],
+        };
         XPValue = 15;
     }
 }

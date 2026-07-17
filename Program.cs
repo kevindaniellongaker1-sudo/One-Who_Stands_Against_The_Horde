@@ -232,6 +232,7 @@ while (true)
     // ── Loot the fallen: coin by race, plus leftover gear sold at 80% ──
     {
         long lootCopper = 0;
+        long armorCopper = 0;
         foreach (var en in group.Where(en => !en.Alive || en.KnockedOut).Where(en => !en.Fled))
         {
             lootCopper += en.Race switch
@@ -244,6 +245,23 @@ while (true)
                 "Giant"     => (rng.Next(1, 3) + rng.Next(1, 3) + rng.Next(1, 3) + rng.Next(1, 3)) * Shop.Gold, // 4d2 gold
                 _           => 0,
             };
+            // Strip the fallen of their armor — sold into the pot at 80%
+            if (en.ArmorWorn.Length > 0)
+                armorCopper += Shop.Sell(en.ArmorWorn.Split(" +")[0]);
+            // Richer war chests as the campaign deepens (gear, feats, upgrades)
+            lootCopper += waveNum switch
+            {
+                >= 101 => rng.Next(60, 121) * Shop.Silver,
+                >= 91  => rng.Next(40, 81) * Shop.Silver,
+                >= 81  => rng.Next(20, 51) * Shop.Silver,
+                >= 71  => rng.Next(10, 31) * Shop.Silver,
+                _      => 0,
+            };
+        }
+        if (armorCopper > 0)
+        {
+            Console.WriteLine($"  You strip the dead of their armor — worth {Shop.Fmt(armorCopper)} (sold at 80%).");
+            lootCopper += armorCopper;
         }
         long gearCopper = session.LeftoverGearCopper();
         if (gearCopper > 0)
@@ -506,8 +524,8 @@ List<Enemy> BuildGroup(int waveNum, Random r)
                 case 4: g.Add(Troll.RandType(r, $"Troll {i * 2 + 1}")); g.Add(Troll.RandType(r, $"Troll {i * 2 + 2}")); break;
                 case 5: for (int j = 0; j < 4; j++) g.Add(Hobgoblin.RandType(r, $"Hobgoblin {i * 4 + j + 1}")); break;
                 case 6: g.Add(new GoblinShaman(r, $"Goblin Shaman {i+1}")); g.Add(new GoblinWarrior(r, $"Goblin Warrior {i*2+1}")); g.Add(new GoblinWarrior(r, $"Goblin Warrior {i*2+2}")); for (int j = 0; j < 2; j++) g.Add(Goblin.RandType(r, $"Goblin {i * 2 + j + 1}")); break;
-                case 7: if (waveNum >= 51) g.Add(new SpellGoblin(r, $"Spell Goblin {i + 1}")); else for (int j = 0; j < 3; j++) g.Add(Orc.RandType(r, $"Orc {i * 3 + j + 1}")); break;
-                case 8: if (waveNum >= 51) { g.Add(new SpellGoblin(r, $"Spell Goblin {i*2 + 1}")); g.Add(new SpellGoblin(r, $"Spell Goblin {i*2 + 2}")); } else for (int j = 0; j < 4; j++) g.Add(Hobgoblin.RandType(r, $"Hobgoblin {i * 4 + j + 1}")); break;
+                case 7: if (waveNum >= 51) { int sgc = waveNum >= 91 ? 3 : 1; for (int j = 0; j < sgc; j++) g.Add(new SpellGoblin(r, $"Spell Goblin {i * 3 + j + 1}")); } else for (int j = 0; j < 3; j++) g.Add(Orc.RandType(r, $"Orc {i * 3 + j + 1}")); break;
+                case 8: if (waveNum >= 51) { int sgc = waveNum >= 91 ? 3 : 2; for (int j = 0; j < sgc; j++) g.Add(new SpellGoblin(r, $"Spell Goblin {i * 3 + j + 1}")); } else for (int j = 0; j < 4; j++) g.Add(Hobgoblin.RandType(r, $"Hobgoblin {i * 4 + j + 1}")); break;
                 case 9: if (waveNum >= 61) g.Add(new OrcBarbarian(r, $"Orc Barbarian {i + 1}")); else g.Add(Troll.RandType(r, $"Troll {i + 1}")); break;
                 case 10: g.Add(new RogueGoblin(r, $"Rogue Goblin {i*2+1}")); g.Add(new RogueGoblin(r, $"Rogue Goblin {i*2+2}")); break;
                 case 11: g.Add(new NecromancerTroll(r, $"Necromancer Troll {i + 1}")); break;
@@ -535,6 +553,29 @@ List<Enemy> BuildGroup(int waveNum, Random r)
         g.Add(GiantEnemy.RandType(r, "Giant Muster"));
     }
 
+    // ── Wave 91+: the horde musters DEEPER — extra bodies of every kind ──
+    if (waveNum >= 91)
+    {
+        for (int i = 1; i <= 3; i++) g.Add(Goblin.RandType(r, $"Goblin Reinforcement {i}"));
+        for (int i = 1; i <= 2; i++) g.Add(Hobgoblin.RandType(r, $"Hobgoblin Reinforcement {i}"));
+        for (int i = 1; i <= 2; i++) g.Add(Orc.RandType(r, $"Orc Reinforcement {i}"));
+        for (int i = 1; i <= 2; i++) g.Add(Troll.RandType(r, $"Troll Reinforcement {i}"));
+        if (g.Any(e => e is OrcBarbarian)) g.Add(new OrcBarbarian(r, "Orc Barbarian Reinforcement"));
+        if (g.Any(e => e is NecromancerTroll)) g.Add(new NecromancerTroll(r, "Necromancer Reinforcement"));
+        if (g.Any(e => e is Ogre)) g.Add(Ogre.RandType(r, "Ogre Reinforcement"));
+        if (g.Any(e => e is GiantEnemy)) g.Add(GiantEnemy.RandType(r, "Giant Reinforcement"));
+    }
+    // Wave 101+: one more of every kind that marches
+    if (waveNum >= 101)
+    {
+        if (g.Any(e => e is Goblin)) g.Add(Goblin.RandType(r, "Goblin Vanguard"));
+        if (g.Any(e => e is Hobgoblin)) g.Add(Hobgoblin.RandType(r, "Hobgoblin Vanguard"));
+        if (g.Any(e => e is Orc)) g.Add(Orc.RandType(r, "Orc Vanguard"));
+        if (g.Any(e => e is Troll)) g.Add(Troll.RandType(r, "Troll Vanguard"));
+        if (g.Any(e => e is Ogre)) g.Add(Ogre.RandType(r, "Ogre Vanguard"));
+        if (g.Any(e => e is GiantEnemy)) g.Add(GiantEnemy.RandType(r, "Giant Vanguard"));
+    }
+
     // Enemy casters: uses = floor(lowestPlayerLevel * 0.80), minimum 1
     int lowestPlayerLevel = allPlayers.Any() ? allPlayers.Min(pl => pl.Level) : waveNum;
     int enemyAbilityUses  = Math.Max(1, (int)(lowestPlayerLevel * 0.80));
@@ -544,6 +585,9 @@ List<Enemy> BuildGroup(int waveNum, Random r)
         e.SpellUsesLeft  = enemyAbilityUses;
         e.PrayerUsesLeft = enemyAbilityUses;
         e.SongUsesLeft   = enemyAbilityUses;
+        // Orc Monks are martial artists — chi at 80% of the lowest player level
+        if (e is OrcMonk) e.ChiLeft = enemyAbilityUses;
+        OutfitLateGameHorde(e, waveNum, r);
         // Small creatures are slighter of frame: -1 max HP
         if (SizeRules.Of(e.Race) == 0)
         {
@@ -558,6 +602,133 @@ List<Enemy> BuildGroup(int waveNum, Random r)
         }
     }
     return g;
+}
+
+// ══ LATE-GAME OUTFITTING (wave 71+) ═══════════════════════════════════════
+// The horde arms up as the war grinds on. Armor at 71+, caster robes at 81+,
+// heavy plate / Scribed Robes / Bard Vestments at 91+ plus deep stat scaling,
+// a second armor layer (sometimes runed) at 101+. XP and loot rise to match:
+// every piece an enemy wears is stripped and sold into the pot when it falls.
+void OutfitLateGameHorde(Enemy e, int wave, Random r)
+{
+    if (e.IsWildlife) return;
+
+    // Giants are worth 85 XP from the day they first march
+    if (e is GiantEnemy && e.XPValue < 85) e.XPValue = 85;
+    if (wave < 71) return;
+
+    bool priestly = e is TrollPriest or GiantPriest or OrcPriestess or HobgoblinCleric or GoblinShaman;
+    bool arcane   = e is SpellGoblin or GiantMage or NecromancerTroll;
+    bool musician = e is TrollMusician;
+    bool caster   = priestly || arcane || musician;
+    bool brute    = e is Ogre or GiantEnemy or TrollWarrior or OrcBarbarian;
+    bool skirmish = e is RogueGoblin or HobgoblinThief or OrcRanger or OrcMonk;
+
+    void Wear(string name, int dr, int absorb = 0)
+    { e.ArmorWorn = name; e.ArmorDR = dr; e.SpellAbsorbPct = absorb; }
+
+    // ── Armor by wave band and role ──
+    if (wave >= 91)
+    {
+        if (musician)      Wear("Bard Vestments", 1, 20);
+        else if (e is NecromancerTroll) Wear("Unholy Robe", 1, 20);
+        else if (arcane)   Wear(r.Next(2) == 0 ? "Scribed Robes" : new[] { "Fire Robes", "Frost Robes", "Lightning Robes", "Air Robe" }[r.Next(4)], 1, 25);
+        else if (priestly) Wear(r.Next(2) == 0 ? "Holy Vestments" : "Scribed Robes", 1, 25);
+        else if (brute)    Wear(r.Next(2) == 0 ? "Full Plate" : "Half Plate", r.Next(2) == 0 ? 5 : 4);
+        else if (skirmish) Wear("Hard Leather", 3);
+        else               Wear(new[] { "Half Plate", "Hard Leather", "Padded Armor", "Soft Leather" }[r.Next(4)], r.Next(3, 5));
+    }
+    else if (wave >= 81 && caster)
+    {
+        if (e is NecromancerTroll) Wear("Unholy Robe", 1, 15);
+        else if (priestly)         Wear("Holy Vestments", 1, 15);
+        else                       Wear(new[] { "Fire Robes", "Frost Robes", "Lightning Robes", "Air Robe" }[r.Next(4)], 1, 15);
+    }
+    else
+    {
+        if (brute)         Wear(r.Next(2) == 0 ? "Chainmail" : "Breastplate", 3);
+        else if (skirmish) Wear("Soft Leather", 2);
+        else if (caster)   Wear(r.Next(2) == 0 ? "Padded Armor" : "Leather Vest", 1);
+        else               Wear(r.Next(2) == 0 ? "Leather Armor" : "Padded Armor", 2);
+    }
+
+    // ── Wave 101+: a second layer, sometimes rune-worked ──
+    if (wave >= 101)
+    {
+        if (r.Next(100) < 15)
+        {
+            e.ArmorWorn += " + Rune layer";
+            e.SpellAbsorbPct = Math.Min(60, e.SpellAbsorbPct + 20);
+            e.ArmorDR += 2;
+        }
+        else { e.ArmorWorn += " + under-layer"; e.ArmorDR += 2; }
+    }
+
+    // ── XP rises with the gear ──
+    e.XPValue += r.Next(20, 36);                       // armored (71+)
+    if (wave >= 91)  e.XPValue += r.Next(25, 41);      // veteran gear
+    if (wave >= 101) e.XPValue += r.Next(30, 51);      // elite upgrades
+
+    // ── Wave 91+: deep per-race scaling, fitting feats ──
+    if (wave >= 91)
+    {
+        void Hp(int n)  { e.MaxHP += n; e.HP = e.MaxHP; }
+        void Atk(int n) { e.MinAttack += n; e.MaxAttack += n; }
+        void Dmg(int n) { e.MinDamage += n; e.MaxDamage += n; }
+
+        if (e.Race == "Goblin" && e is not SpellGoblin)
+        {
+            int b = r.Next(1, 7);
+            Hp(12); Atk(b);
+            e.MinDodge += b; e.MaxDodge += b;   // (enemies fold block into dodge)
+        }
+        else if (e.Race == "Hobgoblin")
+        {
+            Hp(12); Atk(r.Next(2, 9)); Dmg(r.Next(1, 5));
+            e.HasParry = true;                          // drilled veteran
+        }
+        else if (e.Race == "Orc")
+        {
+            Hp(15); Atk(r.Next(1, 7));
+            if (e is OrcMonk) e.HasKick = true; else e.HasDoubleTap = true;
+        }
+        else if (e is NecromancerTroll)
+        {
+            Hp(15);
+            if (e is Troll ncr) ncr.SpareAxes += 2;
+            e.LichBound = true;                         // the lich pact
+            e.SpellUsesLeft += 2;
+        }
+        else if (e.Race == "Troll")
+        {
+            Hp(15);
+            if (e is Troll tr) tr.SpareAxes += 2;
+            e.HasBlock = true;                          // scarred survivor
+        }
+        else if (e.Race == "Ogre")
+        {
+            Hp(10); e.HasArmBlock = true;
+            if (e is OgreBerserker) Hp(4);              // the extra rage burns as vigour
+            Dmg(1); Atk(1); Hp(2);                      // 6 points, spent simply
+        }
+        else if (e.Race == "Giant")
+        {
+            Hp(10);
+            e.SpellUsesLeft++; e.PrayerUsesLeft++;
+            e.HasParry = true;
+            Atk(1); Dmg(1); Hp(2);                      // 6 points
+        }
+
+        // Wave 101+: elites — another feat, more points, honed weapons
+        if (wave >= 101)
+        {
+            Hp(r.Next(10, 21));
+            Atk(2); Dmg(2); Hp(4);                      // 12 points
+            e.MinDodge += 1; e.MaxDodge += 1;
+            e.HasKick = true;
+            Dmg(2);                                     // honed weapon upgrade
+        }
+    }
 }
 
 string DescribeGroup(List<Enemy> g) =>

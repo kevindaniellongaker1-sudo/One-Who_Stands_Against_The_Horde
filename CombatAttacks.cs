@@ -374,11 +374,30 @@ partial class CombatSession
 
     int ReduceByToughHide(Enemy e, int dmg)
     {
+        // Worn armor (late-game horde) reduces physical damage first
+        if (e.ArmorDR > 0 && dmg > 0)
+        {
+            int after = Math.Max(1, dmg - e.ArmorDR);
+            if (after < dmg) Console.WriteLine($"  {e.Name}'s {e.ArmorWorn} turns {dmg - after} damage! ({dmg}→{after})");
+            dmg = after;
+        }
         if (e.ToughHideMin <= 0) return dmg;
         int reduction = Rng.Next(e.ToughHideMin, e.ToughHideMax + 1);
         int result = Math.Max(1, dmg - reduction);
         Console.WriteLine($"  {e.Name}'s tough hide absorbs {reduction} damage! ({dmg}→{result})");
         return result;
+    }
+
+    // Player magic landing on an armored enemy: robes may drink it outright,
+    // and magic-resistant creatures halve what's left.
+    int SpellDamageToEnemy(Enemy t, int dmg)
+    {
+        if (t.SpellAbsorbPct > 0 && Rng.Next(100) < t.SpellAbsorbPct)
+        {
+            Console.WriteLine($"  {t.Name}'s {t.ArmorWorn} drinks your magic — nothing gets through!");
+            return 0;
+        }
+        return t.MagicResistant ? Math.Max(1, dmg / 2) : dmg;
     }
 
     bool TryEnemyArmBlock(Enemy target, int atkRoll, ref int dmg)
@@ -632,8 +651,16 @@ partial class CombatSession
         {
             int dmg = Rng.Next(1, 5) + Rng.Next(1, 5); // 2d4 necrotic
             if (P.Defending) dmg = Math.Max(1, dmg / 2);
+            dmg = MitigateMagic(dmg, "spell", "negative");   // Unholy Robe drinks this
             P.HP -= dmg;
             Console.WriteLine($"  Negative touch HIT! {dmg} necrotic damage. HP:{P.HP}/{P.MaxHP}");
+            // The lich pact (wave 91+): stolen life flows back into the necromancer
+            if (necro.LichBound && dmg > 0)
+            {
+                int fed = Math.Max(1, dmg / 2);
+                necro.HP = Math.Min(necro.MaxHP, necro.HP + fed);
+                Console.WriteLine($"  {necro.Name}'s lich pact drinks {fed} of your life! HP:{necro.HP}/{necro.MaxHP}");
+            }
         }
         else Console.WriteLine("  Negative touch MISS!");
     }
@@ -1208,13 +1235,13 @@ partial class CombatSession
                 {
                     int dmg = Rng.Next(4, 13) + P.SpellDamageBonus;
                     dmg = SpellDmg(dmg, "fire");
-                    if (e.MagicResistant) { dmg = Math.Max(1, dmg / 2); Console.WriteLine($"    (Magic resistant!)"); }
-                    else if (e.MagicVulnerable) { dmg = (int)(dmg * 1.5); Console.WriteLine($"    (Magic vulnerable! ×1.5)"); }
+                    dmg = SpellDamageToEnemy(e, dmg);
+                    if (e.MagicVulnerable) { dmg = (int)(dmg * 1.5); Console.WriteLine($"    (Magic vulnerable! ×1.5)"); }
                     dmg = SpellDodgeCheck(e, dmg);
                     e.HP -= dmg; e.HitBySpell = true;
                     Console.WriteLine($"    {e.Name} takes {dmg} fire damage! HP:{e.HP}/{e.MaxHP}");
                     if (!e.Alive) { HandleKill(e); continue; }
-                    int eBurnDmg = e.MagicResistant ? Math.Max(1, burnDmg / 2) : e.MagicVulnerable ? (int)(burnDmg * 1.5) : burnDmg;
+                    int eBurnDmg = SpellDamageToEnemy(e, e.MagicVulnerable ? (int)(burnDmg * 1.5) : burnDmg);
                     e.BurningDmg = Math.Max(e.BurningDmg, eBurnDmg);
                     e.BurningTurns = Math.Max(e.BurningTurns, burnTurns);
                     Console.WriteLine($"    {e.Name} BURNING! ({eBurnDmg}/action × {burnTurns} actions)");
@@ -1234,8 +1261,8 @@ partial class CombatSession
                 {
                     int dmg = Rng.Next(3, 7) + P.SpellDamageBonus;
                     dmg = SpellDmg(dmg, "lightning");
-                    if (cur.MagicResistant) { dmg = Math.Max(1, dmg / 2); Console.WriteLine($"    (Magic resistant!)"); }
-                    else if (cur.MagicVulnerable) { dmg = (int)(dmg * 1.5); Console.WriteLine($"    (Magic vulnerable! ×1.5)"); }
+                    dmg = SpellDamageToEnemy(cur, dmg);
+                    if (cur.MagicVulnerable) { dmg = (int)(dmg * 1.5); Console.WriteLine($"    (Magic vulnerable! ×1.5)"); }
                     dmg = SpellDodgeCheck(cur, dmg);
                     cur.HP -= dmg; cur.HitBySpell = true; hit.Add(cur);
                     Console.WriteLine($"    {cur.Name} struck for {dmg} lightning! HP:{cur.HP}/{cur.MaxHP}");
@@ -1288,13 +1315,13 @@ partial class CombatSession
                 {
                     int dmg = Rng.Next(2, 9) + P.SpellDamageBonus;
                     dmg = SpellDmg(dmg, "frost");
-                    if (e.MagicResistant) { dmg = Math.Max(1, dmg / 2); Console.WriteLine($"    (Magic resistant!)"); }
-                    else if (e.MagicVulnerable) { dmg = (int)(dmg * 1.5); Console.WriteLine($"    (Magic vulnerable! ×1.5)"); }
+                    dmg = SpellDamageToEnemy(e, dmg);
+                    if (e.MagicVulnerable) { dmg = (int)(dmg * 1.5); Console.WriteLine($"    (Magic vulnerable! ×1.5)"); }
                     dmg = SpellDodgeCheck(e, dmg);
                     e.HP -= dmg; e.HitBySpell = true;
                     Console.WriteLine($"    {e.Name} takes {dmg} frost! HP:{e.HP}/{e.MaxHP}");
                     if (!e.Alive) { HandleKill(e); continue; }
-                    int eFrostPen = e.MagicResistant ? Math.Max(1, frostPen / 2) : e.MagicVulnerable ? (int)(frostPen * 1.5) : frostPen;
+                    int eFrostPen = SpellDamageToEnemy(e, e.MagicVulnerable ? (int)(frostPen * 1.5) : frostPen);
                     e.FrostPenalty = Math.Max(e.FrostPenalty, eFrostPen);
                     e.FrostTurns = Math.Max(e.FrostTurns, frostTurns);
                     Console.WriteLine($"    {e.Name} FROZEN! (-{eFrostPen} on rolls for {frostTurns} turns)");
@@ -1319,7 +1346,7 @@ partial class CombatSession
                 for (int ui = 0; ui < upgrades; ui++) abDmg += Rng.Next(1, 7);
                 abDmg = SpellDmg(abDmg, "air");
                 if (abTarget.MagicResistant) { abDmg = Math.Max(1, abDmg / 2); Console.WriteLine("    (Magic resistant!)"); }
-                else if (abTarget.MagicVulnerable) { abDmg = (int)(abDmg * 1.5); Console.WriteLine("    (Magic vulnerable! ×1.5)"); }
+                if (abTarget.MagicVulnerable) { abDmg = (int)(abDmg * 1.5); Console.WriteLine("    (Magic vulnerable! ×1.5)"); }
                 abDmg = SpellDodgeCheck(abTarget, abDmg);
                 int abAtkRoll = SpellAtkRoll() + SpellAtk("air");
                 if (lastSpellFumble) { Console.WriteLine($"  SPELL FUMBLE! Air Blade whips back! You take {abDmg} damage! HP:{P.HP - abDmg}/{P.MaxHP}"); P.HP -= abDmg; break; }
@@ -1410,7 +1437,7 @@ partial class CombatSession
                 {
                     int ntDmg = Rng.Next(2, 5) + Rng.Next(2, 5);
                     ntDmg = SpellDmg(ntDmg, "negative");
-                    if (ntTarget.MagicResistant) ntDmg = Math.Max(1, ntDmg / 2);
+                    ntDmg = SpellDamageToEnemy(ntTarget, ntDmg);
                     Console.WriteLine($"  NECROTIC HIT! {ntTarget.Name} takes {ntDmg} negative damage! HP:{ntTarget.HP - ntDmg}/{ntTarget.MaxHP}");
                     ntTarget.HP -= ntDmg; ntTarget.HitBySpell = true;
                     if (!ntTarget.Alive) HandleKill(ntTarget);
@@ -1489,7 +1516,7 @@ partial class CombatSession
                     int ldDmg = Rng.Next(2, 6) + Rng.Next(2, 6); // 2d5
                     if (lastSpellCrit) { ldDmg *= 2; Console.WriteLine("  SPELL CRITICAL! ×2 drain!"); }
                     ldDmg = SpellDmg(ldDmg, "negative");
-                    if (ldTarget.MagicResistant) ldDmg = Math.Max(1, ldDmg / 2);
+                    ldDmg = SpellDamageToEnemy(ldTarget, ldDmg);
                     ldTarget.HP -= ldDmg; ldTarget.HitBySpell = true;
                     int ldHeal = Math.Min(ldDmg, P.MaxHP - P.HP);
                     P.HP += ldHeal;
@@ -1516,7 +1543,7 @@ partial class CombatSession
                     int frostDmg = Rng.Next(2, 5) + Rng.Next(2, 5); // 2d4
                     if (lastSpellCrit) { fireDmg *= 2; frostDmg *= 2; Console.WriteLine("  SPELL CRITICAL! ×2 fire and frost!"); }
                     int totalDmg = fireDmg + frostDmg;
-                    if (fbTarget.MagicResistant) totalDmg = Math.Max(1, totalDmg / 2);
+                    totalDmg = SpellDamageToEnemy(fbTarget, totalDmg);
                     fbTarget.HP -= totalDmg; fbTarget.HitBySpell = true;
                     Console.WriteLine($"  HIT! {fireDmg} fire + {frostDmg} frost = {totalDmg} dmg! HP:{fbTarget.HP}/{fbTarget.MaxHP}");
                     LichTouchHeal(totalDmg);

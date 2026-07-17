@@ -495,6 +495,16 @@ partial class CombatSession
                 else e.ConsecutiveDmgTurns = 0;
                 if (e.ConsecutiveDmgTurns >= 3) { e.GrappleNextTurn = true; e.ConsecutiveDmgTurns = 0; }
 
+                // Martial artists in truth: chi is a free action for them too.
+                // Wounded past half, they burn a point to mend 2d3.
+                if (om.ChiLeft > 0 && om.HP <= om.MaxHP / 2)
+                {
+                    om.ChiLeft--;
+                    int mend = Rng.Next(1, 4) + Rng.Next(1, 4);
+                    om.HP = Math.Min(om.MaxHP, om.HP + mend);
+                    Console.WriteLine($"  {om.Name} centers its chi and mends {mend}. HP:{om.HP}/{om.MaxHP} ({om.ChiLeft} chi left)");
+                }
+
                 if (om.MartialStyle == "Grappler" && e.GrappleNextTurn && e.Position.IsCardinalAdjacent(PlayerPos))
                 {
                     e.GrappleNextTurn = false;
@@ -1915,7 +1925,7 @@ partial class CombatSession
         sg.SpellUsesLeft--;
         int sgRaw = Rng.Next(1, 7); // d6 concentration roll
         bool sgCrit = sgRaw == 6;
-        bool sgFumble = sgRaw == 1;
+        bool sgFumble = sgRaw == 1 && sg.School != "divination";   // diviners foresee their slips
         if (sgFumble)
         {
             int backfire = Rng.Next(4, 13);
@@ -1935,6 +1945,35 @@ partial class CombatSession
         int burnDmg, burnTurns, frostPen, frostTurns;
         switch (sg.SpellName)
         {
+            case "Spark Volley":   // cantrips school: three small bolts
+            {
+                for (int b = 0; b < 3 && P.HP > 0; b++)
+                {
+                    int dmg = MitigateMagic(Math.Max(1, Rng.Next(2, 6) - (b == 0 ? mageShieldAbsorb : 0)), "spell", "lightning");
+                    if (sgCrit) dmg *= 2;
+                    P.HP -= dmg;
+                    Console.WriteLine($"    Spark {b + 1}/3 stings you for {dmg}! HP:{P.HP}/{P.MaxHP}");
+                }
+                break;
+            }
+            case "Negative Touch": // necromancer school: drains life into itself
+            {
+                int dmg = MitigateMagic(Math.Max(1, Rng.Next(2, 9) - mageShieldAbsorb), "spell", "negative");
+                if (sgCrit) { dmg *= 2; Console.WriteLine("    CRITICAL! The drain deepens!"); }
+                P.HP -= dmg;
+                int drank = Math.Max(1, dmg / 2);
+                sg.HP = Math.Min(sg.MaxHP, sg.HP + drank);
+                Console.WriteLine($"    Cold shadow pulls {dmg} from you — {sg.Name} drinks {drank}. HP:{P.HP}/{P.MaxHP}");
+                break;
+            }
+            case "Foretold Strike": // divination school: it saw where you'd stand
+            {
+                int dmg = MitigateMagic(Rng.Next(3, 10), "spell");   // slips past Mage Shield
+                if (sgCrit) { dmg *= 2; Console.WriteLine("    CRITICAL! The prophecy lands in full!"); }
+                P.HP -= dmg;
+                Console.WriteLine($"    The blow was foretold — it finds you exactly for {dmg}. HP:{P.HP}/{P.MaxHP}");
+                break;
+            }
             case "Fire Blast":
             {
                 // 5×5 area centered on player: hits player + any enemies in Manhattan dist ≤ 1

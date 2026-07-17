@@ -128,6 +128,7 @@ static class Shop
         ["Quiver of Holding"] = 4 * Gold,
         ["Fire Robes"] = 5 * Gold, ["Frost Robes"] = 5 * Gold,
         ["Lightning Robes"] = 7 * Gold, ["Holy Vestments"] = 10 * Gold,
+        ["Unholy Robe"] = 7 * Gold, ["Air Robe"] = 6 * Gold, ["Bard Vestments"] = 8 * Gold,
         // enemy gear (sellable loot)
         ["Goblin Dagger"] = 40, ["Orc Longsword"] = 40 * Silver, ["Troll Axe"] = 2 * Gold,
         ["Bastard Sword"] = 60 * Silver, ["Kukuri"] = 25 * Silver, ["Ogre Club"] = 2 * Gold,
@@ -166,7 +167,8 @@ static class Shop
         { "Buckler", "Round Shield", "Shield", "Kite Shield", "Tower Shield" },   // armors appended at runtime
         ["Magic Shop"] = new[]
         { "Mirror Shield", "Returning Quiver", "Bag of Holding", "Quiver of Holding",
-          "Fire Robes", "Frost Robes", "Lightning Robes", "Holy Vestments" },
+          "Fire Robes", "Frost Robes", "Lightning Robes", "Holy Vestments",
+          "Unholy Robe", "Air Robe", "Bard Vestments" },
         ["Bags Shop"] = new[]
         { "Quiver", "Potion Pouch", "Throwing Band", "Artisan's Bag", "Bag of Holding" },
         ["Dojo"] = new[]
@@ -222,6 +224,9 @@ static class Shop
         ["Frost Robes"]     = new(5 * Gold,  true, false, 0, 1, 1, 15, "ice spells absorbed 100%, 15% of anything else; chills nearby foes 1d2 (may cost actions/movement); +2d2 ice spell damage & to-hit"),
         ["Lightning Robes"] = new(7 * Gold,  true, false, 0, 1, 1, 15, "lightning absorbed 100%, 15% of anything else; shocks nearby foes 2-3 (metal armor burns 1d3/turn); +2d2 lightning spell damage & to-hit"),
         ["Holy Vestments"]  = new(10 * Gold, true, false, 0, 1, 1, 15, "negative prayers absorbed 100%, 15% of spells; heals allies & sears undead 1d4/turn (25% full heal / destroy); +2d2 healing, +1d2 damage prayers"),
+        ["Unholy Robe"]     = new(7 * Gold,  true, false, 0, 1, 1, 15, "negative-energy spells absorbed 100%, 15% of anything else; your raised undead get +10 HP; negative energy heals you/undead +2d2 and deals +2d2 to the living"),
+        ["Air Robe"]        = new(6 * Gold,  true, false, 0, 1, 1, 15, "wind/air spells absorbed 100%, 15% of anything else; your wind spells push 5ft further and gain +2d2 damage & to-hit"),
+        ["Bard Vestments"]  = new(8 * Gold,  true, false, 0, 1, 1, 15, "fear/negative songs, prayers & spells absorbed 100% (become song uses), 15% of damage magic; songs last 1d2 longer and hit 2d2 harder"),
     };
 
     public static long Sell(string item) =>

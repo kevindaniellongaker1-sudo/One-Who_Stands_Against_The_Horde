@@ -887,7 +887,7 @@ partial class CombatSession
                         // field are innocent and are spared
                         foreach (var mh in alive.Where(e => !e.IsWildlife && PlayerPos.Feet(e.Position) <= 50f).ToList())
                         {
-                            int dealt = mh.MagicResistant ? Math.Max(1, mhDmg / 2) : mhDmg;
+                            int dealt = SpellDamageToEnemy(mh, mhDmg);
                             mh.HP -= dealt;
                             Console.WriteLine($"    {mh.Name} takes {dealt}! HP:{mh.HP}/{mh.MaxHP}");
                             if (!mh.Alive) HandleKill(mh);

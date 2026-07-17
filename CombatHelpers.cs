@@ -42,8 +42,38 @@ partial class CombatSession
     // ── ARMOR vs MAGIC ────────────────────────────────────────────────────
     // Applies rune absorption (damage → 0, +1 use), the lightning-vs-metal
     // rule (full damage + burns), then the armor's spell/prayer reduction.
+    // Which element a robe drinks outright. "prayer" matches any hostile prayer
+    // (Holy Vestments); "song" is reserved for the Bard Vestments.
+    static string RobeElement(string robe) => robe switch
+    {
+        "Fire Robes"      => "fire",
+        "Frost Robes"     => "ice",
+        "Lightning Robes" => "lightning",
+        "Air Robe"        => "air",
+        "Unholy Robe"     => "negative",
+        "Holy Vestments"  => "prayer",
+        "Bard Vestments"  => "song",
+        _ => "",
+    };
+
     int MitigateMagic(int dmg, string channel, string element = "")
     {
+        // An elemental robe drinks its own element completely
+        foreach (var worn in new[] { P.MainArmor, P.UnderArmor })
+        {
+            string re = RobeElement(worn ?? "");
+            if (re.Length == 0) continue;
+            bool match = re == element
+                || (re == "prayer" && channel == "prayer")
+                || (re == "ice" && element is "frost" or "ice")
+                || (re == "air" && element is "wind" or "air");
+            if (match)
+            {
+                if (channel == "spell") P.SpellUses++; else P.PrayerUses++;
+                Console.WriteLine($"  Your {worn} drinks the {(element.Length > 0 ? element : channel)} harmlessly! (+1 {channel} use)");
+                return 0;
+            }
+        }
         int absorbPct = Math.Min(100, P.ArmorAbsorbPct + P.RaceAbsorbPct);
         if (absorbPct > 0 && Rng.Next(100) < absorbPct)
         {
