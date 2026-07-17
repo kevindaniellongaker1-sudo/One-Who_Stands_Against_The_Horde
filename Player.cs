@@ -169,6 +169,7 @@ class Player
     // the source, flight = you may only flee from it, for FearTurns turns.
     public int FearTurns = 0;
     public bool FearFight = false;
+    public Enemy? FearSource;         // what terrified you (fight it or flee it)
     public long Copper = 0;                  // purse (100c=1s, 100s=1g, 100g=1p)
     public int BluntArrows = 0;              // non-lethal
     public int BarbedArrows = 0;             // +1d4 damage

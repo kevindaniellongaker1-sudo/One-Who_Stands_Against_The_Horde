@@ -371,6 +371,9 @@ partial class CombatSession
                                             && PlayerPos.ManhattanDist(e.Position) <= 15).ToList())
         {
             if (e.FearTurns > 0) continue;                  // already gripped
+            // Among animals only the skittish fear a war cry — deer and boar.
+            // Wolves and bears do not rattle.
+            if (e.IsWildlife && e is not Deer && e is not Boar) continue;
             if (e.FearImmune) { Console.WriteLine($"  {e.Name} is unshaken."); continue; }
             if (e.HP > roll) continue;                      // too tough to rattle
             e.FearTurns = Rng.Next(1, 5);
@@ -392,6 +395,7 @@ partial class CombatSession
         foreach (var fe in Active.Where(e => e.Alive && !e.IsPlayerAlly && e.HP <= roll
                                              && PlayerPos.ManhattanDist(e.Position) <= radius).ToList())
         {
+            if (fe.IsWildlife && fe is not Deer && fe is not Boar) continue;   // wolves/bears don't rattle
             if (fe.FearImmune) { Console.WriteLine($"  {fe.Name} is unshaken by the dread chord."); continue; }
             fe.Fled = true;
             Console.WriteLine($"  {fe.Name} ({fe.HP} HP) is gripped by mortal dread and flees!");

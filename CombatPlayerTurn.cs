@@ -198,18 +198,66 @@ partial class CombatSession
                 }
             }
 
-            var opts = BuildOpts(justBlocked, alive, blockTarget);
-            // Fear grips you: blind fury can only swing, panic can only run.
+            // Fear seizes control entirely: blind fury hurls you at the fear's
+            // source until one of you dies; panic forces you to sprint away.
+            // No menu — the terror decides for you.
             if (P.FearTurns > 0)
             {
-                Console.WriteLine(P.FearFight
-                    ? $"  [TERRIFIED — blind fury: you can only attack, {P.FearTurns} turn(s) left]"
-                    : $"  [TERRIFIED — panic: you can only flee, {P.FearTurns} turn(s) left]");
-                opts = P.FearFight
-                    ? opts.Where(o => o is "attack" or "chi").ToList()
-                    : opts.Where(o => o is "move" or "sprint" or "run away" or "chi").ToList();
-                if (!opts.Any()) { Console.WriteLine("  ...but there is nothing you can do. You cower."); break; }
+                if (P.FearSource is { Alive: false }) { P.FearSource = null; }
+                if (P.FearFight)
+                {
+                    if (P.FearSource == null)
+                    {
+                        Console.WriteLine("  The thing you feared is dead — the fury drains away.");
+                        P.FearTurns = 0;
+                    }
+                    else
+                    {
+                        Console.WriteLine($"  [TERRIFIED — blind fury drives you at {P.FearSource.Name}! {P.FearTurns} turn(s) left]");
+                        while (actLeft > 0 && P.FearSource is { Alive: true } src && P.HP > 0)
+                        {
+                            if (P.Position.IsCardinalAdjacent(src.Position)) DoAttack(src);
+                            else
+                            {
+                                PlayerPos = StepToward(PlayerPos, src.Position);
+                                if (!PlayerPos.IsCardinalAdjacent(src.Position))
+                                    PlayerPos = StepToward(PlayerPos, src.Position);
+                                Console.WriteLine($"  You charge toward {src.Name}! ({PlayerPos.X},{PlayerPos.Y})");
+                                PushDisplay();
+                            }
+                            actLeft--;
+                        }
+                        if (P.FearSource is { Alive: false }) { Console.WriteLine("  It falls — and with it, the terror."); P.FearTurns = 0; }
+                        break;
+                    }
+                }
+                else
+                {
+                    Console.WriteLine($"  [TERRIFIED — panic! You sprint blindly away. {P.FearTurns} turn(s) left]");
+                    var fleeFrom = P.FearSource?.Position
+                        ?? alive.OrderBy(e => PlayerPos.ManhattanDist(e.Position)).FirstOrDefault()?.Position
+                        ?? PlayerPos;
+                    while (actLeft > 0)
+                    {
+                        int panic = Rng.Next(1, 7) + Rng.Next(1, 7);
+                        for (int s = 0; s < panic; s++)
+                        {
+                            var away = new GridPos(
+                                Math.Clamp(PlayerPos.X + Math.Sign(PlayerPos.X - fleeFrom.X) * 6, 0, 49),
+                                Math.Clamp(PlayerPos.Y + Math.Sign(PlayerPos.Y - fleeFrom.Y) * 6, 0, 49));
+                            var next = StepToward(PlayerPos, away);
+                            if (next.SameAs(PlayerPos)) break;
+                            PlayerPos = next;
+                        }
+                        Console.WriteLine($"  You sprint {panic} square(s) in blind panic! ({PlayerPos.X},{PlayerPos.Y})");
+                        PushDisplay();
+                        actLeft--;
+                    }
+                    break;
+                }
             }
+
+            var opts = BuildOpts(justBlocked, alive, blockTarget);
             for (int i = 0; i < opts.Count; i++) Console.Write($"[{i + 1}]{opts[i]}  ");
             Console.WriteLine();
             Console.Write("  Action: ");
@@ -835,7 +883,9 @@ partial class CombatSession
                         int mhDmg = 0;
                         for (int d = 0; d < mostHighDice; d++) mhDmg += Rng.Next(1, 5);
                         Console.WriteLine($"  THE MOST HIGH ANSWERS! {mhDmg} ({mostHighDice}d4) holy damage sears all enemies within 50ft!");
-                        foreach (var mh in alive.Where(e => PlayerPos.Feet(e.Position) <= 50f).ToList())
+                        // Holy wrath falls on the horde — the beasts of the
+                        // field are innocent and are spared
+                        foreach (var mh in alive.Where(e => !e.IsWildlife && PlayerPos.Feet(e.Position) <= 50f).ToList())
                         {
                             int dealt = mh.MagicResistant ? Math.Max(1, mhDmg / 2) : mhDmg;
                             mh.HP -= dealt;
@@ -948,7 +998,8 @@ partial class CombatSession
                     }
                     else if (pc == "3") // ── Lord's Prayer ─────────────────
                     {
-                        var lordTargets = alive.Where(e => PlayerPos.Feet(e.Position) <= 6f).ToList();
+                        // The beasts of the field are spared the Lord's wrath
+                        var lordTargets = alive.Where(e => !e.IsWildlife && PlayerPos.Feet(e.Position) <= 6f).ToList();
                         if (!lordTargets.Any()) { Console.WriteLine("  No enemies within 6ft!"); break; }
                         Console.WriteLine($"  Lord's Prayer! ({lordMult}d6{(lordD4s > 0 ? $"+{lordD4s}d4" : "")} dmg to {lordTargets.Count} enemy(ies))");
                         foreach (var lt in lordTargets)

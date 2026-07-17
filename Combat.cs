@@ -91,7 +91,7 @@ partial class CombatSession
         {
             pl.Climbed = false;
             pl.Frenzied = false;
-            pl.FearTurns = 0;
+            pl.FearTurns = 0; pl.FearSource = null;
             pl.RecoverRegular = pl.RecoverBlunt = pl.RecoverBarbed = pl.RecoverSpiral = 0;
         }
         GenerateTerrain();

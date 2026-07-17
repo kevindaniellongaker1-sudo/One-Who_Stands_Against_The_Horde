@@ -756,7 +756,8 @@ partial class CombatSession
                         {
                             P.FearTurns = Rng.Next(1, 5);
                             P.FearFight = Rng.Next(2) == 0;
-                            Console.WriteLine($"  Terror takes you! {(P.FearFight ? "Blind FURY — you can only attack the drummer" : "PANIC — you can only flee")} for {P.FearTurns} turn(s)!");
+                            P.FearSource = tmus;
+                            Console.WriteLine($"  Terror takes you! {(P.FearFight ? "Blind FURY — you will attack the drummer until one of you falls" : "PANIC — you will sprint away until the fear passes")} ({P.FearTurns} turn(s))!");
                         }
                     }
                     else if (!tmus.PlayedSilence && playerHasMagic)
