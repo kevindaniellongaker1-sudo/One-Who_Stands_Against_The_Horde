@@ -73,6 +73,7 @@ partial class CombatSession
     HashSet<(int X, int Y)> Trees = new();
     HashSet<(int X, int Y)> Rocks = new();
     HashSet<(int X, int Y)> Caves = new();   // bears den here
+    HashSet<(int X, int Y)> Rivers = new();  // crossable at DOUBLE movement cost
     (int X, int Y) _campCenter = (42, 25);
     Enemy? _atkEnemy;   // enemy currently taking its turn (for size-based dodge)
     // Routes to the current player's own position so every party member
@@ -130,6 +131,17 @@ partial class CombatSession
                 {
                     Console.WriteLine("  A palisade wall blocks your way!");
                     continue;
+                }
+                // Wading a river square costs double movement
+                if (IsRiver(nx, ny))
+                {
+                    if (squares - used < 2)
+                    {
+                        Console.WriteLine("  The river is too deep to cross with your last step (river squares cost 2).");
+                        continue;
+                    }
+                    used++;   // the extra cost; the normal step is counted below
+                    Console.WriteLine("  You wade into the river — slow going (2 movement).");
                 }
                 PlayerPos = new GridPos(nx, ny);
                 used++;
@@ -196,6 +208,7 @@ partial class CombatSession
             Trees = Trees.Select(t => new GridPos(t.X, t.Y)).ToList(),
             Rocks = Rocks.Select(r => new GridPos(r.X, r.Y)).ToList(),
             Caves = Caves.Select(cv => new GridPos(cv.X, cv.Y)).ToList(),
+            Rivers = Rivers.Select(rv => new GridPos(rv.X, rv.Y)).ToList(),
         });
     }
 

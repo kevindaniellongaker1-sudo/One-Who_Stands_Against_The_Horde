@@ -183,8 +183,21 @@ class Player
     public int PotionsBoost = 0, PotionsHeal = 0, PotionsPoison = 0, PotionsRestore = 0;
     public int PotionAtkBoost = 0, PotionBoostTurns = 0;
     public bool HasReturningAmmo = false;   // Magic Crafting: ammo flies back unbroken
+    public bool HasBagOfHolding = false;    // no carry limit at all
+    public bool HasWorkshopHammer = false;  // required to craft as an Artisan
     public int MaterialLoad => Wood + Stone + Ore + Hides + Meat;
-    public int PackRoom => Math.Max(0, CarryCap - MaterialLoad);
+
+    // ── Carriers: arrows fill the quiver, potions the pouch, throwing
+    // weapons the band. Whatever overflows spills into the pack (arrows
+    // bundle 10 to a slot). The Bag of Holding removes the limit entirely.
+    public int TotalArrows => ArrowCount + BluntArrows + BarbedArrows + SpiralArrows;
+    public int TotalPotions => PotionsBoost + PotionsHeal + PotionsPoison + PotionsRestore;
+    public int ThrowingLoad => DaggerCount + AxeCount;
+    public int ArrowOverflow  => HasQuiverOfHolding ? 0 : Math.Max(0, TotalArrows - QuiverCap);
+    public int PotionOverflow => Math.Max(0, TotalPotions - PotionPouchCap);
+    public int ThrowOverflow  => Math.Max(0, ThrowingLoad - ThrowBandCap);
+    public int PackLoad => MaterialLoad + (ArrowOverflow + 9) / 10 + PotionOverflow + ThrowOverflow;
+    public int PackRoom => HasBagOfHolding ? int.MaxValue / 4 : Math.Max(0, CarryCap - PackLoad);
     // Armor: one main suit + one under-layer. Cloth = unarmored.
     public string MainArmor = "Cloth";
     public string UnderArmor = "";

@@ -76,6 +76,37 @@ partial class CombatSession
             // ── Wildlife behave by instinct, not malice ──
             if (e.IsWildlife) { WildlifeTurn(e); continue; }
 
+            // ── A beast drew this soldier's blood: it turns and fights it ──
+            if (e.ProvokedBy is { Alive: true, IsWildlife: true } beastFoe)
+            {
+                if (e.Position.ManhattanDist(beastFoe.Position) > 10)
+                    e.ProvokedBy = null;   // it got away — back to the war
+                else
+                {
+                    Console.WriteLine($"  {e.Name} turns on {beastFoe.Name}!");
+                    for (int a = 0; a < 3 && beastFoe.Alive; a++)
+                    {
+                        if (e.Position.IsCardinalAdjacent(beastFoe.Position))
+                        {
+                            int atk = Rng.Next(e.MinAttack, e.MaxAttack + 1) - e.AttackPenalty;
+                            int ddg = Rng.Next(beastFoe.MinDodge, beastFoe.MaxDodge + 1);
+                            Console.WriteLine($"  {e.Name} strikes at {beastFoe.Name}! Roll {atk} vs dodge {ddg}.");
+                            if (atk >= ddg)
+                            {
+                                int dmg = ReduceByToughHide(beastFoe, Rng.Next(e.MinDamage, e.MaxDamage + 1));
+                                beastFoe.HP -= dmg;
+                                beastFoe.ProvokedBy = e;   // the beast remembers too
+                                Console.WriteLine($"  HIT for {dmg}! {beastFoe.Name} HP:{beastFoe.HP}/{beastFoe.MaxHP}");
+                                if (!beastFoe.Alive) { Console.WriteLine($"  {beastFoe.Name} is slain!"); e.ProvokedBy = null; }
+                            }
+                            else Console.WriteLine($"  {beastFoe.Name} evades!");
+                        }
+                        else if (!TryBeastStep(e, beastFoe.Position)) break;
+                    }
+                    continue;
+                }
+            }
+
             // Raised dead ally: attacks nearest living non-ally enemy
             if (e.IsPlayerAlly)
             {
@@ -1503,119 +1534,276 @@ partial class CombatSession
         }
     }
 
+    // ── The ecosystem in motion. Each beast gets 3 actions. ──
+    // Wolves hunt deer and boar (move → bite → circle away), devour their
+    // kills to heal, and at death's door flee toward easy prey. Hornless deer
+    // run from predators and graze; antlered deer gore whatever hurt them.
+    // Boars charge ANYTHING — players, the horde, other beasts — and keep
+    // charging it. Bears press their target relentlessly, and crawl off to a
+    // cave (sleep), river (fish) or tree when nearly dead.
+
+    // "5% or less, or 1-2 hit points" — the point where instinct says run
+    bool BeastCritical(Enemy e) => e.HP <= Math.Max(2, (e.MaxHP + 19) / 20);
+
+    // One step directly away from a threat (projected far past the mover)
+    void StepAway(Enemy w, GridPos threat)
+    {
+        var away = new GridPos(
+            Math.Clamp(w.Position.X + Math.Sign(w.Position.X - threat.X) * 6, 0, 49),
+            Math.Clamp(w.Position.Y + Math.Sign(w.Position.Y - threat.Y) * 6, 0, 49));
+        TryBeastStep(w, away);
+    }
+
+    // A beast savages another creature (deer, boar, or a horde soldier).
+    // The victim remembers — ProvokedBy drives retaliation next turn.
+    void WildAttackEnemy(Enemy w, Enemy victim, string label, int atkMin, int atkMax, int dmgMin, int dmgMax)
+    {
+        int atk = Rng.Next(atkMin, atkMax + 1);
+        int ddg = Rng.Next(victim.MinDodge, victim.MaxDodge + 1);
+        Console.WriteLine($"  {w.Name} {label} {victim.Name}! Roll {atk} vs dodge {ddg}.");
+        if (atk < ddg) { Console.WriteLine($"  {victim.Name} evades!"); return; }
+        int dmg = ReduceByToughHide(victim, Rng.Next(dmgMin, dmgMax + 1));
+        victim.HP -= dmg;
+        victim.ProvokedBy = w;
+        Console.WriteLine($"  HIT for {dmg}! {victim.Name} HP:{victim.HP}/{victim.MaxHP}");
+        if (!victim.Alive)
+        {
+            Console.WriteLine($"  {victim.Name} is brought down by {w.Name}!");
+            if (w is Wolf) { w.CorpseMeals += 4; Console.WriteLine($"  {w.Name} stands over its kill."); }
+        }
+    }
+
+    // Nearest living thing matching a filter, within range (squares)
+    Enemy? Nearest(Enemy from, Func<Enemy, bool> pick, int range) =>
+        Active.Where(e => e.Alive && e != from && pick(e)
+                          && from.Position.ManhattanDist(e.Position) <= range)
+              .OrderBy(e => from.Position.ManhattanDist(e.Position))
+              .FirstOrDefault();
+
     void WildlifeTurn(Enemy w)
     {
-        int sq = w.Position.ManhattanDist(PlayerPos);
+        if (w.ProvokedBy is { Alive: false }) w.ProvokedBy = null;
+        if (w.BeastTarget is { Alive: false }) w.BeastTarget = null;
+        bool critical = BeastCritical(w);
+        int sqP = w.Position.ManhattanDist(PlayerPos);
 
+        // ── DEER ──
         if (w is Deer deer)
         {
-            // Antlered deer gore their attacker; the rest just graze and wander
-            if (deer.Antlered && deer.HP < deer.MaxHP && w.Position.IsCardinalAdjacent(PlayerPos))
-                WildAttackPlayer(w, "lowers its antlers and charges", 2, 8, 2, 12);
-            else
-                WildWander(w);
+            // Wounded-to-critical (or hornless and threatened): flee, then graze
+            var predator = Nearest(w, e => e is Wolf or Bear, 8);
+            bool threatened = predator != null || (sqP <= 6 && w.ProvokedByPlayer);
+            if (critical || (!deer.Antlered && (threatened || w.ProvokedBy != null)))
+            {
+                var from = predator?.Position ?? w.ProvokedBy?.Position ?? PlayerPos;
+                for (int a = 0; a < 3; a++) { StepAway(w, from); StepAway(w, from); }
+                Console.WriteLine($"  {w.Name} bolts, white tail flashing!");
+                return;
+            }
+            // Antlered and angry: gore whatever hurt it
+            if (deer.Antlered && (w.ProvokedBy != null || (w.ProvokedByPlayer && sqP <= 8)))
+            {
+                for (int a = 0; a < 3; a++)
+                {
+                    if (w.ProvokedBy != null)
+                    {
+                        if (w.Position.IsCardinalAdjacent(w.ProvokedBy.Position))
+                            WildAttackEnemy(w, w.ProvokedBy, "lowers its antlers and GORES", 2, 8, 2, 12);
+                        else TryBeastStep(w, w.ProvokedBy.Position);
+                    }
+                    else if (w.Position.IsCardinalAdjacent(PlayerPos))
+                        WildAttackPlayer(w, "lowers its antlers and GORES", 2, 8, 2, 12);
+                    else TryBeastStep(w, PlayerPos);
+                }
+                return;
+            }
+            // Peace: graze back to health, else wander
+            if (w.HP < w.MaxHP && predator == null && sqP > 8)
+            {
+                w.HP = Math.Min(w.MaxHP, w.HP + 2);
+                Console.WriteLine($"  {w.Name} grazes peacefully. (+2 HP: {w.HP}/{w.MaxHP})");
+            }
+            else WildWander(w);
             return;
         }
 
+        // ── WOLF ──
         if (w is Wolf)
         {
-            // Wolves hunt deer first, then circle human prey within 4 squares
-            var prey = Active.OfType<Deer>().FirstOrDefault(d => d.Alive && d.Position.ManhattanDist(w.Position) <= 4);
-            if (prey != null)
+            // Death's door: break off and slink toward the easiest prey around
+            if (critical)
             {
-                if (!w.Position.IsCardinalAdjacent(prey.Position))
-                    w.Position = StepToward(w.Position, prey.Position);
-                if (w.Position.IsCardinalAdjacent(prey.Position))
+                var easy = Nearest(w, e => e is Deer { Antlered: false }, 30);
+                var danger = Nearest(w, e => !e.IsWildlife, 10);
+                for (int a = 0; a < 3; a++)
                 {
-                    int bite = Rng.Next(2, 9);
-                    prey.HP -= bite;
-                    Console.WriteLine($"  {w.Name} savages {prey.Name} for {bite}!" + (prey.HP <= 0 ? $" {prey.Name} is brought down." : ""));
+                    if (danger != null) StepAway(w, danger.Position);
+                    else if (sqP < 10) StepAway(w, PlayerPos);
+                    if (easy != null) TryBeastStep(w, easy.Position);
+                }
+                Console.WriteLine($"  {w.Name} limps away, eyeing weaker prey.");
+                return;
+            }
+            // A kill to eat and no one crowding: devour a quarter per action
+            if (w.CorpseMeals > 0 && Nearest(w, e => !e.IsWildlife, 3) == null && sqP > 3)
+            {
+                for (int a = 0; a < 3 && w.CorpseMeals > 0 && w.HP < w.MaxHP; a++)
+                {
+                    int meat = Rng.Next(2, 4);
+                    w.HP = Math.Min(w.MaxHP, w.HP + meat);
+                    w.CorpseMeals--;
+                    Console.WriteLine($"  {w.Name} tears into its kill. (+{meat} HP: {w.HP}/{w.MaxHP}, {w.CorpseMeals}/4 left)");
                 }
                 return;
             }
-            if (sq <= 1)
+            // Choose prey: whoever hurt it, else deer/boar, else close strangers
+            Enemy? prey = w.ProvokedBy ?? Nearest(w, e => e is Deer or Boar, 12);
+            bool huntPlayer = prey == null && (w.ProvokedByPlayer || sqP <= 4);
+            if (prey == null && !huntPlayer) { WildWander(w); return; }
+
+            // The pack pattern: close — bite — circle away
+            GridPos preyPos = prey?.Position ?? PlayerPos;
+            for (int s = 0; s < 2 && !w.Position.IsCardinalAdjacent(preyPos); s++)
+                TryBeastStep(w, preyPos);
+            if (w.Position.IsCardinalAdjacent(preyPos))
             {
-                // Hit and run: bite, then back off two squares
-                WildAttackPlayer(w, "darts in and BITES", 3, 12, 2, 8);
-                WildRetreat(w, 2);
-                Console.WriteLine($"  {w.Name} circles away, hackles raised.");
+                if (prey != null) WildAttackEnemy(w, prey, "darts in and BITES", 3, 12, 2, 8);
+                else WildAttackPlayer(w, "darts in and BITES", 3, 12, 2, 8);
             }
-            else if (sq <= 4)
-            {
-                w.Position = StepToward(w.Position, PlayerPos);
-                if (!w.Position.IsCardinalAdjacent(PlayerPos))
-                    w.Position = StepToward(w.Position, PlayerPos);
-                if (w.Position.IsCardinalAdjacent(PlayerPos))
-                    WildAttackPlayer(w, "lunges and BITES", 3, 12, 2, 8);
-            }
-            else WildWander(w);
+            StepAway(w, preyPos); StepAway(w, preyPos);
+            Console.WriteLine($"  {w.Name} circles away, hackles raised.");
             return;
         }
 
-        if (w is Boar boar)
+        // ── BOAR ──
+        if (w is Boar)
         {
-            if (boar.JustCharged)
+            // Pick (and keep) a target: its tormentor, or the nearest creature
+            // of any allegiance — horde and heroes alike get charged.
+            if (w.ProvokedBy != null) w.BeastTarget = w.ProvokedBy;
+            w.BeastTarget ??= Nearest(w, e => e is not Boar && e is not Deer, 8);
+            bool chargePlayer = w.BeastTarget == null && (w.ProvokedByPlayer || sqP <= 5);
+            if (w.BeastTarget == null && !chargePlayer) { WildWander(w); return; }
+
+            GridPos tp = w.BeastTarget?.Position ?? PlayerPos;
+            for (int a = 0; a < 3; a++)
             {
-                // Wheel around after the charge, ready for another pass
-                boar.JustCharged = false;
-                WildRetreat(w, 2);
-                Console.WriteLine($"  {w.Name} thunders past and wheels around, snorting.");
-                return;
-            }
-            if (sq <= 5)
-            {
-                for (int s = 0; s < 3 && !w.Position.IsCardinalAdjacent(PlayerPos); s++)
-                    w.Position = StepToward(w.Position, PlayerPos);
-                if (w.Position.IsCardinalAdjacent(PlayerPos))
+                tp = w.BeastTarget?.Position ?? PlayerPos;
+                if (w.Position.IsCardinalAdjacent(tp))
                 {
-                    WildAttackPlayer(w, "CHARGES with slashing tusks", 2, 6, 3, 12);
-                    boar.JustCharged = true;
+                    if (w.BeastTarget != null) WildAttackEnemy(w, w.BeastTarget, "CHARGES with slashing tusks", 2, 6, 3, 12);
+                    else WildAttackPlayer(w, "CHARGES with slashing tusks", 2, 6, 3, 12);
                 }
+                else
+                {
+                    // Thundering charge — collisions bowl creatures over
+                    for (int s = 0; s < 3 && !w.Position.IsCardinalAdjacent(tp); s++)
+                        if (!TryBeastStep(w, tp)) break;
+                }
+                if (w.BeastTarget is { Alive: false }) w.BeastTarget = null;
             }
-            else WildWander(w);
             return;
         }
 
+        // ── BEAR ──
         if (w is Bear)
         {
-            if (sq <= 3 || w.HP < w.MaxHP)
+            // Nearly dead: drag itself to a cave (sleep), river (fish) or tree
+            if (critical || (w.HP < w.MaxHP / 2 && (Caves.Contains((w.Position.X, w.Position.Y)) || Rivers.Contains((w.Position.X, w.Position.Y)))))
             {
-                if (!w.Position.IsCardinalAdjacent(PlayerPos))
-                    w.Position = StepToward(w.Position, PlayerPos);
-                if (w.Position.IsCardinalAdjacent(PlayerPos))
+                var here = (w.Position.X, w.Position.Y);
+                if (Caves.Contains(here))
                 {
-                    if (!P.IsGrappled && Rng.Next(100) < 30)
+                    int z = Rng.Next(1, 3);
+                    w.HP = Math.Min(w.MaxHP, w.HP + z);
+                    Console.WriteLine($"  {w.Name} sleeps in its cave, wounds knitting. (+{z} HP: {w.HP}/{w.MaxHP})");
+                    return;
+                }
+                if (Rivers.Contains(here) || Rivers.Any(r => Math.Abs(r.X - w.Position.X) + Math.Abs(r.Y - w.Position.Y) == 1))
+                {
+                    for (int a = 0; a < 3 && w.HP < w.MaxHP; a++)
                     {
-                        // Bear hug: claws in the back, teeth at the neck
-                        int hugGrap = Rng.Next(w.MinGrapple, w.MaxGrapple + 1);
-                        int pGrap = Rng.Next(P.MinGrapple, P.MaxGrapple + 1) + P.Strength;
-                        Console.WriteLine($"  {w.Name} rears up for a BEAR HUG! {hugGrap} vs your {pGrap}.");
-                        if (hugGrap >= pGrap)
+                        if (Rng.Next(100) < 75)
                         {
-                            P.IsGrappled = true; P.GrappledBy = w;
-                            int clawDmg = 0; for (int d = 0; d < 6; d++) clawDmg += Rng.Next(1, 3);   // 6d2
-                            int biteDmg = 0; for (int d = 0; d < 4; d++) biteDmg += Rng.Next(1, 4);   // 4d3
-                            int total = clawDmg + biteDmg;
-                            total = Math.Max(2, total - P.ArmorDamageReduction);
-                            P.HP -= total;
-                            Console.WriteLine($"  Claws dig into your back ({clawDmg}) as it BITES ({biteDmg})! {total} damage. HP:{P.HP}/{P.MaxHP}");
+                            int fish = Rng.Next(2, 5);
+                            w.HP = Math.Min(w.MaxHP, w.HP + fish);
+                            Console.WriteLine($"  {w.Name} snatches a fish from the river. (+{fish} HP: {w.HP}/{w.MaxHP})");
                         }
-                        else Console.WriteLine("  You twist free of its grasp!");
+                        else Console.WriteLine($"  {w.Name} paws at the water and misses.");
                     }
-                    else
+                    return;
+                }
+                if (Trees.Contains(here)) { Console.WriteLine($"  {w.Name} clings to a tree, out of the fight."); return; }
+                // Sprint toward whichever refuge is closest
+                var refuges = Caves.Concat(Rivers).Concat(Trees).ToList();
+                if (refuges.Count > 0)
+                {
+                    var dest = refuges.OrderBy(r => Math.Abs(r.X - w.Position.X) + Math.Abs(r.Y - w.Position.Y)).First();
+                    for (int s = 0; s < 6; s++) TryBeastStep(w, new GridPos(dest.X, dest.Y));
+                    Console.WriteLine($"  {w.Name} lumbers away, bleeding, seeking shelter.");
+                }
+                else WildRetreat(w, 3);
+                return;
+            }
+
+            // Press the attack: its tormentor first, else anything close
+            Enemy? btarget = w.ProvokedBy ?? Nearest(w, e => !e.IsWildlife, 4);
+            bool maulPlayer = btarget == null && (w.ProvokedByPlayer || sqP <= 3);
+            if (btarget == null && !maulPlayer)
+            {
+                if (Rng.Next(100) < 40) WildWander(w);   // lumber about the den
+                return;
+            }
+            for (int a = 0; a < 3; a++)
+            {
+                GridPos tp = btarget?.Position ?? PlayerPos;
+                if (w.Position.IsCardinalAdjacent(tp))
+                {
+                    if (btarget != null)
                     {
-                        // Fury of Blows: one bite and four claw swipes in one action
-                        WildAttackPlayer(w, "BITES", 3, 12, 2, 8);
-                        for (int c = 0; c < 4 && P.HP > 0; c++)
-                            WildAttackPlayer(w, $"rakes with its claws ({c + 1}/4)", 2, 12, 3, 12);
+                        WildAttackEnemy(w, btarget, "BITES", 3, 12, 2, 8);
+                        if (btarget is { Alive: false }) { btarget = null; w.ProvokedBy = null; }
                     }
+                    else BearMaulPlayer(w);
+                }
+                else
+                {
+                    if (!TryBeastStep(w, tp)) break;
+                    TryBeastStep(w, btarget?.Position ?? PlayerPos);   // sprinting pace
                 }
             }
-            else if (Rng.Next(100) < 40) WildWander(w);   // lumber about the den
             return;
         }
 
         WildWander(w);
+    }
+
+    // The bear's full fury against a player: bear hug or bite-and-claws
+    void BearMaulPlayer(Enemy w)
+    {
+        if (!P.IsGrappled && Rng.Next(100) < 30)
+        {
+            int hugGrap = Rng.Next(w.MinGrapple, w.MaxGrapple + 1);
+            int pGrap = Rng.Next(P.MinGrapple, P.MaxGrapple + 1) + P.Strength;
+            Console.WriteLine($"  {w.Name} rears up for a BEAR HUG! {hugGrap} vs your {pGrap}.");
+            if (hugGrap >= pGrap)
+            {
+                P.IsGrappled = true; P.GrappledBy = w;
+                int clawDmg = 0; for (int d = 0; d < 6; d++) clawDmg += Rng.Next(1, 3);   // 6d2
+                int biteDmg = 0; for (int d = 0; d < 4; d++) biteDmg += Rng.Next(1, 4);   // 4d3
+                int total = clawDmg + biteDmg;
+                total = Math.Max(2, total - P.ArmorDamageReduction);
+                P.HP -= total;
+                Console.WriteLine($"  Claws dig into your back ({clawDmg}) as it BITES ({biteDmg})! {total} damage. HP:{P.HP}/{P.MaxHP}");
+            }
+            else Console.WriteLine("  You twist free of its grasp!");
+        }
+        else
+        {
+            WildAttackPlayer(w, "BITES", 3, 12, 2, 8);
+            for (int c = 0; c < 4 && P.HP > 0; c++)
+                WildAttackPlayer(w, $"rakes with its claws ({c + 1}/4)", 2, 12, 3, 12);
+        }
     }
 
     // ── GIANT MAGE GRIMOIRE ───────────────────────────────────────────────

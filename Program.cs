@@ -252,7 +252,14 @@ while (true)
         if (lootCopper > 0)
         {
             long share = lootCopper / allPlayers.Count;
-            foreach (var pl in allPlayers) pl.Copper += share;
+            foreach (var pl in allPlayers)
+            {
+                // Point-buy "money collected" boosts: base is guaranteed,
+                // max adds a random top-up, both per wave
+                long keenEye = pl.MoneyBonus + rng.Next(0, pl.MoneyMaxBonus + 1);
+                pl.Copper += share + keenEye;
+                if (keenEye > 0) Console.WriteLine($"  {pl.Name}'s keen eye turns up {Shop.Fmt(keenEye)} extra.");
+            }
             Console.WriteLine($"  Loot: {Shop.Fmt(lootCopper)} — {Shop.Fmt(share)} per player." +
                 (allPlayers.Count > 1 ? " (split evenly, rounded down)" : ""));
         }
@@ -1462,7 +1469,8 @@ void SelectCharacterType(Player p)
         p.HeldWeapon = "Bow";
         p.SecondaryWeapon = "Short Sword";
         p.ArrowCount = 50;
-        Console.WriteLine("  Starting weapon: Bow (50 arrows) + Short Sword backup");
+        p.QuiverCap = 50;   // archers start with a fitted quiver, free
+        Console.WriteLine("  Starting weapon: Bow (50 arrows in a free quiver) + Short Sword backup");
         Console.WriteLine("  Bow range: 5-14ft=4-12dmg  15-45ft=2-10dmg  46-60ft=1-5dmg  Min 4ft  Max 60ft");
         Console.WriteLine("  Unarmed: 1-4");
     }
@@ -1536,7 +1544,8 @@ void SelectCharacterType(Player p)
         p.SecondaryWeapon = "Axe";
         p.ArrowCount = 6;
         p.CarryCap = 50;
-        Console.WriteLine("  Starting kit: Dagger + Axe + Pickaxe + Shortbow (6 arrows)");
+        p.HasWorkshopHammer = true;   // artisans start with their hammer, free
+        Console.WriteLine("  Starting kit: Dagger + Axe + Pickaxe + Shortbow (6 arrows) + Workshop Hammer");
         Console.WriteLine("  After each wave, pick ONE: hunt, mine, or cut wood — gathering materials.");
         Console.WriteLine("  Craft arrows, weapons, shields and armor from wood/stone/ore/hides after combat.");
         Console.WriteLine("  Material needs shrink each level (min 1). Trade gear to allies; sell materials.");
@@ -1647,12 +1656,13 @@ void BrowseStorefront(Player pl, string shop)
                 case "Throwing Band":     pl.ThrowBandCap += 4; Console.WriteLine($"  A throwing band — holds {pl.ThrowBandCap} throwing weapons."); break;
                 case "Artisan's Bag":     pl.CarryCap += 50; Console.WriteLine($"  An artisan's bag — pack space is now {pl.CarryCap}."); break;
                 case "Quiver of Holding": pl.HasQuiverOfHolding = true; Console.WriteLine("  A quiver of holding — endless arrows!"); break;
-                default:                  pl.CarryCap = 9999; Console.WriteLine("  A bag of holding — carry anything!"); break;
+                default:                  pl.HasBagOfHolding = true; Console.WriteLine("  A bag of holding — no carry limit at all!"); break;
             }
             continue;
         }
         // ── Weapons ──
         pl.Copper -= cost;
+        if (item == "Workshop Hammer") pl.HasWorkshopHammer = true;   // unlocks Artisan crafting
         if (pl.HeldWeapon == null) { pl.HeldWeapon = item; Console.WriteLine($"  You wield the {item}."); }
         else if (pl.SecondaryWeapon == null) { pl.SecondaryWeapon = item; Console.WriteLine($"  You stow the {item}."); }
         else
@@ -1749,7 +1759,7 @@ void VisitShop(Player pl)
                     Console.WriteLine("  The Mirror Shield gleams — spells and prayers may bounce back at their casters!");
                     break;
                 case "3":
-                    pl.CarryCap = 99999;
+                    pl.HasBagOfHolding = true;
                     Console.WriteLine("  The Bag of Holding swallows everything you own with room to spare. Carry capacity: limitless.");
                     break;
             }
@@ -2194,7 +2204,7 @@ void VisitCrafting(Player pl)
                     Console.WriteLine($"  {craftFor.Name} raises the gleaming Mirror Shield!");
                     break;
                 case "Bag of Holding":
-                    craftFor.CarryCap = 99999;
+                    craftFor.HasBagOfHolding = true;
                     Console.WriteLine($"  {craftFor.Name}'s Bag of Holding is bottomless. Carry capacity: limitless.");
                     break;
             }
@@ -2504,6 +2514,7 @@ void SaveGame(Player p, int groups)
         $"ChiUses={p.ChiUses}",
         $"QuiverCap={p.QuiverCap}", $"PotionPouchCap={p.PotionPouchCap}",
         $"ThrowBandCap={p.ThrowBandCap}", $"HasQuiverOfHolding={p.HasQuiverOfHolding}",
+        $"HasBagOfHolding={p.HasBagOfHolding}", $"HasWorkshopHammer={p.HasWorkshopHammer}",
         $"PrayerHealMaxBonus={p.PrayerHealMaxBonus}", $"PrayerDmgBonus={p.PrayerDmgBonus}",
         $"PrayerDmgMaxBonus={p.PrayerDmgMaxBonus}", $"PrayerVsHp={p.PrayerVsHp}", $"PrayerVsHpMax={p.PrayerVsHpMax}",
         $"PrayerAbilBonus={p.PrayerAbilBonus}", $"PrayerAbilMaxBonus={p.PrayerAbilMaxBonus}", $"PrayerTurnsMax={p.PrayerTurnsMax}",
@@ -2660,6 +2671,17 @@ bool TryLoadGame(Player p, string filePath)
             p.QuiverCap = I("QuiverCap"); p.PotionPouchCap = I("PotionPouchCap");
             p.ThrowBandCap = I("ThrowBandCap");
             p.HasQuiverOfHolding = G("HasQuiverOfHolding") == "True";
+        }
+        if (dict.ContainsKey("HasBagOfHolding"))
+        {
+            p.HasBagOfHolding = G("HasBagOfHolding") == "True";
+            p.HasWorkshopHammer = G("HasWorkshopHammer") == "True";
+        }
+        else
+        {
+            // Older saves used a CarryCap sentinel for the Bag of Holding
+            if (p.CarryCap >= 9999) p.HasBagOfHolding = true;
+            if (p.CharacterType == "Artisan") p.HasWorkshopHammer = true;
         }
         // Point-buy investments — absent in older saves, so they default to 0
         if (dict.ContainsKey("PrayerHealMaxBonus"))

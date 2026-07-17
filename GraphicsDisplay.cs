@@ -30,6 +30,7 @@ class RenderSnapshot
     public List<GridPos> Trees = new();
     public List<GridPos> Rocks = new();
     public List<GridPos> Caves = new();
+    public List<GridPos> Rivers = new();   // crossable water — double movement
 }
 
 class SharedGameState
@@ -354,6 +355,17 @@ class GraphicsDisplay
         {
             int px = c * Cell;
             Raylib.DrawLine(px, 0, px, mapPxH, new Color(30, 30, 30, 255));
+        }
+
+        // Rivers first, under everything else (crossable, double movement)
+        foreach (var rv in snap.Rivers)
+        {
+            int sx = (rv.X - ox) * Cell;
+            int sy = (rv.Y - oy) * Cell;
+            if (sx < 0 || sy < 0 || sx >= mapPxW || sy >= mapPxH) continue;
+            Raylib.DrawRectangle(sx, sy, Cell, Cell, new Color(38, 84, 148, 255));
+            Raylib.DrawLine(sx + 3, sy + Cell / 3, sx + Cell - 3, sy + Cell / 3, new Color(90, 140, 200, 255));
+            Raylib.DrawLine(sx + 5, sy + 2 * Cell / 3, sx + Cell - 5, sy + 2 * Cell / 3, new Color(90, 140, 200, 255));
         }
 
         // Terrain: camp walls, trees, rocks

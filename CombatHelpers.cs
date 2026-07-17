@@ -191,47 +191,50 @@ partial class CombatSession
         if (int.TryParse(r, out int ci) && ci >= 1 && ci <= uses.Length) key = uses[ci - 1].Key;
         else { var m = uses.FirstOrDefault(u => u.Key.StartsWith(r)); if (m.Key == null) return; key = m.Key; }
 
-        // Reach is checked BEFORE the point is spent — no wasted chi
+        // The point is charged only once the action is fully CONFIRMED —
+        // no reach, no target, or a cancelled pick all cost nothing.
         bool needsReach = key is "attack" or "flurry" or "grapple" or "throw" or "limb" or "disarm";
         if (needsReach && !alive.Any(InMeleeReach))
         { Console.WriteLine("  Nobody within reach — your chi is not spent."); return; }
 
-        P.ChiUses--;
-        Console.WriteLine($"  You focus your chi. ({P.ChiUses} left)");
+        Enemy? t = null;
+        if (needsReach)
+        {
+            t = PickTarget(alive.Where(InMeleeReach).ToList());
+            if (t == null) { Console.WriteLine("  No target chosen — your chi is not spent."); return; }
+        }
+        else if (key == "charge")
+        {
+            t = PickTarget(alive);
+            if (t == null) { Console.WriteLine("  No target chosen — your chi is not spent."); return; }
+        }
+
+        void Spend() => Console.WriteLine($"  You focus your chi. ({--P.ChiUses} left)");
         switch (key)
         {
             case "attack":
-            {
-                var t = PickTarget(alive.Where(InMeleeReach).ToList());
-                if (t != null) DoAttack(t); else Console.WriteLine("  Nobody in reach.");
+                Spend();
+                DoAttack(t!);
                 break;
-            }
             case "flurry":
-            {
-                var t = PickTarget(alive.Where(InMeleeReach).ToList());
-                if (t == null) { Console.WriteLine("  Nobody in reach."); break; }
+                Spend();
                 Console.WriteLine("  CHI FLURRY — five strikes!");
-                for (int i = 0; i < 5 && t.Alive; i++) DoAttack(t);
+                for (int i = 0; i < 5 && t!.Alive; i++) DoAttack(t);
                 break;
-            }
             case "grapple":
-            {
-                var t = PickTarget(alive.Where(InMeleeReach).ToList());
-                if (t != null) DoGrapple(t); else Console.WriteLine("  Nobody in reach.");
+                Spend();
+                DoGrapple(t!);
                 break;
-            }
             case "throw":
             case "limb":
             case "disarm":
-            {
-                var t = PickTarget(alive.Where(InMeleeReach).ToList());
-                if (t == null) { Console.WriteLine("  Nobody in reach."); break; }
+                Spend();
                 Console.WriteLine($"  Chi-powered {key}!");
-                DoAttack(t);
+                DoAttack(t!);
                 break;
-            }
             case "move":
             {
+                Spend();
                 int mv = Rng.Next(P.MinMovement, P.MaxMovement + 1) + P.MovementBonus + P.MoveTrait();
                 Console.WriteLine($"  Chi step: {mv} square(s).");
                 StepMovement(mv);
@@ -239,6 +242,7 @@ partial class CombatSession
             }
             case "sprint":
             {
+                Spend();
                 int sp = Math.Max(1, (Rng.Next(1, 7) + Rng.Next(1, 7) + P.MovementBonus + P.SprintBonus + P.SprintTrait()) * 2);
                 Console.WriteLine($"  CHI SPRINT: {sp} square(s), no penalty!");
                 StepMovement(sp);
@@ -246,28 +250,26 @@ partial class CombatSession
                 break;
             }
             case "charge":
-            {
-                var t = PickTarget(alive);
-                if (t == null) break;
-                while (PlayerPos.ManhattanDist(t.Position) > 1) PlayerPos = StepToward(PlayerPos, t.Position);
+                Spend();
+                while (PlayerPos.ManhattanDist(t!.Position) > 1) PlayerPos = StepToward(PlayerPos, t.Position);
                 Console.WriteLine($"  Chi charge into {t.Name}!");
                 DoAttack(t);
                 break;
-            }
-            case "double":     ChiDoubleMonkDmg = true;  Console.WriteLine("  Your monk weapon hums — double damage this turn."); break;
-            case "nonlethal":  ChiDoubleNonLethal = true; Console.WriteLine("  Your non-lethal strikes hit double this turn."); break;
+            case "double":     Spend(); ChiDoubleMonkDmg = true;  Console.WriteLine("  Your monk weapon hums — double damage this turn."); break;
+            case "nonlethal":  Spend(); ChiDoubleNonLethal = true; Console.WriteLine("  Your non-lethal strikes hit double this turn."); break;
             case "heal":
             {
+                Spend();
                 int h = Rng.Next(1, 4) + Rng.Next(1, 4);
                 P.HP = Math.Min(P.MaxHP, P.HP + h);
                 Console.WriteLine($"  Inner calm mends {h} HP. HP:{P.HP}/{P.MaxHP}");
                 break;
             }
-            case "rrdodge":  ChiRerollDodge = true;  Console.WriteLine("  Ready to reroll your next dodge."); break;
-            case "rrblock":  ChiRerollBlock = true;  Console.WriteLine("  Ready to reroll your next block."); break;
-            case "rrparry":  ChiRerollParry = true;  Console.WriteLine("  Ready to reroll your next parry."); break;
-            case "rrattack": ChiRerollAttack = true; Console.WriteLine("  Ready to reroll your next attack."); break;
-            case "rrflee":   ChiRerollRunAway = true; Console.WriteLine("  Ready to reroll your next escape."); break;
+            case "rrdodge":  Spend(); ChiRerollDodge = true;  Console.WriteLine("  Ready to reroll your next dodge."); break;
+            case "rrblock":  Spend(); ChiRerollBlock = true;  Console.WriteLine("  Ready to reroll your next block."); break;
+            case "rrparry":  Spend(); ChiRerollParry = true;  Console.WriteLine("  Ready to reroll your next parry."); break;
+            case "rrattack": Spend(); ChiRerollAttack = true; Console.WriteLine("  Ready to reroll your next attack."); break;
+            case "rrflee":   Spend(); ChiRerollRunAway = true; Console.WriteLine("  Ready to reroll your next escape."); break;
         }
     }
 
@@ -383,7 +385,8 @@ partial class CombatSession
         int dice = P.FearDiceCount();
         int roll = P.SongFear;                                    // base song fear vs HP
         // "+1 max fear" purchases widen only the first die, not every die
-        for (int d = 0; d < dice; d++) roll += Rng.Next(1, 7 + (d == 0 ? P.SongFearMax : 0));
+        for (int d = 0; d < dice; d++) roll += Rng.Next(1, 7);
+        roll += Rng.Next(0, P.SongFearMax + 1);   // "max fear" raises the overall top
         int radius = P.SongRadiusSquares();
         Console.WriteLine($"  ♪ DEATHTONE! Dread chord: {roll} ({dice}d6) within {radius} squares. Enemies with {roll} HP or less flee!");
         foreach (var fe in Active.Where(e => e.Alive && !e.IsPlayerAlly && e.HP <= roll

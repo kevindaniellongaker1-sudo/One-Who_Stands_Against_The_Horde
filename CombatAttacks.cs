@@ -192,7 +192,7 @@ partial class CombatSession
                 TryEnemyArmBlock(target, ofAtk, ref ofDmg);
                 ofDmg = ReduceByToughHide(target, ofDmg);
                 Console.WriteLine($"  Off-hand HIT! {ofDmg} dmg → {target.Name} HP:{target.HP - ofDmg}/{target.MaxHP}");
-                target.HP -= ofDmg;
+                target.HP -= ofDmg; if (target.IsWildlife) { target.ProvokedByPlayer = true; target.ProvokedBy = null; }
                 if (!target.Alive) HandleKill(target);
             }
             else if (ofAtk < ofDdg) Console.WriteLine("  Off-hand MISS!");
@@ -214,7 +214,7 @@ partial class CombatSession
                     int d = Rng.Next(1, 5) + P.RingletBonus;
                     TryEnemyArmBlock(target, hbA, ref d);
                     d = ReduceByToughHide(target, d);
-                    target.HP -= d;
+                    target.HP -= d; if (target.IsWildlife) { target.ProvokedByPlayer = true; target.ProvokedBy = null; }
                     Console.WriteLine($"  Headbutt HIT! {d} dmg.");
                     if (!target.Alive) HandleKill(target);
                 }
@@ -287,7 +287,7 @@ partial class CombatSession
             int sd = Rng.Next(1, 5);
             int cd = Rng.Next(1, 7);
             Console.WriteLine($"  Sap HIT! {sd} dmg, chance die: {cd}");
-            target.HP -= sd;
+            target.HP -= sd; if (target.IsWildlife) { target.ProvokedByPlayer = true; target.ProvokedBy = null; }
             switch (cd)
             {
                 case 1: Console.WriteLine("  Enemy shrugs off the worst (-2 dmg taken)."); break;
@@ -310,7 +310,7 @@ partial class CombatSession
         TryEnemyArmBlock(target, atkRoll, ref dmg);
         dmg = ReduceByToughHide(target, dmg);
         Console.WriteLine($"  HIT! {dmg} dmg → {target.Name} HP:{target.HP - dmg}/{target.MaxHP}");
-        target.HP -= dmg;
+        target.HP -= dmg; if (target.IsWildlife) { target.ProvokedByPlayer = true; target.ProvokedBy = null; }
         LichTouchHeal(dmg);
 
         if (sunder && target.Alive)
@@ -340,7 +340,7 @@ partial class CombatSession
             int d = Rng.Next(1, 5) + P.RingletBonus;
             TryEnemyArmBlock(target, kA, ref d);
             d = ReduceByToughHide(target, d);
-            target.HP -= d;
+            target.HP -= d; if (target.IsWildlife) { target.ProvokedByPlayer = true; target.ProvokedBy = null; }
             Console.WriteLine($"  Kick HIT! {d} dmg → {target.Name} HP:{target.HP}/{target.MaxHP}");
             if (!target.Alive) HandleKill(target);
         }
@@ -358,7 +358,7 @@ partial class CombatSession
             int dmg = Rng.Next(P.MinDamage, P.MaxDamage + 1) + (P.HasFeat("Built") ? P.GetFeatStacks("Built") : 0);
             TryEnemyArmBlock(target, a, ref dmg);
             dmg = ReduceByToughHide(target, dmg);
-            target.HP -= dmg;
+            target.HP -= dmg; if (target.IsWildlife) { target.ProvokedByPlayer = true; target.ProvokedBy = null; }
             Console.WriteLine($"  HIT! {dmg} dmg → {target.Name} HP:{target.HP}/{target.MaxHP}");
             if (!target.Alive) HandleKill(target);
         }
@@ -951,7 +951,7 @@ partial class CombatSession
             int dmg = Rng.Next(dmgMin, dmgMax + 1) + SlayerDmg() + arrowDmgBonus;
             dmg = ReduceByToughHide(target, dmg);
             Console.WriteLine($"  Arrow HIT! {dmg} dmg → {target.Name} HP:{target.HP - dmg}/{target.MaxHP}");
-            target.HP -= dmg;
+            target.HP -= dmg; if (target.IsWildlife) { target.ProvokedByPlayer = true; target.ProvokedBy = null; }
             target.ArrowsInBody++;
             if (!P.HasReturningAmmo && Rng.Next(100) < 25) Console.WriteLine("  The arrow snaps in the wound!");
             else RecoverArrowLater(arrowType);
@@ -999,7 +999,7 @@ partial class CombatSession
                 int dmg2 = Rng.Next(d2Min, d2Max + 1) + SlayerDmg();
                 dmg2 = ReduceByToughHide(target, dmg2);
                 Console.WriteLine($"  Arrow HIT! {dmg2} dmg → {target.Name} HP:{target.HP - dmg2}/{target.MaxHP}");
-                target.HP -= dmg2;
+                target.HP -= dmg2; if (target.IsWildlife) { target.ProvokedByPlayer = true; target.ProvokedBy = null; }
                 target.ArrowsInBody++;
                 if (Rng.Next(100) < 25) Console.WriteLine("  The arrow snaps in the wound!");
                 else RecoverArrowLater("regular");
@@ -1027,7 +1027,7 @@ partial class CombatSession
             int dmg = Rng.Next(3, 5) + SlayerDmg();
             dmg = ReduceByToughHide(target, dmg);
             Console.WriteLine($"  Wand HIT! {dmg} dmg → {target.Name} HP:{target.HP - dmg}/{target.MaxHP}");
-            target.HP -= dmg;
+            target.HP -= dmg; if (target.IsWildlife) { target.ProvokedByPlayer = true; target.ProvokedBy = null; }
             if (!target.Alive) HandleKill(target);
         }
         else Console.WriteLine("  Wand MISS!");
@@ -1047,20 +1047,20 @@ partial class CombatSession
                 if (target.IsUndead)
                 {
                     Console.WriteLine($"  Mace HIT! {dmg} dmg — undead take lethal damage! {target.Name} defeated!");
-                    target.HP -= dmg;
+                    target.HP -= dmg; if (target.IsWildlife) { target.ProvokedByPlayer = true; target.ProvokedBy = null; }
                     HandleKill(target);
                 }
                 else
                 {
                     Console.WriteLine($"  Mace HIT! {dmg} dmg → {target.Name} KNOCKED OUT!");
-                    target.HP -= dmg;
+                    target.HP -= dmg; if (target.IsWildlife) { target.ProvokedByPlayer = true; target.ProvokedBy = null; }
                     KnockOut(target);
                 }
             }
             else
             {
                 Console.WriteLine($"  Mace HIT! {dmg} dmg (non-lethal) → {target.Name} HP:{target.HP - dmg}/{target.MaxHP}");
-                target.HP -= dmg;
+                target.HP -= dmg; if (target.IsWildlife) { target.ProvokedByPlayer = true; target.ProvokedBy = null; }
             }
         }
         else Console.WriteLine("  Mace MISS!");
@@ -1117,7 +1117,7 @@ partial class CombatSession
                 gDmg += maBonus;
                 Console.WriteLine($"  Martial Artist grip: +{maBonus} ({maDice}d4) grapple damage!");
             }
-            target.HP -= gDmg;
+            target.HP -= gDmg; if (target.IsWildlife) { target.ProvokedByPlayer = true; target.ProvokedBy = null; }
             LichTouchHeal(gDmg);
             Console.WriteLine($"  Grapple damage: {gDmg} → {target.Name} HP:{target.HP}/{target.MaxHP}");
             if (!target.Alive) { HandleKill(target); return; }
@@ -1130,10 +1130,10 @@ partial class CombatSession
                 int bd = Rng.Next(P.MinLimbBreak, P.MaxLimbBreak + 1);
                 switch (lb.Length > 0 ? lb[0] : 's')
                 {
-                    case 'l': target.HP -= bd; target.CanMove = false; Console.WriteLine($"  Leg broken! {bd} dmg. Can't walk."); break;
-                    case 'a': target.HP -= bd; target.Disarmed = true; Console.WriteLine($"  Arm broken! {bd} dmg. Can't hold weapon."); break;
+                    case 'l': target.HP -= bd; if (target.IsWildlife) { target.ProvokedByPlayer = true; target.ProvokedBy = null; } target.CanMove = false; Console.WriteLine($"  Leg broken! {bd} dmg. Can't walk."); break;
+                    case 'a': target.HP -= bd; if (target.IsWildlife) { target.ProvokedByPlayer = true; target.ProvokedBy = null; } target.Disarmed = true; Console.WriteLine($"  Arm broken! {bd} dmg. Can't hold weapon."); break;
                     case 'n': target.HP = 0; Console.WriteLine("  Neck snapped! Instant kill!"); break;
-                    case 'b': target.HP -= bd; target.CanMove = false; target.KnockedDown = true; Console.WriteLine($"  Back broken! {bd} dmg. Can't move."); break;
+                    case 'b': target.HP -= bd; if (target.IsWildlife) { target.ProvokedByPlayer = true; target.ProvokedBy = null; } target.CanMove = false; target.KnockedDown = true; Console.WriteLine($"  Back broken! {bd} dmg. Can't move."); break;
                 }
                 if (!target.Alive) HandleKill(target);
             }

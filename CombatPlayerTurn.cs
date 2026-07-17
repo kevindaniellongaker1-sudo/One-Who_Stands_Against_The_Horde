@@ -290,7 +290,7 @@ partial class CombatSession
                     if (P.Climbed) { Console.WriteLine("  You're up high — climb down (action) or jump down first!"); continue; }
                     // Sprint is 2d6 (+ movement/sprint bonuses)
                     // 2d6; "max sprint" purchases raise only the top of the roll
-                    int sprintRoll = Math.Max(1, Rng.Next(1, 7) + Rng.Next(1, 7 + P.SprintMaxBonus) + P.MovementBonus + P.SprintBonus + P.SprintTrait());
+                    int sprintRoll = Math.Max(1, Rng.Next(1, 7) + Rng.Next(1, 7) + Rng.Next(0, P.SprintMaxBonus + 1) + P.MovementBonus + P.SprintBonus + P.SprintTrait());
                     string spNote = P.NoSprintPenalty ? "[no penalty]" : P.DoubleSprintPenalty ? "[-4 to next action]" : "[-2 to next action]";
                     Console.WriteLine($"  SPRINT! {sprintRoll} square(s). {spNote}");
                     StepMovement(sprintRoll);
@@ -881,7 +881,8 @@ partial class CombatSession
                     {
                         int roll = P.PrayerHealBonus;
                         if (P.HasFeat("Elemental") && P.ElementalFocus == "holy") roll += 2;
-                        for (int d = 0; d < healDice; d++) roll += Rng.Next(1, 7 + (d == 0 ? P.PrayerHealMaxBonus : 0));
+                        for (int d = 0; d < healDice; d++) roll += Rng.Next(1, 7);
+                        roll += Rng.Next(0, P.PrayerHealMaxBonus + 1);   // "max healing" raises the overall top
 
                         // Healing energy harms undead — offer to smite a nearby undead instead of self-heal
                         var undeadTargets = alive.Where(en => en.IsUndead && PlayerPos.Feet(en.Position) <= 25f).ToList();
@@ -995,7 +996,8 @@ partial class CombatSession
                             {
                                 int roll2 = P.PrayerHealBonus;
                                 if (P.HasFeat("Elemental") && P.ElementalFocus == "holy") roll2 += 2;
-                                for (int d = 0; d < healDice; d++) roll2 += Rng.Next(1, 7 + (d == 0 ? P.PrayerHealMaxBonus : 0));
+                                for (int d = 0; d < healDice; d++) roll2 += Rng.Next(1, 7);
+                                roll2 += Rng.Next(0, P.PrayerHealMaxBonus + 1);
                                 int heal2 = Math.Min(roll2, P.MaxHP - P.HP);
                                 P.HP += heal2;
                                 Console.WriteLine($"  [Holy Roller] Prayer of Healing! Restored {heal2} HP. ({P.HP}/{P.MaxHP})");

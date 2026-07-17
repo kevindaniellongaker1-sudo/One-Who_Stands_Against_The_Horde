@@ -66,7 +66,28 @@ partial class CombatSession
             var p = (Rng.Next(4, 46), Rng.Next(2, 48));
             if (!Walls.Contains(p) && !Trees.Contains(p) && !Rocks.Contains(p)) Caves.Add(p);
         }
+
+        // A river winds down the left-center of the field (clear of the camps).
+        // It is crossable, but each river square costs DOUBLE movement — and
+        // bears fish in it to heal. Not every battlefield has one.
+        if (Rng.Next(100) < 70)
+        {
+            int rx = Rng.Next(8, 22);
+            for (int y = 0; y < 50; y++)
+            {
+                rx = Math.Clamp(rx + Rng.Next(-1, 2), 6, 26);
+                var p1 = (rx, y);
+                if (!Walls.Contains(p1)) { Rivers.Add(p1); Trees.Remove(p1); Rocks.Remove(p1); Caves.Remove(p1); }
+                if (Rng.Next(100) < 45)   // widen to two squares in places
+                {
+                    var p2 = (rx + 1, y);
+                    if (!Walls.Contains(p2)) { Rivers.Add(p2); Trees.Remove(p2); Rocks.Remove(p2); Caves.Remove(p2); }
+                }
+            }
+        }
     }
+
+    bool IsRiver(int x, int y) => Rivers.Contains((x, y));
 
     // Wildlife roams every battlefield: deer 1d9-1 (1d4-1 antlered), wolves
     // 1d6-1, boars 1d5-1, bears 1d4-1 (denned near caves or trees)
@@ -207,9 +228,53 @@ partial class CombatSession
         }
     }
 
+    // ── One enemy step with the shared terrain rules ──
+    // Rivers: stepping into a river square sets Wading; the NEXT step is spent
+    // struggling out (double cost). Collisions: walking into another enemy
+    // knocks down whichever of the two has the lower best-of-Strength/Dex.
+    // Returns true if the mover actually advanced.
+    bool TryBeastStep(Enemy mover, GridPos target)
+    {
+        if (mover.Wading)
+        {
+            mover.Wading = false;
+            Console.WriteLine($"  {mover.Name} struggles through the river.");
+            return false;
+        }
+        var step = StepToward(mover.Position, target, mover);
+        if (step.SameAs(mover.Position)) return false;
+        var blocker = Active.FirstOrDefault(o => o.Alive && o != mover && o.Position.SameAs(step));
+        if (blocker != null)
+        {
+            CollideEnemies(mover, blocker);
+            return false;
+        }
+        mover.Position = step;
+        if (IsRiver(step.X, step.Y)) mover.Wading = true;
+        return true;
+    }
+
+    // Two bodies, one square: the stronger/nimbler one keeps its feet.
+    void CollideEnemies(Enemy mover, Enemy blocker)
+    {
+        int a = Math.Max(mover.Strength, mover.Dexterity);
+        int b = Math.Max(blocker.Strength, blocker.Dexterity);
+        var down = a > b ? blocker : b > a ? mover : (Rng.Next(2) == 0 ? mover : blocker);
+        down.KnockedDown = true; down.OffBalance = true;
+        Console.WriteLine($"  {mover.Name} barrels into {blocker.Name} — {down.Name} is knocked DOWN!");
+    }
+
     void MoveTowardPlayer(Enemy e, ref int actions, bool suppressCost = false)
     {
         if (e.Position.IsCardinalAdjacent(PlayerPos)) return;
+        // Wading out of a river costs this action's movement
+        if (e.Wading)
+        {
+            e.Wading = false;
+            Console.WriteLine($"  {e.Name} wades through the river — slow going.");
+            if (!suppressCost) actions--;
+            return;
+        }
         if (e.HalfMovement)
         {
             if (e.HalfMovementBlock) { e.HalfMovementBlock = false; if (!suppressCost) actions--; return; }
@@ -232,6 +297,7 @@ partial class CombatSession
         {
             e.Position = StepToward(e.Position, PlayerPos, e, occupied);
         }
+        if (IsRiver(e.Position.X, e.Position.Y)) e.Wading = true;   // pays next action
         if (!suppressCost) actions--;
         if (e.Position.IsCardinalAdjacent(PlayerPos))
             Console.WriteLine($"  {e.Name} closes to melee range!");
@@ -276,6 +342,7 @@ partial class CombatSession
                 if (Trees.Contains((x, y))) { Console.Write('T'); continue; }
                 if (Rocks.Contains((x, y))) { Console.Write('r'); continue; }
                 if (Caves.Contains((x, y))) { Console.Write('C'); continue; }
+                if (Rivers.Contains((x, y))) { Console.Write('~'); continue; }
                 Console.Write('.');
             }
             Console.WriteLine();

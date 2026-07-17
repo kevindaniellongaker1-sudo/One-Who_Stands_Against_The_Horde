@@ -116,6 +116,12 @@ abstract class Enemy
     public int Strength = 0, Dexterity = 0, Intelligence = 0, Wisdom = 0;
     public int Constitution = 0, Smarts = 0, Charisma = 0, Agility = 0;
     public bool FearImmune = false;
+    public bool Wading = false;       // mid-river: the next step is spent wading
+    // ── Ecosystem state ──
+    public Enemy? BeastTarget;        // what this creature is hunting / charging
+    public Enemy? ProvokedBy;         // the last creature that injured it (retaliation)
+    public bool ProvokedByPlayer;     // a player injured it — beasts hold grudges
+    public int CorpseMeals = 0;       // wolf: quarter-corpses left to devour (4 per kill)
     // Fear (rage/frenzy/DeathTone): fight = blindly attack the source,
     // flight = blindly run from it, for FearTurns turns.
     public int FearTurns = 0;
