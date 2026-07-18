@@ -1822,6 +1822,23 @@ partial class CombatSession
     void GiantMageAction(GiantMage gm)
     {
         if (SilenceTurns > 0) { Console.WriteLine($"  {gm.Name} thunders arcane words — but the silence smothers them!"); return; }
+        // Wave 110+ mages carry volatile flasks — sometimes one comes flying
+        if (gm.ThrowPotions > 0 && Rng.Next(100) < 35 && gm.Position.Feet(PlayerPos) <= 40f)
+        {
+            gm.ThrowPotions--;
+            int pAtk = Rng.Next(gm.MinAttack, gm.MaxAttack + 1);
+            int pDdg = PDodgeRoll() + PDodgeSize();
+            Console.WriteLine($"  {gm.Name} hurls a hissing FLASK! Roll {pAtk} vs your dodge {pDdg}. ({gm.ThrowPotions} left)");
+            if (pAtk >= pDdg)
+            {
+                int fDmg = Rng.Next(1, 5) + Rng.Next(1, 5);   // alchemical — armor doesn't help
+                if (P.Defending) fDmg = Math.Max(1, fDmg / 2);
+                P.HP -= fDmg;
+                Console.WriteLine($"  It shatters in acrid fire for {fDmg}! HP:{P.HP}/{P.MaxHP}");
+            }
+            else Console.WriteLine("  It bursts harmlessly beside you!");
+            return;
+        }
         if (gm.SpellUsesLeft <= 0)
         {
             // Out of magic: staff melee or lumber closer

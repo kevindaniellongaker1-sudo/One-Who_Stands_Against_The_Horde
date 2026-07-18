@@ -77,9 +77,14 @@ partial class CombatSession
         int absorbPct = Math.Min(100, P.ArmorAbsorbPct + P.RaceAbsorbPct);
         if (absorbPct > 0 && Rng.Next(100) < absorbPct)
         {
-            if (channel == "spell") P.SpellUses++;
-            else P.PrayerUses++;
-            Console.WriteLine($"  You ABSORB the {channel}! (+1 {channel} use)");
+            // Monk Garbs turn absorbed magic into CHI for a monk
+            if (P.IsMonk && (P.MainArmor == "Monk Garbs" || P.UnderArmor == "Monk Garbs"))
+            {
+                P.ChiUses++;
+                Console.WriteLine($"  Your Monk Garbs drink the {channel} — it flows into your CHI! ({P.ChiUses})");
+            }
+            else if (channel == "spell") { P.SpellUses++; Console.WriteLine($"  You ABSORB the {channel}! (+1 {channel} use)"); }
+            else { P.PrayerUses++; Console.WriteLine($"  You ABSORB the {channel}! (+1 {channel} use)"); }
             return 0;
         }
         // Mirror Shield: 35% chance to hurl the magic back at its caster

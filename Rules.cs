@@ -129,6 +129,7 @@ static class Shop
         ["Fire Robes"] = 5 * Gold, ["Frost Robes"] = 5 * Gold,
         ["Lightning Robes"] = 7 * Gold, ["Holy Vestments"] = 10 * Gold,
         ["Unholy Robe"] = 7 * Gold, ["Air Robe"] = 6 * Gold, ["Bard Vestments"] = 8 * Gold,
+        ["Monk Garbs"] = 10 * Gold,
         // enemy gear (sellable loot)
         ["Goblin Dagger"] = 40, ["Orc Longsword"] = 40 * Silver, ["Troll Axe"] = 2 * Gold,
         ["Bastard Sword"] = 60 * Silver, ["Kukuri"] = 25 * Silver, ["Ogre Club"] = 2 * Gold,
@@ -168,7 +169,7 @@ static class Shop
         ["Magic Shop"] = new[]
         { "Mirror Shield", "Returning Quiver", "Bag of Holding", "Quiver of Holding",
           "Fire Robes", "Frost Robes", "Lightning Robes", "Holy Vestments",
-          "Unholy Robe", "Air Robe", "Bard Vestments" },
+          "Unholy Robe", "Air Robe", "Bard Vestments", "Monk Garbs" },
         ["Bags Shop"] = new[]
         { "Quiver", "Potion Pouch", "Throwing Band", "Artisan's Bag", "Bag of Holding" },
         ["Dojo"] = new[]
@@ -227,6 +228,7 @@ static class Shop
         ["Unholy Robe"]     = new(7 * Gold,  true, false, 0, 1, 1, 15, "negative-energy spells absorbed 100%, 15% of anything else; your raised undead get +10 HP; negative energy heals you/undead +2d2 and deals +2d2 to the living"),
         ["Air Robe"]        = new(6 * Gold,  true, false, 0, 1, 1, 15, "wind/air spells absorbed 100%, 15% of anything else; your wind spells push 5ft further and gain +2d2 damage & to-hit"),
         ["Bard Vestments"]  = new(8 * Gold,  true, false, 0, 1, 1, 15, "fear/negative songs, prayers & spells absorbed 100% (become song uses), 15% of damage magic; songs last 1d2 longer and hit 2d2 harder"),
+        ["Monk Garbs"]      = new(10 * Gold, true, false, 3, 1, 1, 25, "25% absorb of hostile magic — becomes CHI for monks; -4 non-lethal / -2d2 lethal taken; wearable over anything but plate"),
     };
 
     public static long Sell(string item) =>

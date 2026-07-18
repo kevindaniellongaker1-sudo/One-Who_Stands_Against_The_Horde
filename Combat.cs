@@ -177,6 +177,29 @@ partial class CombatSession
     // 80% of shop value for every weapon still lying on the battlefield
     public long LeftoverGearCopper() => GroundWeapons.Sum(w => Shop.Sell(w.Type));
 
+    // The fallen are stripped of weapons too: main weapon, spare throwing
+    // axes/daggers, and shields, all sold at 80% into the loot pot.
+    public long FallenGearCopper()
+    {
+        long total = 0;
+        foreach (var e in Active.Where(e => (!e.Alive || e.KnockedOut) && !e.Fled && !e.IsWildlife))
+        {
+            string w = EnemyWeaponType(e);
+            if (w.Length > 0) total += Shop.Sell(w);
+            total += e switch
+            {
+                Troll t          => t.SpareAxes * Shop.Sell("Hand Axe") + t.EquippedAxes * Shop.Sell("Hand Axe"),
+                GiantDuelist gd  => gd.HandAxes * Shop.Sell("Hand Axe") + Shop.Sell("Shield"),
+                OrcBarbarian ob  => ob.HandAxeCount * Shop.Sell("Hand Axe"),
+                RogueGoblin rg   => rg.DaggerCount * Shop.Sell("Dagger"),
+                HobgoblinThief h => h.DaggerCount * Shop.Sell("Dagger"),
+                GiantEnemy       => Shop.Sell("Shield"),
+                _ => 0,
+            };
+        }
+        return total;
+    }
+
     void PushDisplay()
     {
         if (_displayState == null) return;

@@ -267,6 +267,12 @@ while (true)
         if (gearCopper > 0)
             Console.WriteLine($"  You strip the battlefield of gear worth {Shop.Fmt(gearCopper)} (sold at 80%).");
         lootCopper += gearCopper;
+        long weaponCopper = session.FallenGearCopper();
+        if (weaponCopper > 0)
+        {
+            Console.WriteLine($"  The fallen yield weapons, spares and shields worth {Shop.Fmt(weaponCopper)} (sold at 80%).");
+            lootCopper += weaponCopper;
+        }
         if (lootCopper > 0)
         {
             long share = lootCopper / allPlayers.Count;
@@ -510,7 +516,8 @@ List<Enemy> BuildGroup(int waveNum, Random r)
     else
     {
         // Wave 41+: each slot rolls to determine what spawns (ogre is one result, not guaranteed)
-        int slots = Math.Min(waveNum - 40, 10);
+        // Wave 110+ the drums beat harder: one extra roll per group
+        int slots = Math.Min(waveNum - 40, 10) + (waveNum >= 110 ? 1 : 0);
         int trolls = Math.Max(0, 10 - slots);
         for (int i = 0; i < trolls; i++) g.Add(Troll.RandType(r, $"Troll {i + 1}"));
         for (int i = 0; i < slots && i < 12; i++)
@@ -727,6 +734,69 @@ void OutfitLateGameHorde(Enemy e, int wave, Random r)
             e.MinDodge += 1; e.MaxDodge += 1;
             e.HasKick = true;
             Dmg(2);                                     // honed weapon upgrade
+        }
+
+        // ── Wave 110+: the horde's masters and specialists come into their own ──
+        if (wave >= 110)
+        {
+            if (e is OrcMonk omk)
+            {
+                Wear("Monk Garbs", 3, 25);              // their signature garb
+                e.HasDoubleTap = true;                  // second martial style
+                Hp(10); Atk(1); Dmg(1); Hp(2);          // +10 HP and 6 points
+                // A true monk weapon, matched to their style
+                omk.MonkWeapon = omk.MartialStyle switch
+                {
+                    "Grappler" => r.Next(2) == 0 ? "Chain and Ball" : "Spike Chain",
+                    "Defender" => r.Next(2) == 0 ? "Tetsubo" : "Staff",
+                    _          => r.Next(2) == 0 ? "Nunchucks" : "Katana",   // Striker
+                };
+                Dmg(2);                                 // the weapon bites harder
+            }
+            else if (e is TrollMusician tmu)
+            {
+                e.SongUsesLeft += 2;                    // another song feat
+                tmu.SpareAxes += 3;
+                Hp(5); e.HasParry = true;               // fitting combat feat
+            }
+            else if (e is GoblinShaman)
+            {
+                e.PrayerUsesLeft += 2;                  // another prayer feat
+                Hp(8); Atk(1); Dmg(1); Hp(2);           // 6 points
+                e.HasBlock = true;
+                Dmg(2);                                 // takes up a War Mace
+            }
+            else if (e is NecromancerTroll nct)
+            {
+                nct.EquippedAxes = 2;                   // two hand axes now
+                e.SpellUsesLeft += 2;                   // another spell feat
+                e.HasBlock = true;
+                Atk(2); Dmg(1); Hp(3);                  // 8 points
+                Hp(5);
+            }
+            else if (e is SpellGoblin)
+            {
+                e.SpellUsesLeft += 2;                   // deeper schooling
+                Atk(1); Dmg(1); Hp(2);                  // 6 points
+            }
+            else if (e is GiantMage)
+            {
+                Hp(12); Atk(1); Dmg(1); Hp(1);          // 5 points
+                e.SpellUsesLeft += 4;                   // two more spell feats
+                Dmg(2);                                 // a long staff
+                e.ThrowPotions = r.Next(1, 4);          // volatile flasks
+            }
+            else if (e.Race == "Goblin")
+            {
+                Hp(12); Atk(2); Dmg(2); Hp(4); e.MinDodge += 2; e.MaxDodge += 2;   // 12 points
+                e.HasParry = true;
+                e.HasDoubleTap = true;
+                if (e is RogueGoblin rgd) rgd.DaggerCount += 4;
+            }
+            else if (e.Race == "Hobgoblin")
+            {
+                e.HasDoubleTap = true;
+            }
         }
     }
 }

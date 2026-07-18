@@ -128,6 +128,7 @@ abstract class Enemy
     public int SpellAbsorbPct = 0;    // robes: chance to shrug off player magic
     public int ChiLeft = 0;           // Orc Monks: chi pool (80% of lowest player level)
     public bool LichBound = false;    // necromancer trolls at 91+: touch heals them
+    public int ThrowPotions = 0;      // giant mages at 110+: volatile flasks to hurl
     // Fear (rage/frenzy/DeathTone): fight = blindly attack the source,
     // flight = blindly run from it, for FearTurns turns.
     public int FearTurns = 0;
@@ -742,6 +743,7 @@ class OrcMonk : Enemy
 {
     public string MartialStyle;
     public bool HasMartialStaff;
+    public string MonkWeapon = "";   // wave 110+: a true monk weapon by style
     public OrcMonk(Random rng, string name) : base(name, "Orc Monk")
     {
         MaxHP = 24; HP = MaxHP;

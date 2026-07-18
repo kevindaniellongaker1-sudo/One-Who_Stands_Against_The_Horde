@@ -713,7 +713,7 @@ partial class CombatSession
         GoblinWarrior    => "Short Sword",
         Goblin => "Goblin Dagger",
         OrcBarbarian => "Battle Axe",
-        OrcMonk om => om.HasMartialStaff ? "Staff" : "",
+        OrcMonk om => om.MonkWeapon.Length > 0 ? om.MonkWeapon : om.HasMartialStaff ? "Staff" : "",
         OrcPriestess => "War Mace",
         OrcRanger => "Kukuri",
         Orc => "Orc Longsword",
