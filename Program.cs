@@ -795,7 +795,37 @@ void OutfitLateGameHorde(Enemy e, int wave, Random r)
             }
             else if (e.Race == "Hobgoblin")
             {
+                Hp(10); Atk(2); Dmg(1); Hp(2);          // +10 HP and 8 points
+                e.HasDoubleTap = true; e.HasParry = true;   // two fitting feats
+                Dmg(2);                                 // weapon upgrades
+                e.HealPotions = 1;                      // one healing potion each
+            }
+            else if (e.Race == "Orc")                   // monks were handled above
+            {
+                Hp(10); Atk(1); Dmg(1); Hp(2);          // 6 points
+                e.HasDoubleTap = true; e.HasBlock = true;   // two feats
+                Dmg(2);                                 // weapon upgrade
+                e.ArmorDR += 1;                         // shield upgrade
+                e.ExtraActions += 1;                    // another action per turn
+            }
+            else if (e.Race == "Troll")                 // musicians/necromancers handled above
+            {
+                Hp(8); Atk(1); Dmg(1); Hp(2);           // 6 points
+                e.HasBlock = true; e.HasParry = true;   // two fitting feats
+                e.DoubleRegen = true;                   // regeneration runs twice as hot
+            }
+            else if (e.Race == "Ogre")
+            {
+                Hp(12); Atk(2); Dmg(1); Hp(3);          // 8 points
+                Dmg(2);                                 // weapon upgrade
                 e.HasDoubleTap = true;
+            }
+            else if (e.Race == "Giant")                 // mages handled above
+            {
+                Atk(2); Dmg(2); Hp(3); e.MinDodge++; e.MaxDodge++;   // 10 points
+                e.HasParry = true; e.HasKick = true;    // two fitting feats
+                Dmg(2); e.ArmorDR += 1;                 // upgraded weapon & shield
+                e.HasBlock = true; e.HasArmBlock = true;   // +2 feats fitting that kit
             }
         }
     }

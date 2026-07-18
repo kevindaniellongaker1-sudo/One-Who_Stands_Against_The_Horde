@@ -162,7 +162,17 @@ partial class CombatSession
 
             // Stand up if knocked down
             // NPCs act 3 times per turn; goblins are quick (+1), ogres slow (-1)
-            int actions = 3 + (e.Race == "Goblin" ? 1 : 0) - (e.Race == "Ogre" ? 1 : 0);
+            int actions = 3 + (e.Race == "Goblin" ? 1 : 0) - (e.Race == "Ogre" ? 1 : 0) + e.ExtraActions;
+
+            // A wounded soldier with a potion drinks it (one action)
+            if (e.HealPotions > 0 && e.HP * 5 <= e.MaxHP * 2 && actions > 0)
+            {
+                e.HealPotions--;
+                int swig = Rng.Next(1, 5) + Rng.Next(1, 5) + 2;
+                e.HP = Math.Min(e.MaxHP, e.HP + swig);
+                actions--;
+                Console.WriteLine($"  {e.Name} gulps a healing potion! (+{swig} HP: {e.HP}/{e.MaxHP})");
+            }
             if (e.KnockedDown)
             {
                 Console.WriteLine($"  {e.Name} stands up (1 action used).");
@@ -553,7 +563,7 @@ partial class CombatSession
             if (e is NecromancerTroll)
             {
                 // Troll regeneration
-                int nRegen = Rng.Next(2, 5);
+                int nRegen = Rng.Next(2, 5) * (e.DoubleRegen ? 2 : 1);
                 e.HP = Math.Min(e.HP + nRegen, e.MaxHP);
                 Console.WriteLine($"  {e.Name} regenerates {nRegen} HP! (HP:{e.HP}/{e.MaxHP})");
 
@@ -651,7 +661,7 @@ partial class CombatSession
                 // Free action: regenerate 2-4 HP (undead trolls do not regenerate)
                 if (!e.IsUndead)
                 {
-                    int regen = Rng.Next(2, 5);
+                    int regen = Rng.Next(2, 5) * (e.DoubleRegen ? 2 : 1);
                     e.HP = Math.Min(e.HP + regen, e.MaxHP);
                     Console.WriteLine($"  {e.Name} regenerates {regen} HP! (HP:{e.HP}/{e.MaxHP})");
                 }

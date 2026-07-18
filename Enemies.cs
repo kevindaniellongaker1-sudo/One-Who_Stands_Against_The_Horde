@@ -129,6 +129,9 @@ abstract class Enemy
     public int ChiLeft = 0;           // Orc Monks: chi pool (80% of lowest player level)
     public bool LichBound = false;    // necromancer trolls at 91+: touch heals them
     public int ThrowPotions = 0;      // giant mages at 110+: volatile flasks to hurl
+    public int HealPotions = 0;       // hobgoblins at 110+: a swig when wounded
+    public int ExtraActions = 0;      // orcs at 110+: one more action per turn
+    public bool DoubleRegen = false;  // trolls at 110+: regeneration runs twice as hot
     // Fear (rage/frenzy/DeathTone): fight = blindly attack the source,
     // flight = blindly run from it, for FearTurns turns.
     public int FearTurns = 0;
