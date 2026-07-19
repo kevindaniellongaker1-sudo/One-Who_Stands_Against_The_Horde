@@ -335,6 +335,9 @@ partial class CombatSession
                 if (IsWall(x, y)) { Console.Write('#'); continue; }
                 bool isAxe = Active.OfType<Troll>().Any(tr => tr.ThrownAxePositions.Any(ap => ap.SameAs(pos)));
                 if (isAxe) { Console.Write('x'); continue; }
+                // The dragon covers a 3x3 block ('D'; lowercase while airborne)
+                var drOn = alive.OfType<Dragon>().FirstOrDefault(d => d.Covers(pos));
+                if (drOn != null) { Console.Write(drOn.Flying ? 'd' : 'D'); continue; }
                 var en = alive.FirstOrDefault(a => a.Position.SameAs(pos));
                 if (en != null) { Console.Write(EnemyChar(en)); continue; }
                 bool isWeapon = GroundWeapons.Any(w => w.Pos.SameAs(pos));

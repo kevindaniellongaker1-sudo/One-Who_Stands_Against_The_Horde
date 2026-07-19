@@ -170,6 +170,28 @@ class Player
     public int FearTurns = 0;
     public bool FearFight = false;
     public Enemy? FearSource;         // what terrified you (fight it or flee it)
+
+    // ── Dragon combat state (combat-scoped, reset each CombatSession) ──
+    public Enemy? SwallowedBy;        // inside the dragon: triple damage out, acid in
+    public int ProneTurns = 0;        // knocked off your feet: stand up costs an action
+    public int BleedTurns = 0;        // claw gashes: 1 HP/turn
+
+    // ── Elixirs (the dragon-hoard potions; named inventory persists) ──
+    public Dictionary<string, int> SpecialPotions = new();
+    // Combat-scoped elixir effects (reset each CombatSession; ElixirDR is also
+    // subtracted out in SaveGame so it never bakes into a save)
+    public int ElixirAtk = 0, ElixirDodge = 0, ElixirDmg = 0, ElixirDR = 0;
+    public int ElixirHealMin = 0, ElixirHealMax = 0;
+    public int ElixirDoubleDmgPct = 0;
+    public bool ElixirDoubleMove = false, ElixirSongDouble = false;
+    // Each active elixir counts down in turns; Expire undoes what it gave
+    public List<(string Name, int TurnsLeft, Action<Player> Expire)> ActiveElixirs = new();
+
+    // ── Enchanting (persistent; bought at the Magic Shop) ──
+    public Dictionary<string, int> EnchantedWeapons = new();   // weapon name → +x atk & dmg
+    public int ArmorEnchant = 0;      // +x to armor; negate chance with shield
+    public int ShieldEnchant = 0;     // +x to shield block
+    public int WeaponEnchant() => EnchantedWeapons.GetValueOrDefault(HeldWeapon ?? "");
     public long Copper = 0;                  // purse (100c=1s, 100s=1g, 100g=1p)
     public int BluntArrows = 0;              // non-lethal
     public int BarbedArrows = 0;             // +1d4 damage

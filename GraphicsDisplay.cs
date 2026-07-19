@@ -415,6 +415,29 @@ class GraphicsDisplay
         {
             int sx = (pos.X - ox) * Cell;
             int sy = (pos.Y - oy) * Cell;
+            // The dragon: a 3x3 crimson bulk with wings, drawn from its centre
+            if (type == "Dragon")
+            {
+                int dx0 = (pos.X - 1 - ox) * Cell, dy0 = (pos.Y - 1 - oy) * Cell;
+                if (dx0 + Cell * 3 < 0 || dy0 + Cell * 3 < 0 || dx0 >= mapPxW || dy0 >= mapPxH) continue;
+                Raylib.DrawRectangle(dx0, dy0, Cell * 3, Cell * 3, new Color(140, 20, 25, 255));
+                Raylib.DrawRectangleLines(dx0, dy0, Cell * 3, Cell * 3, new Color(255, 120, 40, 255));
+                Raylib.DrawTriangle(new System.Numerics.Vector2(dx0, dy0 + Cell),
+                                    new System.Numerics.Vector2(dx0 - Cell / 2, dy0),
+                                    new System.Numerics.Vector2(dx0, dy0),
+                                    new Color(100, 12, 16, 255));
+                Raylib.DrawTriangle(new System.Numerics.Vector2(dx0 + Cell * 3, dy0),
+                                    new System.Numerics.Vector2(dx0 + Cell * 3 + Cell / 2, dy0),
+                                    new System.Numerics.Vector2(dx0 + Cell * 3, dy0 + Cell),
+                                    new Color(100, 12, 16, 255));
+                int dfs = Math.Max(10, Cell / 2);
+                Raylib.DrawText("DRAGON", dx0 + 6, dy0 + Cell * 3 / 2 - dfs / 2, dfs, Color.Gold);
+                // HP bar across the whole bulk
+                int barW = Cell * 3 - 8;
+                Raylib.DrawRectangle(dx0 + 4, dy0 + 3, barW, 5, new Color(60, 20, 20, 255));
+                Raylib.DrawRectangle(dx0 + 4, dy0 + 3, (int)(barW * Math.Clamp(hp / (float)maxHp, 0f, 1f)), 5, new Color(70, 220, 70, 255));
+                continue;
+            }
             if (sx < 0 || sy < 0 || sx >= mapPxW || sy >= mapPxH) continue;
             DrawEntity(sx, sy, type, hp, maxHp);
         }

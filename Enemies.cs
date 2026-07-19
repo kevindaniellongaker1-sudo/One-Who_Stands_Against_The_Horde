@@ -659,6 +659,52 @@ class GiantDuelist : GiantEnemy
 // ── Wildlife: neutral beasts that roam the battlefield ─────────────────────
 // They don't count toward wave victory. Killing one yields hides and meat.
 
+// ═══ THE DRAGON ═══ A wave-130 boss. Gigantic (size 3), occupies a 3x3
+// block centred on Position, has a facing, flies, swallows people whole,
+// and breathes fire. Its AI lives in DragonTurn (CombatEnemyAI.cs).
+class Dragon : Enemy
+{
+    public int Facing = 3;            // 0=N 1=E 2=S 3=W (starts facing the party)
+    public bool Flying = false;
+    public List<Player> Swallowed = new();
+    public Dragon(Random rng, string name) : base(name, "Dragon")
+    {
+        MaxHP = 240; HP = MaxHP;
+        MinAttack = 4; MaxAttack = 16;
+        MinDamage = 8; MaxDamage = 16;    // bite baseline; claws/tail roll their own
+        MinDodge = 1; MaxDodge = 4;
+        ToughHideMin = 3; ToughHideMax = 6;   // scales like armor: DR 3-6 rolled
+        XPValue = 350;                    // killed; KO grants 200 (HandleKill adjusts)
+        Race = "Dragon";
+        FearImmune = true;
+        Strength = 4; Dexterity = 2; Constitution = 4; Intelligence = 2;
+        Wisdom = 1; Smarts = 2; Charisma = 3; Agility = 2;
+    }
+
+    // The 3x3 body: every square within 1 of centre
+    public bool Covers(GridPos p) =>
+        Math.Abs(p.X - Position.X) <= 1 && Math.Abs(p.Y - Position.Y) <= 1;
+    // Chebyshev distance from a point to the EDGE of the body (0 = touching)
+    public int EdgeDist(GridPos p) =>
+        Math.Max(0, Math.Max(Math.Abs(p.X - Position.X), Math.Abs(p.Y - Position.Y)) - 1);
+    // Which zone a point falls in relative to facing: "front", "side", "back"
+    public string ZoneOf(GridPos p)
+    {
+        int dx = p.X - Position.X, dy = p.Y - Position.Y;
+        // Rotate the offset so facing is always "north" in local space
+        (int lx, int ly) = Facing switch
+        {
+            0 => (dx, dy),        // facing north: front is -y
+            1 => (-dy, dx),       // facing east: front is +x
+            2 => (-dx, -dy),      // facing south: front is +y
+            _ => (dy, -dx),       // facing west: front is -x
+        };
+        if (ly < -1) return "front";
+        if (ly > 1) return "back";
+        return "side";
+    }
+}
+
 class Deer : Enemy
 {
     public bool Antlered;   // antlered deer fight back when wounded

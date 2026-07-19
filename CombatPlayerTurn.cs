@@ -126,6 +126,58 @@ partial class CombatSession
         int actLeft = 3 + P.AdditionalActions;
         if (P.HasFeat("Chidia")) actLeft += 2;
 
+        // ── Dragon-fight and elixir upkeep ──
+        if (P.BleedTurns > 0)
+        {
+            P.BleedTurns--; P.HP -= 1;
+            Console.WriteLine($"  [Bleeding — 1 damage, {P.BleedTurns} turn(s) left. HP:{P.HP}/{P.MaxHP}]");
+        }
+        if (P.ProneTurns > 0)
+        {
+            P.ProneTurns--; actLeft--;
+            Console.WriteLine("  [Knocked flat — you spend an action getting to your feet]");
+        }
+        if (P.ElixirHealMax > 0 && P.HP < P.MaxHP && P.HP > 0)
+        {
+            int hb = Rng.Next(P.ElixirHealMin, P.ElixirHealMax + 1);
+            P.HP = Math.Min(P.MaxHP, P.HP + hb);
+            Console.WriteLine($"  [Elixir mends {hb} — HP:{P.HP}/{P.MaxHP}]");
+        }
+        // Elixirs run on turn timers; when one runs dry its gifts fade
+        for (int ei = P.ActiveElixirs.Count - 1; ei >= 0; ei--)
+        {
+            var (nm, left, expire) = P.ActiveElixirs[ei];
+            if (--left <= 0)
+            {
+                expire(P);
+                P.ActiveElixirs.RemoveAt(ei);
+                Console.WriteLine($"  [The {nm} wears off]");
+            }
+            else P.ActiveElixirs[ei] = (nm, left, expire);
+        }
+
+        // ── SWALLOWED: a battle fought in the dark, in acid, from within ──
+        if (P.SwallowedBy is Dragon inDr)
+        {
+            if (!inDr.Alive || inDr.Fled) { P.SwallowedBy = null; }
+            else
+            {
+                Console.WriteLine($"\n  ⚠ You are INSIDE {inDr.Name}. Your blows land at TRIPLE strength and it cannot dodge.");
+                while (actLeft-- > 0 && inDr.Alive && P.HP > 0)
+                {
+                    Console.Write($"  [{actLeft + 1} action(s)] [A]ttack from within / [P]otion: ");
+                    string sw = (GameIO.ReadLine() ?? "a").Trim().ToLower();
+                    if (sw.StartsWith("p")) { DoHeal(); continue; }
+                    var (wa, xA, wd, xD) = P.HeldWeapon != null ? WeaponPickupStats(P.HeldWeapon) : (P.MinAttack, P.MaxAttack, P.MinDamage, P.MaxDamage);
+                    int inDmg = (Rng.Next(wd, xD + 1) + P.ElixirDmg) * 3;
+                    inDr.HP -= inDmg;
+                    Console.WriteLine($"  You carve at it from the inside — {inDmg}! {inDr.Name} HP:{inDr.HP}/{inDr.MaxHP}");
+                    if (!inDr.Alive) { Console.WriteLine("  The great body shudders and CRASHES down — you cut your way out!"); HandleKill(inDr); }
+                }
+                return false;
+            }
+        }
+
         // Tier 2 grapple style: deduct actions pre-paid for breaking free on enemy's turn
         if (P.GrappleEscapePrePaid > 0 && actLeft > 0)
         {
@@ -310,6 +362,14 @@ partial class CombatSession
                     DoChi(alive);
                     continue;   // free action — spends no action
 
+                case "elixir":
+                {
+                    int gained = DrinkElixir();
+                    if (gained > 0) { actLeft += gained; Console.WriteLine($"  [+{gained} action(s) this turn!]"); }
+                    justBlocked = false;
+                    break;   // drinking costs the action it was quaffed on
+                }
+
                 case "defend":
                     P.Defending = true;
                     Console.WriteLine("  Defensive stance. Incoming damage halved this round.");
@@ -325,7 +385,7 @@ partial class CombatSession
                 {
                     if (P.IsGrappled) { Console.WriteLine("  You can't move while grappled!"); continue; }
                     if (P.Climbed) { Console.WriteLine("  You're up high — climb down (action) or jump down first!"); continue; }
-                    int moveRoll = Rng.Next(P.MinMovement, P.MaxMovement + 1) + P.MovementBonus + P.MoveTrait();
+                    int moveRoll = (Rng.Next(P.MinMovement, P.MaxMovement + 1) + P.MovementBonus + P.MoveTrait()) * (P.ElixirDoubleMove ? 2 : 1);
                     Console.WriteLine($"  Move roll: {moveRoll} square(s).");
                     StepMovement(moveRoll);
                     justBlocked = false;
@@ -338,7 +398,7 @@ partial class CombatSession
                     if (P.Climbed) { Console.WriteLine("  You're up high — climb down (action) or jump down first!"); continue; }
                     // Sprint is 2d6 (+ movement/sprint bonuses)
                     // 2d6; "max sprint" purchases raise only the top of the roll
-                    int sprintRoll = Math.Max(1, Rng.Next(1, 7) + Rng.Next(1, 7) + Rng.Next(0, P.SprintMaxBonus + 1) + P.MovementBonus + P.SprintBonus + P.SprintTrait());
+                    int sprintRoll = Math.Max(1, (Rng.Next(1, 7) + Rng.Next(1, 7) + Rng.Next(0, P.SprintMaxBonus + 1) + P.MovementBonus + P.SprintBonus + P.SprintTrait()) * (P.ElixirDoubleMove ? 2 : 1));
                     string spNote = P.NoSprintPenalty ? "[no penalty]" : P.DoubleSprintPenalty ? "[-4 to next action]" : "[-2 to next action]";
                     Console.WriteLine($"  SPRINT! {sprintRoll} square(s). {spNote}");
                     StepMovement(sprintRoll);
@@ -673,7 +733,7 @@ partial class CombatSession
                 case "stop song":
                 {
                     P.SongPlaying = false;
-                    P.SongLingerTurns = Rng.Next(1, 5) + P.SongDurBonus;
+                    P.SongLingerTurns = (Rng.Next(1, 5) + P.SongDurBonus) * (P.ElixirSongDouble ? 2 : 1);
                     Console.WriteLine($"  ♪ You end {P.ActiveSong}; its echo lingers for {P.SongLingerTurns} turn(s).");
                     continue;   // stopping is a free action
                 }
@@ -1478,6 +1538,7 @@ partial class CombatSession
         o.AddRange(new[] { "move", "defend", "healing potion", "run away", "exit" });
         if (P.IsGrappled) o.Add("break grapple");
         if (P.IsMonk && P.ChiUses > 0) o.Add("chi");   // free action — costs no action
+        if (P.SpecialPotions.Any(kv => kv.Value > 0)) o.Add("elixir");
         if (P.HasFeat("Block")) o.Add("block");
         if (P.HasFeat("Parry") && justBlocked && !(blockTarget is Ogre)) o.Add("parry");
         if (P.HasFeat("Bard Song") && SilenceTurns <= 0) o.Add("bard song");

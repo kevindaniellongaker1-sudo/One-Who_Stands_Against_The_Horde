@@ -73,6 +73,9 @@ partial class CombatSession
                 continue;
             }
 
+            // ── THE DRAGON plays by its own rules entirely ──
+            if (e is Dragon drg) { DragonTurn(drg); continue; }
+
             // ── Wildlife behave by instinct, not malice ──
             if (e.IsWildlife) { WildlifeTurn(e); continue; }
 
@@ -1824,6 +1827,309 @@ partial class CombatSession
             WildAttackPlayer(w, "BITES", 3, 12, 2, 8);
             for (int c = 0; c < 4 && P.HP > 0; c++)
                 WildAttackPlayer(w, $"rakes with its claws ({c + 1}/4)", 2, 12, 3, 12);
+        }
+    }
+
+    // ══ THE DRAGON ══════════════════════════════════════════════════════════
+    // Three actions, and it attacks TWICE per attack action. Priorities:
+    // fire breath when 4+ foes crowd its front/sides, tail when something is
+    // behind or beside it, fire blast at range, claws and bite up close.
+    // Turning costs actions; flight makes it untouchable except by ranged.
+
+    void DragonTurn(Dragon dr)
+    {
+        // Digestion: acid works on anyone swallowed (armor is no help in there)
+        foreach (var sp in dr.Swallowed.Where(s => s.HP > 0).ToList())
+        {
+            int acid = Rng.Next(2, 5);
+            sp.HP -= acid;
+            Console.WriteLine($"  Inside the dragon, ACID sears {sp.Name} for {acid}! HP:{sp.HP}/{sp.MaxHP}");
+        }
+
+        // At 3% it wants no more of this
+        if (dr.HP * 100 <= dr.MaxHP * 3)
+        {
+            Console.WriteLine($"  {dr.Name} shrieks — bloodied past bearing, it {(dr.Flying ? "wheels away into the sky" : "hurls itself skyward and flees")}!");
+            ReleaseSwallowed(dr);
+            dr.Fled = true;
+            return;
+        }
+
+        var prey = ActivePlayers.Where(p => p.HP > 0 && p.SwallowedBy == null).ToList();
+        if (!prey.Any()) return;
+        Player Nearest() => prey.OrderBy(p => dr.EdgeDist(p.Position)).First();
+
+        int actions = 3;
+        while (actions-- > 0)
+        {
+            var tgt = Nearest();
+            int edge = dr.EdgeDist(tgt.Position);
+
+            // ── Airborne: close in, then come down like a hammer ──
+            if (dr.Flying)
+            {
+                if (edge > 1)
+                {
+                    int fly = Rng.Next(1, 7);
+                    for (int s = 0; s < fly; s++) dr.Position = StepToward(dr.Position, tgt.Position);
+                    Console.WriteLine($"  {dr.Name} sweeps {fly} squares through the air — only arrows can touch it!");
+                }
+                else DragonLand(dr, prey);
+                continue;
+            }
+
+            // Far from the fight? Sometimes it takes the sky instead of the road
+            if (edge > 6 && Rng.Next(100) < 40)
+            {
+                dr.Flying = true;
+                Console.WriteLine($"  {dr.Name} hammers its wings and HEAVES into the sky!");
+                DragonFreeAttacks(dr, "as it lifts off");
+                foreach (var v in prey.Where(p => dr.EdgeDist(p.Position) <= 1 && Rng.Next(100) < 35))
+                { v.ProneTurns = 1; Console.WriteLine($"  The wing-blast knocks {v.Name} flat!"); }
+                continue;
+            }
+
+            string zone = dr.ZoneOf(tgt.Position);
+
+            // Facing the wrong way: haul that bulk around (1 action per quarter)
+            if (zone == "back" || (zone == "side" && edge > 2))
+            {
+                dr.Facing = (dr.Facing + (Rng.Next(2) == 0 ? 1 : 3)) % 4;
+                Console.WriteLine($"  {dr.Name} wheels its bulk around, tail carving a furrow!");
+                continue;
+            }
+
+            // ── Choose the kill: breath > tail > blast > claw/bite > advance ──
+            var frontSide = prey.Where(p => dr.EdgeDist(p.Position) <= 3 && dr.ZoneOf(p.Position) != "back").ToList();
+            var sideBack  = prey.Where(p => dr.EdgeDist(p.Position) <= 2 && dr.ZoneOf(p.Position) != "front").ToList();
+
+            if (frontSide.Count >= 4)
+            {
+                Console.WriteLine($"  {dr.Name} draws breath — FIRE floods out in a widening cone!");
+                foreach (var v in frontSide) DragonFire(dr, v, cone: true);
+            }
+            else if (sideBack.Any())
+            {
+                Console.WriteLine($"  {dr.Name}'s TAIL scythes around!");
+                for (int hit = 0; hit < 2; hit++)
+                    foreach (var v in sideBack.Where(v => v.HP > 0).ToList()) DragonTail(dr, v);
+            }
+            else if (edge > 3)
+            {
+                // The party is out past breath range — a FIREBALL closes the gap,
+                // aimed where they cluster (3x3 splash around the nearest)
+                Console.WriteLine($"  {dr.Name} spits a roiling FIREBALL at the distant knot of foes!");
+                foreach (var v in prey.Where(p => p.Position.ManhattanDist(tgt.Position) <= 1)) DragonFire(dr, v, cone: false);
+            }
+            else if (edge == 0 || (edge <= 2 && zone == "front"))
+            {
+                // Claws first; a third of the time it goes for the swallow
+                if (edge <= 2 && Rng.Next(100) < 35 && dr.Swallowed.Count < 2) DragonBite(dr, tgt);
+                else { DragonClaw(dr, tgt); if (tgt.HP > 0) DragonClaw(dr, tgt); }
+            }
+            else
+            {
+                DragonWalk(dr, tgt);
+            }
+        }
+    }
+
+    void ReleaseSwallowed(Dragon dr)
+    {
+        foreach (var sp in dr.Swallowed)
+        {
+            sp.SwallowedBy = null;
+            sp.Position = new GridPos(Math.Clamp(dr.Position.X + 2, 0, 49), dr.Position.Y);
+            if (sp.HP > 0) Console.WriteLine($"  {sp.Name} spills free of the dragon, soaked and gasping!");
+        }
+        dr.Swallowed.Clear();
+    }
+
+    // Tail sweep: non-lethal, 62% knockdown; a clean dodge carries you clear
+    void DragonTail(Dragon dr, Player v)
+    {
+        var keep = P; P = v; _atkEnemy = dr;
+        int atk = Rng.Next(dr.MinAttack, dr.MaxAttack + 1);
+        int ddg = PDodgeRoll() + PDodgeSize();
+        Console.WriteLine($"  The tail whips at {v.Name}! Roll {atk} vs dodge {ddg}.");
+        if (atk >= ddg)
+        {
+            int dmg = Rng.Next(6, 22);   // 6-21 non-lethal
+            if (v.Defending) dmg = Math.Max(1, dmg / 2);
+            dmg = Math.Max(1, dmg - v.ArmorDamageReduction);
+            v.HP -= dmg;
+            Console.WriteLine($"  WHAM — {dmg} crushing damage! HP:{v.HP}/{v.MaxHP}");
+            if (Rng.Next(100) < 62)
+            {
+                v.ProneTurns = 1;
+                Console.WriteLine($"  {v.Name} is swept off their feet!");
+            }
+        }
+        else
+        {
+            v.Position = new GridPos(Math.Clamp(v.Position.X + Math.Sign(v.Position.X - dr.Position.X), 0, 49),
+                                     Math.Clamp(v.Position.Y + Math.Sign(v.Position.Y - dr.Position.Y), 0, 49));
+            Console.WriteLine($"  {v.Name} dives clear of the sweep!");
+        }
+        P = keep;
+    }
+
+    // Claw: lethal, 45% to open a bleeding gash
+    void DragonClaw(Dragon dr, Player v)
+    {
+        var keep = P; P = v; _atkEnemy = dr;
+        int atk = Rng.Next(2, 13);
+        int ddg = PDodgeRoll() + PDodgeSize();
+        Console.WriteLine($"  A CLAW rakes at {v.Name}! Roll {atk} vs dodge {ddg}.");
+        if (atk >= ddg)
+        {
+            int dmg = Rng.Next(8, 25);
+            if (v.Defending) dmg = Math.Max(1, dmg / 2);
+            dmg = Math.Max(1, dmg - v.ArmorDamageReduction);
+            v.HP -= dmg;
+            Console.WriteLine($"  Talons tear {dmg}! HP:{v.HP}/{v.MaxHP}");
+            if (Rng.Next(100) < 45)
+            {
+                v.BleedTurns = Math.Max(v.BleedTurns, 3);
+                Console.WriteLine($"  The gash BLEEDS! (1/turn for {v.BleedTurns} turns)");
+            }
+        }
+        else
+        {
+            v.Position = new GridPos(Math.Clamp(v.Position.X + Math.Sign(v.Position.X - dr.Position.X), 0, 49),
+                                     Math.Clamp(v.Position.Y + Math.Sign(v.Position.Y - dr.Position.Y), 0, 49));
+            Console.WriteLine($"  {v.Name} springs back out of reach!");
+        }
+        P = keep;
+    }
+
+    // Bite: 35% swallowed WHOLE — fight on from the inside at triple damage
+    void DragonBite(Dragon dr, Player v)
+    {
+        var keep = P; P = v; _atkEnemy = dr;
+        int atk = Rng.Next(6, 13);
+        int ddg = PDodgeRoll() + PDodgeSize();
+        Console.WriteLine($"  JAWS gape over {v.Name}! Roll {atk} vs dodge {ddg}.");
+        if (atk >= ddg)
+        {
+            int dmg = Rng.Next(8, 17);
+            if (v.Defending) dmg = Math.Max(1, dmg / 2);
+            dmg = Math.Max(1, dmg - v.ArmorDamageReduction);
+            v.HP -= dmg;
+            Console.WriteLine($"  Teeth close for {dmg}! HP:{v.HP}/{v.MaxHP}");
+            if (v.HP > 0 && Rng.Next(100) < 35)
+            {
+                v.SwallowedBy = dr;
+                dr.Swallowed.Add(v);
+                Console.WriteLine($"  ⚠ {v.Name} is SWALLOWED WHOLE! Fight from the inside — your blows land at TRIPLE strength, but the acid...");
+            }
+        }
+        else
+        {
+            v.Position = new GridPos(Math.Clamp(v.Position.X + Math.Sign(v.Position.X - dr.Position.X), 0, 49),
+                                     Math.Clamp(v.Position.Y + Math.Sign(v.Position.Y - dr.Position.Y), 0, 49));
+            Console.WriteLine($"  {v.Name} throws themselves clear of the jaws!");
+        }
+        P = keep;
+    }
+
+    // Fire (blast or breath): mid dodges halve, edge dodges carry you out; burns
+    void DragonFire(Dragon dr, Player v, bool cone)
+    {
+        var keep = P; P = v; _atkEnemy = dr;
+        int atk = Rng.Next(4, 13);
+        int ddg = PDodgeRoll() + PDodgeSize();
+        int dmg = 0; for (int d = 0; d < 6; d++) dmg += Rng.Next(1, 7);   // 6-36 fire
+        dmg = MitigateMagic(dmg, "spell", "fire");                        // Fire Robes laugh at this
+        Console.WriteLine($"  Fire washes over {v.Name}! Roll {atk} vs dodge {ddg}.");
+        if (atk >= ddg)
+        {
+            if (v.Defending) dmg = Math.Max(1, dmg / 2);
+            v.HP -= dmg;
+            Console.WriteLine($"  SEARED for {dmg}! HP:{v.HP}/{v.MaxHP}");
+            if (dmg > 0 && Rng.Next(100) < 40)
+            {
+                v.BurningDmg = Math.Max(v.BurningDmg, Rng.Next(1, 4));
+                v.BurningTurns = Math.Max(v.BurningTurns, Rng.Next(1, 4));
+                Console.WriteLine($"  {v.Name} is BURNING! ({v.BurningDmg}/turn x {v.BurningTurns})");
+            }
+        }
+        else if (Rng.Next(2) == 0 && dmg > 0)
+        {
+            int half = Math.Max(1, dmg / 2);
+            v.HP -= half;
+            Console.WriteLine($"  {v.Name} dodges into the heart of it — HALF damage, {half}. HP:{v.HP}/{v.MaxHP}");
+        }
+        else
+        {
+            v.Position = new GridPos(Math.Clamp(v.Position.X + Math.Sign(v.Position.X - dr.Position.X) * 2, 0, 49),
+                                     Math.Clamp(v.Position.Y + Math.Sign(v.Position.Y - dr.Position.Y) * 2, 0, 49));
+            Console.WriteLine($"  {v.Name} rolls out past the edge of the blast!");
+        }
+        P = keep;
+    }
+
+    // Ground movement: 1-4 squares, crushing palisades, pinning the unlucky.
+    // Everyone in reach gets a free swing as the great bulk shifts.
+    void DragonWalk(Dragon dr, Player toward)
+    {
+        int walk = Rng.Next(1, 5);
+        Console.WriteLine($"  {dr.Name} advances {walk} — the ground shakes!");
+        DragonFreeAttacks(dr, "as it lumbers forward");
+        for (int s = 0; s < walk && dr.EdgeDist(toward.Position) > 0; s++)
+        {
+            dr.Position = StepToward(dr.Position, toward.Position);
+            // The body crushes any palisade it covers
+            for (int dx = -1; dx <= 1; dx++)
+                for (int dy = -1; dy <= 1; dy++)
+                    if (Walls.Remove((dr.Position.X + dx, dr.Position.Y + dy)))
+                        Console.WriteLine("  Timber SPLINTERS beneath it!");
+            // Anyone caught under the body: pinned, bowled over, or shoved out
+            foreach (var v in ActivePlayers.Where(p => p.HP > 0 && p.SwallowedBy == null && dr.Covers(p.Position)))
+            {
+                int roll = Rng.Next(100);
+                if (roll < 25) { v.IsGrappled = true; v.GrappledBy = dr; Console.WriteLine($"  {v.Name} is PINNED beneath the dragon!"); }
+                else
+                {
+                    v.Position = new GridPos(Math.Clamp(dr.Position.X + Math.Sign(v.Position.X - dr.Position.X + 1) * 2, 0, 49),
+                                             Math.Clamp(dr.Position.Y + 2, 0, 49));
+                    if (roll < 60) { v.ProneTurns = 1; Console.WriteLine($"  {v.Name} is bowled over and rolls clear!"); }
+                    else Console.WriteLine($"  {v.Name} scrambles out from underfoot!");
+                }
+            }
+        }
+    }
+
+    void DragonLand(Dragon dr, List<Player> prey)
+    {
+        dr.Flying = false;
+        Console.WriteLine($"  {dr.Name} DROPS from the sky — the earth heaves!");
+        foreach (var v in prey.Where(p => dr.EdgeDist(p.Position) <= 2))
+        {
+            if (dr.Covers(v.Position))
+            {
+                if (Rng.Next(100) < 35) { v.IsGrappled = true; v.GrappledBy = dr; Console.WriteLine($"  {v.Name} is PINNED under the landing!"); continue; }
+                v.Position = new GridPos(Math.Clamp(dr.Position.X + 2, 0, 49), Math.Clamp(v.Position.Y, 0, 49));
+            }
+            if (Rng.Next(100) < 55)
+            {
+                v.Position = new GridPos(Math.Clamp(v.Position.X + Math.Sign(v.Position.X - dr.Position.X) * 2, 0, 49),
+                                         Math.Clamp(v.Position.Y + Math.Sign(v.Position.Y - dr.Position.Y) * 2, 0, 49));
+                Console.WriteLine($"  The shockwave hurls {v.Name} back two squares!");
+                if (Rng.Next(100) < 25) { v.ProneTurns = 1; Console.WriteLine($"  {v.Name} is knocked sprawling!"); }
+            }
+        }
+    }
+
+    // The opening every fighter waits for: the dragon commits its bulk
+    void DragonFreeAttacks(Dragon dr, string when)
+    {
+        if (P.HP <= 0 || P.SwallowedBy != null) return;
+        bool ranged = P.HeldWeapon is "Bow" or "Shortbow" or "Hunting Bow" or "Composite Bow" or "Wand";
+        if (dr.EdgeDist(P.Position) == 0 || ranged)
+        {
+            Console.Write($"  Free attack on {dr.Name} {when}? (y/n): ");
+            if ((GameIO.ReadLine() ?? "n").Trim().ToLower().StartsWith("y")) DoAttack(dr);
         }
     }
 

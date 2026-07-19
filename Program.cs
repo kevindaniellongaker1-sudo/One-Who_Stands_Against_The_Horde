@@ -288,6 +288,10 @@ while (true)
                 (allPlayers.Count > 1 ? " (split evenly, rounded down)" : ""));
         }
 
+        // A fallen dragon was sleeping on something worth dying for
+        if (group.OfType<Dragon>().Any(d => (!d.Alive || d.KnockedOut) && !d.Fled))
+            DragonHoard(rng);
+
         // Gather unbroken arrows from the battlefield
         foreach (var pl in allPlayers)
         {
@@ -422,6 +426,12 @@ Console.WriteLine("\nThanks for playing!");
 List<Enemy> BuildGroup(int waveNum, Random r)
 {
     var g = new List<Enemy>();
+    // ── Wave 130: THE DRAGON. Alone. It is enough. ──
+    if (waveNum == 130)
+    {
+        g.Add(new Dragon(r, "The Dragon"));
+        return g;
+    }
     if (waveNum <= 10)
     {
         if (waveNum == 1)
@@ -522,8 +532,11 @@ List<Enemy> BuildGroup(int waveNum, Random r)
         for (int i = 0; i < trolls; i++) g.Add(Troll.RandType(r, $"Troll {i + 1}"));
         for (int i = 0; i < slots && i < 12; i++)
         {
-            int crMax = waveNum >= 71 ? 13 : 11;
+            // Wave 150+: a dragon may answer the drums (one per group at most)
+            int crMax = waveNum >= 150 ? 14 : waveNum >= 71 ? 13 : 11;
             int cr = r.Next(1, crMax);
+            if (cr == 13 && !g.Any(en => en is Dragon)) { g.Add(new Dragon(r, "Dragon")); continue; }
+            if (cr == 13) cr = r.Next(1, 13);   // one dragon is plenty — reroll
             switch (cr)
             {
                 case 1: case 2: g.Add(Ogre.RandType(r, $"Ogre {i + 1}")); break;
@@ -619,6 +632,7 @@ List<Enemy> BuildGroup(int waveNum, Random r)
 void OutfitLateGameHorde(Enemy e, int wave, Random r)
 {
     if (e.IsWildlife) return;
+    if (e is Dragon) return;   // the dragon needs no armor — it IS the tier
 
     // Giants are worth 85 XP from the day they first march
     if (e is GiantEnemy && e.XPValue < 85) e.XPValue = 85;
@@ -1894,9 +1908,12 @@ void BrowseStorefront(Player pl, string shop)
             string blurb = Shop.Armors.TryGetValue(it, out var ad) ? $" — {ad.Desc}" : "";
             Console.WriteLine($"  [{i + 1,2}] {it,-24}{tag} {Shop.Fmt(Markup(it))}{blurb}");
         }
+        if (shop == "Magic Shop")
+            Console.WriteLine("  [e] Enchant a weapon, armor or shield you own (+x atk/dmg or +x defence; armor magic-negate x*2.5%)");
         Console.Write("  Buy # (or Enter to leave): ");
         string raw = (GameIO.ReadLine() ?? "").Trim();
         if (raw.Length == 0) return;
+        if (shop == "Magic Shop" && raw.ToLower() is "e" or "enchant") { EnchantService(pl); continue; }
         if (!int.TryParse(raw, out int bi) || bi < 1 || bi > stock.Length) continue;
         string item = stock[bi - 1];
         long cost = Markup(item);
@@ -1959,6 +1976,95 @@ void BrowseStorefront(Player pl, string shop)
             else { pl.Copper += cost; Console.WriteLine("  Purchase cancelled."); }
         }
     }
+}
+
+// ── The enchanter's table (Magic Shop): +x for base cost + x gold ──
+void EnchantService(Player pl)
+{
+    Console.WriteLine($"\n  ── ENCHANTER ──  Purse: {Shop.Fmt(pl.Copper)}");
+    Console.WriteLine($"  [W] Weapon in hand: {pl.HeldWeapon ?? "(bare hands — nothing to enchant)"}" +
+        (pl.WeaponEnchant() > 0 ? $"  (already +{pl.WeaponEnchant()})" : ""));
+    Console.WriteLine($"  [A] Armor worn: {pl.MainArmor}" + (pl.ArmorEnchant > 0 ? $"  (already +{pl.ArmorEnchant})" : ""));
+    Console.WriteLine($"  [S] Shield: {pl.OffHandShieldName ?? "(none)"}" + (pl.ShieldEnchant > 0 ? $"  (already +{pl.ShieldEnchant})" : ""));
+    Console.Write("  Enchant which (or Enter to step back): ");
+    string what = (GameIO.ReadLine() ?? "").Trim().ToLower();
+    if (what.Length == 0) return;
+    Console.Write("  Enchant to what level x (1-5)?  (cost = item's base price + x gold): ");
+    if (!int.TryParse(GameIO.ReadLine()?.Trim(), out int x) || x < 1 || x > 5) { Console.WriteLine("  The enchanter shrugs."); return; }
+
+    if (what.StartsWith("w"))
+    {
+        if (pl.HeldWeapon == null) { Console.WriteLine("  Nothing in hand to enchant."); return; }
+        if (pl.WeaponEnchant() >= x) { Console.WriteLine($"  Your {pl.HeldWeapon} already carries +{pl.WeaponEnchant()}."); return; }
+        long cost = Shop.CostOf(pl.HeldWeapon) + x * Shop.Gold;
+        if (cost > pl.Copper) { Console.WriteLine($"  Not enough coin ({Shop.Fmt(cost)})."); return; }
+        pl.Copper -= cost;
+        pl.EnchantedWeapons[pl.HeldWeapon] = x;
+        Console.WriteLine($"  Runes crawl up the {pl.HeldWeapon} — it is now +{x} to attack AND damage! ({Shop.Fmt(cost)})");
+    }
+    else if (what.StartsWith("a"))
+    {
+        if (pl.MainArmor is "none" or "Cloth") { Console.WriteLine("  Wear real armor first."); return; }
+        if (pl.ArmorEnchant >= x) { Console.WriteLine($"  Your {pl.MainArmor} already carries +{pl.ArmorEnchant}."); return; }
+        long cost = Shop.CostOf(pl.MainArmor) + x * Shop.Gold;
+        if (cost > pl.Copper) { Console.WriteLine($"  Not enough coin ({Shop.Fmt(cost)})."); return; }
+        pl.Copper -= cost;
+        pl.ArmorDamageReduction += x - pl.ArmorEnchant;
+        pl.ArmorEnchant = x;
+        Console.WriteLine($"  Your {pl.MainArmor} shimmers — +{x} protection, {(pl.ArmorEnchant + pl.ShieldEnchant) * 2.5:F1}% chance to NEGATE hostile magic! ({Shop.Fmt(cost)})");
+    }
+    else if (what.StartsWith("s"))
+    {
+        if (pl.OffHandShieldName == null) { Console.WriteLine("  You carry no shield."); return; }
+        if (pl.ShieldEnchant >= x) { Console.WriteLine($"  Your {pl.OffHandShieldName} already carries +{pl.ShieldEnchant}."); return; }
+        long cost = Shop.CostOf(pl.OffHandShieldName) + x * Shop.Gold;
+        if (cost > pl.Copper) { Console.WriteLine($"  Not enough coin ({Shop.Fmt(cost)})."); return; }
+        pl.Copper -= cost;
+        pl.OffHandShieldBlock += x - pl.ShieldEnchant;
+        pl.ShieldEnchant = x;
+        Console.WriteLine($"  Your {pl.OffHandShieldName} hums — +{x} block, {(pl.ArmorEnchant + pl.ShieldEnchant) * 2.5:F1}% chance to NEGATE hostile magic! ({Shop.Fmt(cost)})");
+    }
+}
+
+// ── THE HOARD: what a dead dragon was sleeping on ──
+void DragonHoard(Random r)
+{
+    string[] elixirs = { "Bright Soul", "Rapid", "Oak Wood", "Iron Rock", "Red Rage", "Blue Sky",
+                         "Holy Rights", "Notes Melody", "Pirate Booty", "Reflex of the Tiger", "Knight's", "Rogue's Rose" };
+    string[] mundaneArmor = { "Padded Armor", "Leather Vest", "Leather Armor", "Chainmail", "Breastplate", "Half Plate", "Soft Leather", "Full Plate", "Hard Leather" };
+    string[] weapons = Shop.Storefronts["Weapon Shop"];
+    string[] magic = Shop.Storefronts["Magic Shop"];
+
+    int chests = r.Next(1, 9);
+    Console.WriteLine($"\n═══ THE DRAGON'S HOARD ═══  {chests} treasure chest(s) glitter in the wreckage!");
+    long totalCoin = 0;
+    foreach (var pl in allPlayers) pl.SpecialPotions["Training Potion"] = pl.SpecialPotions.GetValueOrDefault("Training Potion") + 1;
+    Console.WriteLine("  Each of you claims a TRAINING POTION from the hoard's crown (+4 points when drunk).");
+
+    int who = 0;
+    for (int c = 1; c <= chests; c++)
+    {
+        long coin = 500_000 + (long)(r.NextDouble() * 1_500_000);   // 0.5-2 platinum
+        long fenced = 0;
+        int nA = r.Next(1, 6), nW = r.Next(2, 6), nM = r.Next(2, 4), nP = r.Next(0, 9);
+        for (int i = 0; i < nA; i++) fenced += Shop.Sell(mundaneArmor[r.Next(mundaneArmor.Length)]);
+        for (int i = 0; i < nW; i++) fenced += Shop.Sell(weapons[r.Next(weapons.Length)]);
+        for (int i = 0; i < nM; i++) fenced += Shop.Sell(magic[r.Next(magic.Length)]);
+        var found = new List<string>();
+        for (int i = 0; i < nP; i++)
+        {
+            string el = elixirs[r.Next(elixirs.Length)];
+            var lucky = allPlayers[who++ % allPlayers.Count];
+            lucky.SpecialPotions[el] = lucky.SpecialPotions.GetValueOrDefault(el) + 1;
+            found.Add($"{el} → {lucky.Name.Split(' ')[0]}");
+        }
+        totalCoin += coin + fenced;
+        Console.WriteLine($"  Chest {c}: {Shop.Fmt(coin)} in coin, {nA} armor piece(s), {nW} weapon(s), {nM} wonder(s) (fenced for {Shop.Fmt(fenced)})" +
+                          (found.Any() ? $"; elixirs: {string.Join(", ", found)}" : ""));
+    }
+    long share2 = totalCoin / allPlayers.Count;
+    foreach (var pl in allPlayers) pl.Copper += share2;
+    Console.WriteLine($"  The hoard comes to {Shop.Fmt(totalCoin)} — {Shop.Fmt(share2)} each. You are RICH.");
 }
 
 void VisitShop(Player pl)
@@ -2800,6 +2906,9 @@ void SaveGame(Player p, int groups)
         $"QuiverCap={p.QuiverCap}", $"PotionPouchCap={p.PotionPouchCap}",
         $"ThrowBandCap={p.ThrowBandCap}", $"HasQuiverOfHolding={p.HasQuiverOfHolding}",
         $"HasBagOfHolding={p.HasBagOfHolding}", $"HasWorkshopHammer={p.HasWorkshopHammer}",
+        $"SpecialPotions={string.Join("|", p.SpecialPotions.Where(kv => kv.Value > 0).Select(kv => $"{kv.Key}:{kv.Value}"))}",
+        $"EnchantedWeapons={string.Join("|", p.EnchantedWeapons.Where(kv => kv.Value > 0).Select(kv => $"{kv.Key}:{kv.Value}"))}",
+        $"ArmorEnchant={p.ArmorEnchant}", $"ShieldEnchant={p.ShieldEnchant}",
         $"PrayerHealMaxBonus={p.PrayerHealMaxBonus}", $"PrayerDmgBonus={p.PrayerDmgBonus}",
         $"PrayerDmgMaxBonus={p.PrayerDmgMaxBonus}", $"PrayerVsHp={p.PrayerVsHp}", $"PrayerVsHpMax={p.PrayerVsHpMax}",
         $"PrayerAbilBonus={p.PrayerAbilBonus}", $"PrayerAbilMaxBonus={p.PrayerAbilMaxBonus}", $"PrayerTurnsMax={p.PrayerTurnsMax}",
@@ -2961,6 +3070,22 @@ bool TryLoadGame(Player p, string filePath)
         {
             p.HasBagOfHolding = G("HasBagOfHolding") == "True";
             p.HasWorkshopHammer = G("HasWorkshopHammer") == "True";
+        }
+        // Elixirs and enchantments (name:count|name:count)
+        if (dict.ContainsKey("SpecialPotions"))
+        {
+            foreach (var part in G("SpecialPotions").Split('|', StringSplitOptions.RemoveEmptyEntries))
+            {
+                int ci = part.LastIndexOf(':');
+                if (ci > 0 && int.TryParse(part[(ci + 1)..], out int cnt)) p.SpecialPotions[part[..ci]] = cnt;
+            }
+            foreach (var part in G("EnchantedWeapons").Split('|', StringSplitOptions.RemoveEmptyEntries))
+            {
+                int ci = part.LastIndexOf(':');
+                if (ci > 0 && int.TryParse(part[(ci + 1)..], out int lvl)) p.EnchantedWeapons[part[..ci]] = lvl;
+            }
+            p.ArmorEnchant = I("ArmorEnchant");
+            p.ShieldEnchant = I("ShieldEnchant");
         }
         else
         {

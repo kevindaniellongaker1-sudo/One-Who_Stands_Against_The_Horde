@@ -93,6 +93,14 @@ partial class CombatSession
             pl.Frenzied = false;
             pl.FearTurns = 0; pl.FearSource = null;
             pl.RecoverRegular = pl.RecoverBlunt = pl.RecoverBarbed = pl.RecoverSpiral = 0;
+            // Dragon-fight and elixir state dies with the previous combat
+            pl.SwallowedBy = null; pl.ProneTurns = 0; pl.BleedTurns = 0;
+            pl.ArmorDamageReduction -= pl.ElixirDR;
+            pl.ElixirAtk = pl.ElixirDodge = pl.ElixirDmg = pl.ElixirDR = 0;
+            pl.ElixirHealMin = pl.ElixirHealMax = 0;
+            pl.ElixirDoubleDmgPct = 0;
+            pl.ElixirDoubleMove = pl.ElixirSongDouble = false;
+            pl.ActiveElixirs.Clear();
         }
         GenerateTerrain();
         _displayState = displayState;
@@ -240,6 +248,13 @@ partial class CombatSession
         int turnNum = 0;
         while (ActivePlayers.Any(p => p.HP > 0 || p.IsRaging))
         {
+            // Bright Soul: the vial knows its moment — a fallen carrier wakes
+            foreach (var pl in ActivePlayers.Where(p => p.HP <= 0 && p.SpecialPotions.GetValueOrDefault("Bright Soul") > 0))
+            {
+                pl.SpecialPotions["Bright Soul"]--;
+                pl.HP = Math.Max(1, pl.MaxHP / 2);
+                Console.WriteLine($"  ✦ The Bright Soul shatters on {pl.Name}'s lips — they BREATHE again! HP:{pl.HP}/{pl.MaxHP}");
+            }
             var alive = Active.Where(e => e.Alive).ToList();
             if (!alive.Any(e => !e.IsWildlife && !e.IsPlayerAlly) && !Pending.Any()) break;
 

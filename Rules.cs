@@ -45,6 +45,7 @@ static class SizeRules
     {
         "Goblin" or "Gem Gnome" or "Glass Gnome" or "Light-Foot Hobbit" or "Brave Minds Hobbit" => 0,
         "Ogre" or "Giant" => 2,
+        "Dragon" => 3,   // gigantic: all size effects run 3x against it
         _ => 1,
     };
 
@@ -55,6 +56,14 @@ static class SizeRules
         int b = 0;
         if (a == 0) { if (d >= 1) b += 1; if (d == 2) b += 1; }        // small: +1 vs medium, +2 vs large
         if (atkRace == "Ogre") { if (d == 1) b -= 1; else if (d == 0) b -= 2; }
+        // GIGANTIC target: size checks run 3x. Small foes' vs-large bonus (+2)
+        // triples to +6; medium get +3; large get half the medium bonus x3.
+        if (d == 3)
+        {
+            if (a == 0) b += 5;                       // small: +1 above → +6 total
+            else if (a == 1) b += 3;                  // medium
+            else if (a == 2) b += 2;                  // large: (3/2) rounded up
+        }
         return b;
     }
 

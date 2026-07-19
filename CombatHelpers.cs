@@ -58,6 +58,14 @@ partial class CombatSession
 
     int MitigateMagic(int dmg, string channel, string element = "")
     {
+        // Enchanted armor and shields can NEGATE hostile magic outright:
+        // 2.5% per total enchant level
+        int negatePct = (int)((P.ArmorEnchant + P.ShieldEnchant) * 2.5);
+        if (negatePct > 0 && Rng.Next(100) < negatePct)
+        {
+            Console.WriteLine($"  Your enchanted gear FLARES — the {channel} is negated entirely!");
+            return 0;
+        }
         // An elemental robe drinks its own element completely
         foreach (var worn in new[] { P.MainArmor, P.UnderArmor })
         {
@@ -162,6 +170,14 @@ partial class CombatSession
     // the corner (diagonal) cells and one extra square straight out.
     bool InMeleeReach(Enemy e)
     {
+        // The dragon: melee reaches its 3x3 body edge — never while it flies.
+        // The swallowed are a special case: they are VERY much in reach.
+        if (e is Dragon d3)
+        {
+            if (P.SwallowedBy == d3) return true;
+            if (d3.Flying) return false;
+            return d3.EdgeDist(PlayerPos) <= (P.HasFeat("Extended Grasp") ? 1 : 0);
+        }
         int dx = Math.Abs(e.Position.X - PlayerPos.X);
         int dy = Math.Abs(e.Position.Y - PlayerPos.Y);
         if (P.HasFeat("Extended Grasp"))
@@ -308,6 +324,118 @@ partial class CombatSession
         }
     }
 
+    // ── ELIXIRS: the dragon-hoard potions. Each lasts a rolled number of
+    // turns; when it expires its gifts are taken back. Returns extra actions
+    // granted by the draught (Rapid and friends).
+    int DrinkElixir()
+    {
+        var carried = P.SpecialPotions.Where(kv => kv.Value > 0).Select(kv => kv.Key).OrderBy(n => n).ToList();
+        if (!carried.Any()) { Console.WriteLine("  You carry no elixirs."); return 0; }
+        Console.WriteLine("\n  ── ELIXIRS ──");
+        for (int i = 0; i < carried.Count; i++)
+            Console.WriteLine($"  [{i + 1,2}] {carried[i]} x{P.SpecialPotions[carried[i]]}");
+        Console.Write($"  Drink which (1-{carried.Count}, or Enter to cancel): ");
+        if (!int.TryParse(GameIO.ReadLine()?.Trim(), out int pi2) || pi2 < 1 || pi2 > carried.Count) return 0;
+        string name = carried[pi2 - 1];
+
+        if (name == "Bright Soul")
+        { Console.WriteLine("  Save it. It knows its moment — it wakes on its own when death takes you."); return 0; }
+
+        P.SpecialPotions[name]--;
+        int extra = 0;
+        void Timed(int turns, Action<Player> expire) => P.ActiveElixirs.Add((name, turns, expire));
+        switch (name)
+        {
+            case "Training Potion":
+                P.SavedStatPoints += 4;
+                Console.WriteLine($"  Knowledge settles into your bones — +4 stat points ({P.SavedStatPoints} banked).");
+                break;
+            case "Rapid":
+            {
+                extra = Rng.Next(2, 5);
+                P.ElixirDoubleMove = true;
+                int t = Rng.Next(3, 7);
+                Timed(t, p => p.ElixirDoubleMove = false);
+                Console.WriteLine($"  The world SLOWS — +{extra} actions now, double movement for {t} turns!");
+                break;
+            }
+            case "Oak Wood":
+            {
+                int dr = Rng.Next(2, 4), t = 5;
+                P.ElixirHealMin = 2; P.ElixirHealMax = 10;
+                P.ArmorDamageReduction += dr; P.ElixirDR += dr;
+                Timed(t, p => { p.ElixirHealMin = p.ElixirHealMax = 0; p.ArmorDamageReduction -= dr; p.ElixirDR -= dr; });
+                Console.WriteLine($"  Your skin grains like heartwood — heal 2-10/turn, -{dr} damage taken, {t} turns. Trees welcome you.");
+                break;
+            }
+            case "Iron Rock":
+            {
+                int dr = Rng.Next(3, 6), t = 6;
+                P.ArmorDamageReduction += dr; P.ElixirDR += dr;
+                Timed(t, p => { p.ArmorDamageReduction -= dr; p.ElixirDR -= dr; });
+                Console.WriteLine($"  You harden to living iron — -{dr} damage taken for {t} turns (but lightning will find you, and rivers are misery).");
+                break;
+            }
+            case "Red Rage":
+                P.RagePoints = Math.Max(P.RagePoints, 1 + (Math.Max(0, P.Level - 2)) / 4 + 1);
+                extra = 1;
+                Console.WriteLine($"  Fury refills your veins — rages restored ({P.RagePoints}), +1 action!");
+                break;
+            case "Blue Sky":
+                P.SpellUses = P.MaxSpellUses(); extra = 1;
+                Console.WriteLine($"  The heavens open in your mind — spells restored ({P.SpellUses}), +1 action!");
+                break;
+            case "Holy Rights":
+                P.PrayerUses = P.MaxPrayerUses(); extra = 1;
+                Console.WriteLine($"  Grace refills the well — prayers restored ({P.PrayerUses}), +1 action!");
+                break;
+            case "Notes Melody":
+            {
+                P.SongTokens = P.MaxSongTokens();
+                P.ElixirSongDouble = true;
+                int t = 6;
+                Timed(t, p => p.ElixirSongDouble = false);
+                Console.WriteLine($"  Music floods back — songs restored ({P.SongTokens}) and they LINGER double for {t} turns!");
+                break;
+            }
+            case "Pirate Booty":
+                P.DuelistPoints += 3; extra = 1;
+                Console.WriteLine($"  Swagger and cunning — +3 duelist points ({P.DuelistPoints}), +1 action!");
+                break;
+            case "Reflex of the Tiger":
+            {
+                int t = 4; extra = 1;
+                P.ElixirAtk += 3; P.ElixirDodge += 4; P.ElixirDmg += 2;
+                Timed(t, p => { p.ElixirAtk -= 3; p.ElixirDodge -= 4; p.ElixirDmg -= 2; });
+                Console.WriteLine($"  Muscles coil like a great cat's — +3 attack, +4 dodge, +2 damage for {t} turns, +1 action!");
+                break;
+            }
+            case "Knight's":
+            {
+                int a = Rng.Next(1, 6), d = Rng.Next(2, 4), t = 5;
+                int heal = Rng.Next(2, 7) + Rng.Next(8, 15);
+                P.ElixirAtk += a; P.ElixirDmg += d;
+                P.HP = Math.Min(P.MaxHP, P.HP + heal);
+                Timed(t, p => { p.ElixirAtk -= a; p.ElixirDmg -= d; });
+                Console.WriteLine($"  Valor like plate around the heart — +{a} attack, +{d} damage for {t} turns, {heal} HP restored. HP:{P.HP}/{P.MaxHP}");
+                break;
+            }
+            case "Rogue's Rose":
+            {
+                int dg = Rng.Next(2, 7), a = Rng.Next(2, 5), t = 4; extra = 1;
+                P.ElixirDodge += dg; P.ElixirAtk += a; P.ElixirDoubleDmgPct = 25;
+                Timed(t, p => { p.ElixirDodge -= dg; p.ElixirAtk -= a; p.ElixirDoubleDmgPct = 0; });
+                Console.WriteLine($"  A thorned sweetness — +{dg} dodge, +{a} attack, 25% double strikes for {t} turns, +1 action!");
+                break;
+            }
+            default:
+                Console.WriteLine("  It tastes of nothing. (Unknown elixir — no effect.)");
+                P.SpecialPotions[name]++;
+                break;
+        }
+        return extra;
+    }
+
     // Which core trait powers the melee weapon in hand (rules as written):
     // two-handed → 1.5×Strength; unarmed/light → better of Str/Dex (Wis for
     // non-lethal); finesse weapons → Smarts when it beats the others.
@@ -360,7 +488,7 @@ partial class CombatSession
     int PDodgeSize()
     {
         int b = P.Climbed ? 1 : 0;
-        b += P.DodgeTrait();   // better of Dexterity / Agility
+        b += P.DodgeTrait() + P.ElixirDodge;   // traits + any elixir coursing through you
         if (_atkEnemy != null)
         {
             b += SizeDodgeRoll(P.Race, _atkEnemy.Race);

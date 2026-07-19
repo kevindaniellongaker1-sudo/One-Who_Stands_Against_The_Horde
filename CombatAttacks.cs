@@ -131,7 +131,7 @@ partial class CombatSession
         if (P.Climbed) Console.WriteLine("  [High ground] +2 attack!");
         // Core traits: Strength drives melee; light/unarmed use the better of
         // Strength/Dexterity (Wisdom for non-lethal); two-handed adds 1.5x Str.
-        int traitAtk = MeleeTraitBonus();
+        int traitAtk = MeleeTraitBonus() + P.ElixirAtk + P.WeaponEnchant();
         if (traitAtk != 0) Console.WriteLine($"  [Traits] {traitAtk:+0;-0} melee attack & damage.");
         dmgBonus += traitAtk;
         // Frenzy: -2 to hit, but the base damage roll is added again (doubled)
@@ -151,6 +151,11 @@ partial class CombatSession
             specAtk += P.PotionAtkBoost;
             Console.WriteLine($"  [Potion] +{P.PotionAtkBoost} attack!");
         }
+
+        // Elixirs: flat damage, and Rogue's Rose sometimes doubles the blow
+        dmgBonus += P.ElixirDmg + P.WeaponEnchant();
+        if (P.ElixirDoubleDmgPct > 0 && Rng.Next(100) < P.ElixirDoubleDmgPct)
+        { dmgBonus += Rng.Next(minDmg, maxDmg + 1); Console.WriteLine("  [Elixir] The strike lands DOUBLE!"); }
 
         // Chi: double damage with a monk weapon / on non-lethal strikes
         if (ChiDoubleMonkDmg && P.IsMonkWeapon(P.HeldWeapon ?? ""))
@@ -443,7 +448,9 @@ partial class CombatSession
         e.KnockedOut = true;
         if (e.HP <= 0) e.HP = 1; // non-lethal: stays at 1 HP
         Console.WriteLine($"  {e.Name} KNOCKED OUT for {e.KOTurns} turns! (KO #{e.KOCount}: {minT}-{maxT}t range)");
-        if (!e.XpAwarded) { e.XpAwarded = true; GainXP(e.XPValue); }
+        // A KO'd dragon is worth 200 (350 is for killing it outright)
+        if (!e.XpAwarded) { e.XpAwarded = true; GainXP(e is Dragon ? 200 : e.XPValue); }
+        if (e is Dragon koDr) ReleaseSwallowed(koDr);
     }
 
     // Non-lethal weapons: unarmed, staff, club, mace, warhammer. These KO living
@@ -464,6 +471,7 @@ partial class CombatSession
     {
         Console.WriteLine($"  {e.Name} is defeated!");
         if (!e.XpAwarded) { e.XpAwarded = true; GainXP(e.XPValue); }
+        if (e is Dragon deadDr) ReleaseSwallowed(deadDr);   // the belly opens
         SweepWarRhythm();
         // Felled wildlife is skinned on the spot: hides 1d9-1, meat 2d6-2
         if (e.IsWildlife)
@@ -880,7 +888,7 @@ partial class CombatSession
             if (huntingBow) { dMin = 2; dMax = 6; }
             dMin = Math.Max(1, dMin + P.MinRangedDmgBonus + P.Dexterity + P.BowTrait());
             dMax = Math.Max(dMin, dMax + P.MinRangedDmgBonus + P.MaxRangedDmgBonus);
-            int a2 = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 1) + SlayerAtk() + HighGround() + arrowAtkBonus + (huntingBow ? 2 : 0) + P.Dexterity + P.BowTrait();
+            int a2 = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 1) + SlayerAtk() + HighGround() + arrowAtkBonus + (huntingBow ? 2 : 0) + P.Dexterity + P.BowTrait() + P.WeaponEnchant();
             int d2 = Rng.Next(tgt.MinDodge, tgt.MaxDodge + 1) + SizeDodgeRoll(tgt.Race, P.Race) - tgt.DodgePenalty;
             Console.WriteLine($"  Arrow at {tgt.Name} ({f2:F0}ft): {a2} vs dodge {d2}.");
             if (a2 >= d2 && !EnemyBlocks(tgt, a2, isRanged: true))
@@ -968,7 +976,7 @@ partial class CombatSession
         if (huntingBow) { dmgMin = 2; dmgMax = 6; }
         dmgMin = Math.Max(1, dmgMin + P.MinRangedDmgBonus + P.Dexterity + P.BowTrait());
         dmgMax = Math.Max(dmgMin, dmgMax + P.MinRangedDmgBonus + P.MaxRangedDmgBonus);
-        int atkRoll = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 1) + SlayerAtk() + HighGround() + arrowAtkBonus + (huntingBow ? 2 : 0) + P.Dexterity + P.BowTrait();
+        int atkRoll = Rng.Next(P.MinRangedAtk, P.MaxRangedAtk + 1) + SlayerAtk() + HighGround() + arrowAtkBonus + (huntingBow ? 2 : 0) + P.Dexterity + P.BowTrait() + P.WeaponEnchant();
         int ddg = Rng.Next(target.MinDodge, target.MaxDodge + 1) + SizeDodgeRoll(target.Race, P.Race) - target.DodgePenalty;
         Console.WriteLine($"  BOW ({feet:F0}ft, dmg {dmgMin}-{dmgMax})! Roll {atkRoll} vs {target.Name}'s dodge {ddg}.");
         SpendArrow();
