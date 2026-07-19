@@ -1832,7 +1832,7 @@ partial class CombatSession
     void GiantMageAction(GiantMage gm)
     {
         if (SilenceTurns > 0) { Console.WriteLine($"  {gm.Name} thunders arcane words — but the silence smothers them!"); return; }
-        // Wave 110+ mages carry volatile flasks — sometimes one comes flying
+        // Wave 121+ mages carry volatile flasks — sometimes one comes flying
         if (gm.ThrowPotions > 0 && Rng.Next(100) < 35 && gm.Position.Feet(PlayerPos) <= 40f)
         {
             gm.ThrowPotions--;

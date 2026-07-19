@@ -516,8 +516,8 @@ List<Enemy> BuildGroup(int waveNum, Random r)
     else
     {
         // Wave 41+: each slot rolls to determine what spawns (ogre is one result, not guaranteed)
-        // Wave 110+ the drums beat harder: one extra roll per group
-        int slots = Math.Min(waveNum - 40, 10) + (waveNum >= 110 ? 1 : 0);
+        // Wave 121+ the drums beat harder: one extra roll per group
+        int slots = Math.Min(waveNum - 40, 10) + (waveNum >= 121 ? 1 : 0);
         int trolls = Math.Max(0, 10 - slots);
         for (int i = 0; i < trolls; i++) g.Add(Troll.RandType(r, $"Troll {i + 1}"));
         for (int i = 0; i < slots && i < 12; i++)
@@ -736,8 +736,22 @@ void OutfitLateGameHorde(Enemy e, int wave, Random r)
             Dmg(2);                                     // honed weapon upgrade
         }
 
-        // ── Wave 110+: the horde's masters and specialists come into their own ──
-        if (wave >= 110)
+        // ── Wave 111+: seasoned campaigners — a fitting boost by calling,
+        // bridging the elites of 101 and the masters of 121 ──
+        if (wave >= 111)
+        {
+            Hp(r.Next(5, 11));
+            Atk(1); Dmg(1); Hp(1);                      // 4 points, spent simply
+            if (caster)
+            { e.SpellUsesLeft++; e.PrayerUsesLeft++; e.SongUsesLeft++; }   // deeper wells
+            else if (skirmish)
+            { e.MinDodge++; e.MaxDodge++; }             // quicker on their feet
+            else Dmg(1);                                // fighters just hit harder
+            e.XPValue += r.Next(10, 21);
+        }
+
+        // ── Wave 121+: the horde's masters and specialists come into their own ──
+        if (wave >= 121)
         {
             if (e is OrcMonk omk)
             {
