@@ -173,8 +173,23 @@ partial class CombatSession
             {
                 e.BuffPotions--;
                 actions--;
-                string[] warPotions = { "Rapid", "Iron Rock", "Red Rage", "Blue Sky", "Holy Rights",
-                                        "Notes Melody", "Pirate Booty", "Reflex of the Tiger", "Rogue's Rose" };
+                // 131-150: whatever bottle they grabbed from the hoard.
+                // 151+: veterans pack potions that FIT their calling.
+                string[] warPotions;
+                if (e.Level >= 151)
+                {
+                    var fit = new List<string> { "Rapid", "Iron Rock" };   // useful to anyone
+                    if (e is SpellGoblin or GiantMage or NecromancerTroll) fit.Add("Blue Sky");
+                    else if (e is TrollPriest or GiantPriest or OrcPriestess or HobgoblinCleric or GoblinShaman) fit.Add("Holy Rights");
+                    else if (e is TrollMusician) fit.Add("Notes Melody");
+                    else if (e is RogueGoblin or HobgoblinThief or OrcRanger or OrcMonk)
+                    { fit.Add("Reflex of the Tiger"); fit.Add("Rogue's Rose"); }
+                    else { fit.Add("Red Rage"); fit.Add("Pirate Booty"); fit.Add("Reflex of the Tiger"); }
+                    warPotions = fit.ToArray();
+                }
+                else
+                    warPotions = new[] { "Rapid", "Iron Rock", "Red Rage", "Blue Sky", "Holy Rights",
+                                         "Notes Melody", "Pirate Booty", "Reflex of the Tiger", "Rogue's Rose" };
                 string quaffed = warPotions[Rng.Next(warPotions.Length)];
                 switch (quaffed)
                 {
