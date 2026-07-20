@@ -962,14 +962,14 @@ void GainXP(int xp)
             {
                 pl.SavedStatPoints++;
                 Console.WriteLine($"  Stat point gained! (Total saved: {pl.SavedStatPoints})");
-                SpendStatPoints(pl);
+                ConfirmSection(pl, "level-up point buy", () => SpendStatPoints(pl));
             }
 
             if (pl.Level % 5 == 0)
             {
                 pl.GearPointsAvailable++;
                 Console.WriteLine($"  Gear point earned! (Level {pl.Level} milestone)");
-                SpendGearPoints(pl);
+                ConfirmSection(pl, "gear point", () => SpendGearPoints(pl));
             }
             if (pl.CharacterType == "Berserker")
             {
@@ -1004,7 +1004,7 @@ void GainXP(int xp)
 // stat-point pool, so the point buy has to come last or those are lost.
 // All of it runs inside SelectRace, which AskName calls.
 
-void SelectFeats(Player p)
+bool SelectFeats(Player p, bool allowBack = false)
 {
     while (p.PendingFeats > 0)
     {
@@ -1025,8 +1025,10 @@ void SelectFeats(Player p)
             Console.WriteLine($"       {avail[i].Desc}");
         }
 
-        Console.Write($"{p.Name} — select feat (1-{avail.Count}): ");
-        if (int.TryParse(GameIO.ReadLine()?.Trim(), out int fi) && fi >= 1 && fi <= avail.Count)
+        Console.Write(allowBack ? $"{p.Name} — select feat (1-{avail.Count}), [B]ack to core traits: " : $"{p.Name} — select feat (1-{avail.Count}): ");
+        string featIn = (GameIO.ReadLine() ?? "").Trim();
+        if (allowBack && featIn.ToLower() is "b" or "back") return true;
+        if (int.TryParse(featIn, out int fi) && fi >= 1 && fi <= avail.Count)
         {
             var f = avail[fi - 1];
             p.AddFeat(f.Name);
@@ -1128,6 +1130,7 @@ void SelectFeats(Player p)
         }
         else Console.WriteLine("Invalid. Try again.");
     }
+    return false;
 }
 
 // The full point-buy catalogue, ordered by price → type → name (the display
@@ -1257,7 +1260,22 @@ List<BuyOpt> BuyCatalogue()
     return L;
 }
 
-void SpendStatPoints(Player p)
+// Run a level-up section, then let the player keep or redo it. On "no" the
+// character is restored to exactly before the section and it runs again.
+void ConfirmSection(Player pl, string label, Action run)
+{
+    while (true)
+    {
+        var snap = pl.Snapshot();
+        run();
+        Console.Write($"  Keep your {label} choices? (Y = yes, N = redo): ");
+        if ((GameIO.ReadLine() ?? "y").Trim().ToLower().StartsWith("n"))
+        { pl.RestoreFrom(snap); Console.WriteLine("  Reverted — choose again."); }
+        else return;
+    }
+}
+
+bool SpendStatPoints(Player p, bool allowBack = false)
 {
     var all = BuyCatalogue();
     while (p.SavedStatPoints > 0)
@@ -1277,8 +1295,9 @@ void SpendStatPoints(Player p)
         // Special purchases keep their own costs
         if (p.SavedStatPoints >= 3) Console.WriteLine($"  ── 3 points ──\n      [{menu.Count + 1}] Gear point");
         if (p.SavedStatPoints >= 4) Console.WriteLine($"  ── 4 points ──\n      [{menu.Count + 2}] Extra action per turn      [{menu.Count + 3}] Pick a feat");
-        Console.Write("  Choice ([S]ave the rest for later): ");
+        Console.Write(allowBack ? "  Choice ([S]ave the rest, [B]ack to feats): " : "  Choice ([S]ave the rest for later): ");
         string raw = (GameIO.ReadLine() ?? "s").Trim().ToLower();
+        if (allowBack && raw is "b" or "back") return true;
         if (raw is "s" or "save" or "") break;
         if (!int.TryParse(raw, out int ch) || ch < 1) { Console.WriteLine("  Invalid."); continue; }
 
@@ -1298,6 +1317,7 @@ void SpendStatPoints(Player p)
         else Console.WriteLine("  Invalid choice or insufficient points.");
     }
     if (p.SavedStatPoints > 0) Console.WriteLine($"  Saving {p.SavedStatPoints} point(s) for later.");
+    return false;
 }
 
 
@@ -1358,7 +1378,7 @@ void AskName(Player p)
 {
     Console.Write("\nFirst name (or Enter for 'The Lone Warrior'): ");
     string first = (GameIO.ReadLine() ?? "").Trim();
-    if (string.IsNullOrEmpty(first)) { SelectRace(p); return; }
+    if (string.IsNullOrEmpty(first)) { p.Name = "The Lone Warrior"; RunCreation(p); return; }
 
     Console.Write("Middle name (or Enter to skip): ");
     string middle = (GameIO.ReadLine() ?? "").Trim();
@@ -1370,10 +1390,10 @@ void AskName(Player p)
         ? $"{first} {last}".Trim()
         : $"{first} {middle} {last}".Trim();
 
-    SelectRace(p);
+    RunCreation(p);
 }
 
-void SelectRace(Player p)
+bool RaceStage(Player p, bool allowBack = false)
 {
     // Listed by size (small → medium → large), then kin-group, then alphabetically,
     // so relatives like the three elves always sit together.
@@ -1412,8 +1432,9 @@ void SelectRace(Player p)
         Console.WriteLine($"  [{i + 1,2}] {sorted[i].Name,-19} — {sorted[i].Blurb}");
     }
     Console.WriteLine("  (Size matters: small races get attack/dodge bonuses vs bigger foes; see race notes)");
-    Console.Write($"  Choice (1-{races.Length} or name): ");
+    Console.Write(allowBack ? $"  Choice (1-{races.Length} or name, [B]ack to class): " : $"  Choice (1-{races.Length} or name): ");
     string raw = (GameIO.ReadLine() ?? "").Trim();
+    if (allowBack && raw.ToLower() is "b" or "back") return true;
     string chosen = "Human";
     if (int.TryParse(raw, out int ridx) && ridx >= 1 && ridx <= races.Length)
         chosen = races[ridx - 1];
@@ -1424,9 +1445,6 @@ void SelectRace(Player p)
     }
     p.Race = chosen;
     Console.WriteLine($"  You are a {chosen}!");
-
-    // Class selection first so Stone Dwarf can double the class-set HP
-    SelectCharacterType(p);
 
     // Helpers to apply symmetric (min+max) bonuses cleanly. Every roll stat is
     // clamped so a racial penalty can never drive a roll to zero/negative or
@@ -1585,18 +1603,81 @@ void SelectRace(Player p)
     }
 
     ApplyRaceTraits(p);
+    return false;
+}
 
-    // Creation order: core traits → feats → point buy
-    SelectCoreTraits(p);
-    if (p.PendingFeats > 0) SelectFeats(p);
-    Console.WriteLine($"\n  You have {p.SavedStatPoints} points to spend on starting stats!");
-    SpendStatPoints(p);
-    SelectAppearance(p);
+// ══ CREATION ORCHESTRATOR ═════════════════════════════════════════════════
+// Runs the sections in order, letting the player step BACK a section (each
+// section's own prompt offers [B]ack). Because sections stack stat/feat/point
+// changes, we snapshot the character before each one and restore the earlier
+// snapshot on a step-back. Ends with a full character sheet and a keep/redo
+// prompt — "no" rebuilds from scratch (the name is kept).
+void RunCreation(Player p)
+{
+    var afterName = p.Snapshot();   // clean slate with the name set
+    while (true)
+    {
+        var stages = new (string Label, Func<bool> Run)[]
+        {
+            ("class",      () => SelectCharacterType(p, allowBack: true)),
+            ("race",       () => RaceStage(p, allowBack: true)),
+            ("core traits",() => SelectCoreTraits(p, allowBack: true)),
+            ("feats",      () => p.PendingFeats > 0 && SelectFeats(p, allowBack: true)),
+            ("point buy",  () => { Console.WriteLine($"\n  You have {p.SavedStatPoints} points to spend on starting stats!"); return SpendStatPoints(p, allowBack: true); }),
+            ("appearance", () => SelectAppearance(p, allowBack: true)),
+        };
+        var snaps = new Player[stages.Length];
+        int i = 0;
+        while (i < stages.Length)
+        {
+            snaps[i] = p.Snapshot();
+            bool back = stages[i].Run();
+            if (back)
+            {
+                if (i == 0) { Console.WriteLine("  (This is the first step — nothing to go back to.)"); continue; }
+                p.RestoreFrom(snaps[i - 1]);
+                Console.WriteLine($"  ← Back to {stages[i - 1].Label}.");
+                i--;
+            }
+            else i++;
+        }
+        if (ShowCharacterSheetAndConfirm(p)) return;
+        p.RestoreFrom(afterName);
+        Console.WriteLine("\n  Very well — let's build a different character. Starting over.\n");
+    }
+}
+
+// The full character sheet at the end of creation: keep it, or rebuild?
+bool ShowCharacterSheetAndConfirm(Player p)
+{
+    Console.WriteLine("\n═══════════════ YOUR CHARACTER ═══════════════");
+    Console.WriteLine($"  Name:  {p.Name}");
+    Console.WriteLine($"  Race:  {p.Race}          Class: {p.CharacterType}");
+    Console.WriteLine($"  HP:    {p.HP}/{p.MaxHP}");
+    Console.WriteLine($"  Core:  STR {p.Strength}  DEX {p.Dexterity}  CON {p.Constitution}  INT {p.Intelligence}  WIS {p.Wisdom}  SMT {p.Smarts}  CHA {p.Charisma}  AGI {p.Agility}");
+    Console.WriteLine("  ── Roll skills (min-max) ──");
+    Console.WriteLine($"    Attack {p.MinAttack}-{p.MaxAttack}   Damage {p.MinDamage}-{p.MaxDamage}   Dodge {p.MinDodge}-{p.MaxDodge}   Block {p.MinBlock}-{p.MaxBlock}   Parry {p.MinParry}-{p.MaxParry}");
+    Console.WriteLine($"    Grapple {p.MinGrapple}-{p.MaxGrapple}   Ranged {p.MinRangedAtk}-{p.MaxRangedAtk}   Spell {p.MinSpellAtk}-{p.MaxSpellAtk}   Move {p.MinMovement}-{p.MaxMovement}");
+    string gear = string.Join(", ", new[] { p.HeldWeapon, p.SecondaryWeapon }.Where(w => !string.IsNullOrEmpty(w)));
+    if (p.MainArmor is not ("Cloth" or "none")) gear += (gear.Length > 0 ? ", " : "") + p.MainArmor;
+    if (p.RobeWorn.Length > 0) gear += (gear.Length > 0 ? ", " : "") + p.RobeWorn;
+    if (p.OffHandShieldName != null) gear += (gear.Length > 0 ? ", " : "") + p.OffHandShieldName;
+    Console.WriteLine($"  Gear:  {(gear.Length > 0 ? gear : "unarmed")}");
+    Console.WriteLine($"  Feats: {(p.Feats.Any() ? string.Join(", ", p.Feats) : "none")}");
+    if (p.KnownSpells.Any()) Console.WriteLine($"  Spells: {string.Join(", ", p.KnownSpells)}");
+    if (p.CanPray)  Console.WriteLine($"  Prayers: available ({p.PrayerUses}/{p.MaxPrayerUses()} uses)");
+    if (p.CanSing)  Console.WriteLine($"  Songs: {p.MusicInstrument} ({p.SongTokens}/{p.MaxSongTokens()} tokens)");
+    if (p.IsMonk)   Console.WriteLine($"  Chi: {p.ChiUses}/{p.MaxChiUses()} uses");
+    if (p.SavedStatPoints > 0) Console.WriteLine($"  Unspent stat points: {p.SavedStatPoints}");
+    Console.WriteLine("═══════════════════════════════════════════════");
+    Console.Write("  Keep this character? (Y = play, N = rebuild): ");
+    string r = (GameIO.ReadLine() ?? "y").Trim().ToLower();
+    return !r.StartsWith("n");
 }
 
 // Core traits: 16 points, 1 point per +1, cap +4. Dropping a trait to -1/-2
 // refunds points to spend elsewhere. Chosen before feats and the point buy.
-void SelectCoreTraits(Player p)
+bool SelectCoreTraits(Player p, bool allowBack = false)
 {
     string[] names = { "Strength", "Dexterity", "Constitution", "Intelligence",
                        "Wisdom", "Smarts", "Charisma", "Agility" };
@@ -1630,8 +1711,9 @@ void SelectCoreTraits(Player p)
         for (int i = 0; i < 8; i++)
             Console.WriteLine($"  [{i + 1}] {names[i],-13} {Get(i),2}   — {blurb[i]}");
         Console.WriteLine($"  Points left: {left}");
-        Console.Write("  Pick a trait to set (1-8), or [9] done: ");
+        Console.Write(allowBack ? "  Pick a trait to set (1-8), [9] done, [B]ack to race: " : "  Pick a trait to set (1-8), or [9] done: ");
         string raw = (GameIO.ReadLine() ?? "").Trim();
+        if (allowBack && raw.ToLower() is "b" or "back") return true;
         if (raw is "9" or "done" or "") { if (left >= 0) break; Console.WriteLine("  You're over budget — lower something first."); continue; }
         int ti;
         if (int.TryParse(raw, out int tn) && tn >= 1 && tn <= 8) ti = tn - 1;
@@ -1665,6 +1747,7 @@ void SelectCoreTraits(Player p)
     Console.WriteLine($"  Traits locked in. HP {p.MaxHP}, +{p.TraitStatPoints()} stat points, " +
                       $"+{p.ExtraActionsFromAgility()} action(s)." +
                       (p.IsMonk ? $" Chi: {p.ChiUses}." : ""));
+    return false;
 }
 
 // Behavioral flags derived purely from race. Numeric stat bonuses live in
@@ -1708,7 +1791,7 @@ void ApplyRaceTraits(Player p)
 }
 
 // Gender and full layered appearance, so the on-screen character is theirs.
-void SelectAppearance(Player p)
+bool SelectAppearance(Player p, bool allowBack = false)
 {
     string Pick(string label, string[] opts, int dflt)
     {
@@ -1721,8 +1804,9 @@ void SelectAppearance(Player p)
         return (m ?? opts[dflt]).ToLower();
     }
 
-    Console.Write("\nGender: [1] Male  [2] Female  [3] Neutral (default): ");
+    Console.Write(allowBack ? "\nGender: [1] Male  [2] Female  [3] Neutral (default), [B]ack to point buy: " : "\nGender: [1] Male  [2] Female  [3] Neutral (default): ");
     string g = (GameIO.ReadLine() ?? "").Trim().ToLower();
+    if (allowBack && g is "b" or "back") return true;
     p.Gender = g switch { "1" or "m" or "male" => "male", "2" or "f" or "female" => "female", _ => "neutral" };
 
     p.HairColor  = Pick("Hair color", new[] { "Black", "Blonde", "Brown", "Red", "White" }, 0);
@@ -1749,9 +1833,10 @@ void SelectAppearance(Player p)
 
     Console.WriteLine($"\n  {p.Gender} {p.Race} {p.CharacterType}: {p.HairLength} {p.HairColor} hair, {p.EyeColor} eyes, " +
         $"{p.ClothingColor} clothes, {p.Headwear}" + (p.FacialHair != "none" ? $", {p.FacialHair}" : "") + ".");
+    return false;
 }
 
-void SelectCharacterType(Player p)
+bool SelectCharacterType(Player p, bool allowBack = false)
 {
     var types = new[] { "Mage", "Priest", "Warrior", "Duelist", "Archer", "Martial Artist", "Berserker", "Musician", "Artisan" };
     Console.WriteLine("\nChoose your character type:");
@@ -1764,8 +1849,9 @@ void SelectCharacterType(Player p)
     Console.WriteLine("  [7] Berserker      — Great Axe; Whirlwind spin + Rage (survive lethal hits)");
     Console.WriteLine("  [8] Musician       — Pick an instrument; songs buff the whole party (linger 1d4 turns)");
     Console.WriteLine("  [9] Artisan        — Gathers wood/stone/ore/hides; crafts weapons, armor and arrows");
-    Console.Write("  Choice (1-9 or name): ");
+    Console.Write(allowBack ? "  Choice (1-9 or name, [B]ack to name): " : "  Choice (1-9 or name): ");
     string raw = (GameIO.ReadLine() ?? "").Trim();
+    if (allowBack && raw.ToLower() is "b" or "back") return true;
     string chosen = "Warrior";
     if (int.TryParse(raw, out int cidx) && cidx >= 1 && cidx <= types.Length)
         chosen = types[cidx - 1];
@@ -1920,6 +2006,7 @@ void SelectCharacterType(Player p)
     // 12 points at creation. The point buy itself runs later, after core
     // traits and feats (traits and Human/race bonuses add to the pool first).
     p.SavedStatPoints = 12;
+    return false;
 }
 
 // ── The travelling merchant: visits the party after every group ────────────

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -295,6 +296,42 @@ class Player
     {
         MaxHP = rng.Next(3, 13);
         HP = MaxHP;
+    }
+
+    // ── Snapshot / restore: lets creation and level-up "go back" and undo ──
+    // Snapshot is a deep clone; RestoreFrom copies a snapshot's every field
+    // back into this SAME object (so allPlayers' reference stays valid).
+    public Player Snapshot()
+    {
+        var c = (Player)MemberwiseClone();
+        c.Feats = new List<string>(Feats);
+        c.FeatStacks = new Dictionary<string, int>(FeatStacks);
+        c.GearCounts = new Dictionary<string, int>(GearCounts);
+        c.KnownSpells = new List<string>(KnownSpells);
+        c.WeaponSpec = new Dictionary<string, int>(WeaponSpec);
+        c.DuelistEffectTurns = new Dictionary<string, int>(DuelistEffectTurns);
+        c.BrokenLimbs = new List<string>(BrokenLimbs);
+        c.SpecialPotions = new Dictionary<string, int>(SpecialPotions);
+        c.EnchantedWeapons = new Dictionary<string, int>(EnchantedWeapons);
+        c.ActiveElixirs = new List<(string, int, Action<Player>)>(ActiveElixirs);
+        return c;
+    }
+
+    public void RestoreFrom(Player s)
+    {
+        foreach (var f in typeof(Player).GetFields(BindingFlags.Public | BindingFlags.Instance))
+            if (!f.IsInitOnly) f.SetValue(this, f.GetValue(s));
+        // Re-wrap the mutable collections so this and the snapshot stay separate
+        Feats = new List<string>(s.Feats);
+        FeatStacks = new Dictionary<string, int>(s.FeatStacks);
+        GearCounts = new Dictionary<string, int>(s.GearCounts);
+        KnownSpells = new List<string>(s.KnownSpells);
+        WeaponSpec = new Dictionary<string, int>(s.WeaponSpec);
+        DuelistEffectTurns = new Dictionary<string, int>(s.DuelistEffectTurns);
+        BrokenLimbs = new List<string>(s.BrokenLimbs);
+        SpecialPotions = new Dictionary<string, int>(s.SpecialPotions);
+        EnchantedWeapons = new Dictionary<string, int>(s.EnchantedWeapons);
+        ActiveElixirs = new List<(string, int, Action<Player>)>(s.ActiveElixirs);
     }
 
     public bool HasFeat(string name) => Feats.Contains(name);
