@@ -67,7 +67,7 @@ partial class CombatSession
             return 0;
         }
         // An elemental robe drinks its own element completely
-        foreach (var worn in new[] { P.MainArmor, P.UnderArmor })
+        foreach (var worn in new[] { P.MainArmor, P.UnderArmor, P.RobeWorn })
         {
             string re = RobeElement(worn ?? "");
             if (re.Length == 0) continue;
@@ -86,7 +86,7 @@ partial class CombatSession
         if (absorbPct > 0 && Rng.Next(100) < absorbPct)
         {
             // Monk Garbs turn absorbed magic into CHI for a monk
-            if (P.IsMonk && (P.MainArmor == "Monk Garbs" || P.UnderArmor == "Monk Garbs"))
+            if (P.IsMonk && (P.MainArmor == "Monk Garbs" || P.UnderArmor == "Monk Garbs" || P.RobeWorn == "Monk Garbs"))
             {
                 P.ChiUses++;
                 Console.WriteLine($"  Your Monk Garbs drink the {channel} — it flows into your CHI! ({P.ChiUses})");

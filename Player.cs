@@ -192,6 +192,11 @@ class Player
     public int ArmorEnchant = 0;      // +x to armor; negate chance with shield
     public int ShieldEnchant = 0;     // +x to shield block
     public int WeaponEnchant() => EnchantedWeapons.GetValueOrDefault(HeldWeapon ?? "");
+
+    // Robes/vestments/garbs count as a bottom layer for ability-users
+    public static bool IsRobe(string n) =>
+        n.EndsWith("Robes") || n.EndsWith("Robe") || n.EndsWith("Vestments") || n == "Monk Garbs";
+    public bool AbilityUser => CanSing || CanPray || KnownSpells.Any() || IsMonk;
     public long Copper = 0;                  // purse (100c=1s, 100s=1g, 100g=1p)
     public int BluntArrows = 0;              // non-lethal
     public int BarbedArrows = 0;             // +1d4 damage
@@ -222,8 +227,11 @@ class Player
     public int PackLoad => MaterialLoad + (ArrowOverflow + 9) / 10 + PotionOverflow + ThrowOverflow;
     public int PackRoom => HasBagOfHolding ? int.MaxValue / 4 : Math.Max(0, CarryCap - PackLoad);
     // Armor: one main suit + one under-layer. Cloth = unarmored.
+    // Ability-users (spells/songs/prayers/martial arts) may ALSO wear a robe,
+    // vestment or garb as a true bottom layer beneath both.
     public string MainArmor = "Cloth";
     public string UnderArmor = "";
+    public string RobeWorn = "";
     public int ArmorSpellDR = 0;      // reduction vs enemy spells
     public int ArmorPrayerDR = 0;     // reduction vs enemy prayers
     public int ArmorAbsorbPct = 0;    // chance to absorb spells/prayers (+1 use)

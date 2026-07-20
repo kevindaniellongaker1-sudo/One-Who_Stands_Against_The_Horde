@@ -167,6 +167,28 @@ partial class CombatSession
             // NPCs act 3 times per turn; goblins are quick (+1), ogres slow (-1)
             int actions = 3 + (e.Race == "Goblin" ? 1 : 0) - (e.Race == "Ogre" ? 1 : 0) + e.ExtraActions;
 
+            // Waves 131-140: hoard-raiders quaff a battle-draught as they close
+            if (e.BuffPotions > 0 && actions > 0 && e.Position.ManhattanDist(PlayerPos) <= 8)
+            {
+                e.BuffPotions--;
+                actions--;
+                switch (Rng.Next(3))
+                {
+                    case 0:
+                        e.MinAttack++; e.MaxAttack++; e.MinDamage++; e.MaxDamage++;
+                        Console.WriteLine($"  {e.Name} downs a BATTLE draught — it hits harder now!");
+                        break;
+                    case 1:
+                        e.ArmorDR += 1;
+                        Console.WriteLine($"  {e.Name} downs a STONESKIN draught — its hide toughens!");
+                        break;
+                    default:
+                        e.MinDodge++; e.MaxDodge++;
+                        Console.WriteLine($"  {e.Name} downs a SWIFTNESS draught — it blurs!");
+                        break;
+                }
+            }
+
             // A wounded soldier with a potion drinks it (one action)
             if (e.HealPotions > 0 && e.HP * 5 <= e.MaxHP * 2 && actions > 0)
             {

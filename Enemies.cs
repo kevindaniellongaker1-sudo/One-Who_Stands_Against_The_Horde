@@ -132,6 +132,8 @@ abstract class Enemy
     public int HealPotions = 0;       // hobgoblins at 121+: a swig when wounded
     public int ExtraActions = 0;      // orcs at 121+: one more action per turn
     public bool DoubleRegen = false;  // trolls at 121+: regeneration runs twice as hot
+    public string MagicTrinket = "";  // waves 131-140: a modest wonder looted from the hoard
+    public int BuffPotions = 0;       // waves 131-140: two non-healing draughts to quaff
     // Fear (rage/frenzy/DeathTone): fight = blindly attack the source,
     // flight = blindly run from it, for FearTurns turns.
     public int FearTurns = 0;

@@ -194,6 +194,7 @@ partial class CombatSession
         {
             string w = EnemyWeaponType(e);
             if (w.Length > 0) total += Shop.Sell(w);
+            if (e.MagicTrinket.Length > 0) total += Shop.Gold;   // wonders fence for a gold
             total += e switch
             {
                 Troll t          => t.SpareAxes * Shop.Sell("Hand Axe") + t.EquippedAxes * Shop.Sell("Hand Axe"),
