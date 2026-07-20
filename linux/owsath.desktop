@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=OWSATH
+Comment=One Who Stands Against The Horde - turn-based horde RPG
+Exec=@DIR@/OWSATH
+Path=@DIR@
+Terminal=true
+Categories=Game;RolePlaying;

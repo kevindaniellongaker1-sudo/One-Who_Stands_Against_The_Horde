@@ -36,10 +36,26 @@ Run `publish_to_desktop.bat`. It builds a single self-contained `OWSATH.exe`
 (no .NET needed to play), copies it to your Desktop along with the `assets`
 folder, and you double-click the exe to play.
 
-### Option 3 — Shell script (macOS / Linux)
+### Option 3 — Linux package (no .NET needed)
+
+Grab `OWSATH-linux-x64.tar.gz` (or build it yourself on Windows with
+`publish_linux.bat`), then on the Linux machine:
 
 ```
-./OWSATH.sh
+tar xzf OWSATH-linux-x64.tar.gz
+cd OWSATH-linux
+sh install.sh      # or just: chmod +x OWSATH
+./OWSATH
+```
+
+Self-contained 64-bit binary with raylib bundled — needs a desktop
+session (X11/XWayland), nothing else. Saves land in `~/Desktop/Galaxy
+Sky` (same format as Windows, so characters can move between machines).
+
+### Option 4 — Run from source (macOS / Linux)
+
+```
+dotnet run     # or ./OWSATH.sh
 ```
 
 ## How to play
