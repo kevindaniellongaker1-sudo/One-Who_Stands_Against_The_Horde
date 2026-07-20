@@ -868,10 +868,13 @@ void OutfitLateGameHorde(Enemy e, int wave, Random r)
 
         // ── Waves 131-140: the survivors raided a hoard of their own —
         // modest magical trinkets, two battle-draughts each, and 4 points ──
+        // Wave 131 and up, forever after: every soldier carries two RANDOM
+        // non-healing potions from the dragon-hoard roster, quaffed in battle
+        if (wave >= 131) e.BuffPotions = 2;
+
         if (wave >= 131 && wave <= 140)
         {
             Atk(1); Dmg(1); Hp(2);                      // 4 points
-            e.BuffPotions = 2;
             if (arcane)        { e.MagicTrinket = "Ember Focus"; e.SpellUsesLeft += 1; }
             else if (priestly) { e.MagicTrinket = "Blessed Talisman"; e.PrayerUsesLeft += 1; }
             else if (musician) { e.MagicTrinket = "Silver Tuning Fork"; e.SongUsesLeft += 1; }

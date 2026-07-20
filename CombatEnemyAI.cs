@@ -167,24 +167,52 @@ partial class CombatSession
             // NPCs act 3 times per turn; goblins are quick (+1), ogres slow (-1)
             int actions = 3 + (e.Race == "Goblin" ? 1 : 0) - (e.Race == "Ogre" ? 1 : 0) + e.ExtraActions;
 
-            // Waves 131-140: hoard-raiders quaff a battle-draught as they close
+            // Wave 131+: soldiers carry two RANDOM non-healing potions from the
+            // dragon-hoard roster and quaff them as they close on the fight
             if (e.BuffPotions > 0 && actions > 0 && e.Position.ManhattanDist(PlayerPos) <= 8)
             {
                 e.BuffPotions--;
                 actions--;
-                switch (Rng.Next(3))
+                string[] warPotions = { "Rapid", "Iron Rock", "Red Rage", "Blue Sky", "Holy Rights",
+                                        "Notes Melody", "Pirate Booty", "Reflex of the Tiger", "Rogue's Rose" };
+                string quaffed = warPotions[Rng.Next(warPotions.Length)];
+                switch (quaffed)
                 {
-                    case 0:
-                        e.MinAttack++; e.MaxAttack++; e.MinDamage++; e.MaxDamage++;
-                        Console.WriteLine($"  {e.Name} downs a BATTLE draught — it hits harder now!");
+                    case "Rapid":
+                        actions += 2;
+                        Console.WriteLine($"  {e.Name} downs a RAPID potion — it moves like quicksilver (+2 actions)!");
                         break;
-                    case 1:
-                        e.ArmorDR += 1;
-                        Console.WriteLine($"  {e.Name} downs a STONESKIN draught — its hide toughens!");
+                    case "Iron Rock":
+                        e.ArmorDR += 2;
+                        Console.WriteLine($"  {e.Name} downs an IRON ROCK potion — its hide turns to stone!");
                         break;
-                    default:
-                        e.MinDodge++; e.MaxDodge++;
-                        Console.WriteLine($"  {e.Name} downs a SWIFTNESS draught — it blurs!");
+                    case "Red Rage":
+                        e.MinDamage += 2; e.MaxDamage += 2;
+                        Console.WriteLine($"  {e.Name} downs a RED RAGE potion — fury floods its arms!");
+                        break;
+                    case "Blue Sky":
+                        e.SpellUsesLeft += 3;
+                        Console.WriteLine($"  {e.Name} downs a BLUE SKY potion — magic wells up in it!");
+                        break;
+                    case "Holy Rights":
+                        e.PrayerUsesLeft += 3;
+                        Console.WriteLine($"  {e.Name} downs a HOLY RIGHTS potion — dark prayers replenished!");
+                        break;
+                    case "Notes Melody":
+                        e.SongUsesLeft += 3;
+                        Console.WriteLine($"  {e.Name} downs a NOTES MELODY potion — its war-songs swell!");
+                        break;
+                    case "Pirate Booty":
+                        e.MinAttack += 1; e.MaxAttack += 1;
+                        Console.WriteLine($"  {e.Name} downs a PIRATE BOOTY potion — cunning sharpens its strikes!");
+                        break;
+                    case "Reflex of the Tiger":
+                        e.MinAttack += 2; e.MaxAttack += 2; e.MinDodge += 2; e.MaxDodge += 2;
+                        Console.WriteLine($"  {e.Name} downs a REFLEX OF THE TIGER potion — it coils and blurs!");
+                        break;
+                    default:   // Rogue's Rose
+                        e.MinDodge += 2; e.MaxDodge += 2; e.MinAttack += 1; e.MaxAttack += 1;
+                        Console.WriteLine($"  {e.Name} downs a ROGUE'S ROSE potion — thorned grace!");
                         break;
                 }
             }
