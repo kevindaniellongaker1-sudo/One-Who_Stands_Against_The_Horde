@@ -1277,7 +1277,8 @@ List<BuyOpt> BuyCatalogue()
     Add(3, "Spell",    "Gnome Spell Absorb +5%", Gnome, p => p.RaceAbsorbPct += 5);
 
     // ── 5 points: core traits (each also grants what it gave at creation) ──
-    Add(5, "Core Trait", "Agility +1",       Any, p => { p.Agility++; if (p.Agility % 2 == 0) p.AdditionalActions++; });
+    // Agility grants half an action per point — credit only the whole ones
+    Add(5, "Core Trait", "Agility +1",       Any, p => { int was = p.ExtraActionsFromAgility(); p.Agility++; p.AdditionalActions += p.ExtraActionsFromAgility() - was; });
     Add(5, "Core Trait", "Charisma +1",      Any, p => p.Charisma++);
     Add(5, "Core Trait", "Constitution +1",  Any, p => { p.Constitution++; p.MaxHP++; p.HP++; p.RagePoints++; });
     Add(5, "Core Trait", "Dexterity +1",     Any, p => p.Dexterity++);
@@ -1713,11 +1714,11 @@ bool SelectCoreTraits(Player p, bool allowBack = false)
         "melee & grapple attack/damage; two-handed weapons",
         "ranged attack/damage, bows, dodge, movement, sprint, parry/disarm",
         "hit points, rages, resist fire/frost/damage-over-time",
-        "spell uses, spell damage/attack/duration, wands, stat points",
-        "prayer uses, prayer healing/damage, chi, non-lethal weapons, stat points",
-        "duelist points, finesse weapons, parry/disarm, chi, spell range, stat points",
+        "spell uses, spell damage/attack/duration, wands, ½ stat point each",
+        "prayer uses, prayer healing/damage, chi, non-lethal weapons, ½ stat point each",
+        "duelist points, finesse weapons, parry/disarm, chi, spell range, ½ stat point each",
         "song uses, song bonus/duration/healing, fear & convert, song range",
-        "extra actions, dodge, movement, sprint, extra attacks/abilities"
+        "dodge, movement, sprint, extra attacks/abilities, ½ action each"
     };
     int Get(int i) => i switch { 0 => p.Strength, 1 => p.Dexterity, 2 => p.Constitution,
         3 => p.Intelligence, 4 => p.Wisdom, 5 => p.Smarts, 6 => p.Charisma, _ => p.Agility };

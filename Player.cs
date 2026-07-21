@@ -154,7 +154,9 @@ class Player
     public int SongRadiusSquares() => 15 + Charisma;
     public int RangedRangeFeet() => (int)(Dexterity * 1.5);
     public int DotResistPct() => Constitution * 5;
-    public int TraitStatPoints() => Intelligence + Wisdom + Smarts;
+    // Int/Wis/Smarts each grant HALF a stat point, so two trait points buy one
+    // spendable point (rounded down, exactly like Agility's half-actions)
+    public int TraitStatPoints() => (Intelligence + Wisdom + Smarts) / 2;
 
     // ── Racial behavioral traits (re-derived from Race via ApplyRaceTraits) ──
     public int DodgeVsLarge = 0;             // extra dodge vs large attackers
