@@ -441,6 +441,15 @@ List<Enemy> BuildGroup(int waveNum, Random r)
         g.Add(new Dragon(r, "The Dragon's Get"));
         return g;
     }
+    // ── Wave 150: TWO dragons, and half the horde marching behind them ──
+    if (waveNum == 150)
+    {
+        var h = BuildGroup(149, r);
+        g.AddRange(h.Where((he, hi) => hi % 2 == 0));
+        g.Add(new Dragon(r, "The Elder Dragon"));
+        g.Add(new Dragon(r, "The Elder Dragon's Mate"));
+        return g;
+    }
     if (waveNum <= 10)
     {
         if (waveNum == 1)
@@ -603,6 +612,17 @@ List<Enemy> BuildGroup(int waveNum, Random r)
         if (g.Any(e => e is Troll)) g.Add(Troll.RandType(r, "Troll Vanguard"));
         if (g.Any(e => e is Ogre)) g.Add(Ogre.RandType(r, "Ogre Vanguard"));
         if (g.Any(e => e is GiantEnemy)) g.Add(GiantEnemy.RandType(r, "Giant Vanguard"));
+    }
+    // Wave 151+: the horde reforms after the twin dragons — one more of each
+    // kind again, on top of everything before
+    if (waveNum >= 151)
+    {
+        if (g.Any(e => e is Goblin)) g.Add(Goblin.RandType(r, "Goblin Warband"));
+        if (g.Any(e => e is Hobgoblin)) g.Add(Hobgoblin.RandType(r, "Hobgoblin Warband"));
+        if (g.Any(e => e is Orc)) g.Add(Orc.RandType(r, "Orc Warband"));
+        if (g.Any(e => e is Troll)) g.Add(Troll.RandType(r, "Troll Warband"));
+        if (g.Any(e => e is Ogre)) g.Add(Ogre.RandType(r, "Ogre Warband"));
+        if (g.Any(e => e is GiantEnemy)) g.Add(GiantEnemy.RandType(r, "Giant Warband"));
     }
 
     // Enemy casters: uses = floor(lowestPlayerLevel * 0.80), minimum 1
@@ -884,6 +904,14 @@ void OutfitLateGameHorde(Enemy e, int wave, Random r)
             // Ability-users learn the robes-under-armor trick too — a light
             // layer over the robe, deliberately not too strong
             if (caster && e.SpellAbsorbPct > 0) { e.ArmorWorn += " over robes"; e.ArmorDR += 2; }
+        }
+
+        // ── Wave 151+: hardened by the twin dragons' war — +5 HP and 6 more
+        // points on every soldier, on top of the 141+ veteran kit ──
+        if (wave >= 151)
+        {
+            Hp(5);
+            Atk(2); Dmg(2); Hp(2);                      // 6 points
         }
 
         // ── Wave 141+: back to plain steel at normal strength, but wiser —
