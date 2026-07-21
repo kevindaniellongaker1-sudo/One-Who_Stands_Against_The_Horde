@@ -645,7 +645,7 @@ partial class CombatSession
         corpse.IsUndead = true; corpse.FearImmune = true;   // the dead know no fear
         // Clear status effects and strip all feats / special abilities
         corpse.KnockedOut = false; corpse.KnockedDown = false; corpse.OffBalance = false;
-        corpse.Disarmed = false; corpse.Grappled = false; corpse.Charmed = false;
+        corpse.Disarmed = false; corpse.Grappled = false; corpse.GrappledPart = ""; corpse.Charmed = false;
         corpse.CanMove = true; corpse.KOCount = 0; corpse.KOTurns = 0;
         corpse.BleedDmg = 0; corpse.BurningDmg = 0; corpse.BurningTurns = 0;
         corpse.FrostPenalty = 0; corpse.FrostTurns = 0;
@@ -1134,6 +1134,48 @@ partial class CombatSession
     int GrappleStyleTier() =>
         new[] { "Kehon", "Judo", "Taekwondo", "Chidia" }.Count(f => P.HasFeat(f));
 
+    // What holding a given part does to a foe. A grip is exclusive — taking a
+    // new one releases the last, so switching trades one advantage for another.
+    void ApplyGrappleHold(Enemy t, string part)
+    {
+        // Clear whatever the previous grip was imposing
+        t.AttackPenalty = Math.Max(0, t.AttackPenalty - 2);
+        t.DodgePenalty = Math.Max(0, t.DodgePenalty - 2);
+        t.CanMove = true;
+        switch (part)
+        {
+            case "Left Arm":
+            case "Right Arm":
+                t.Disarmed = true; t.AttackPenalty += 2;
+                Console.WriteLine($"  You wrench {t.Name}'s {part.ToLower()} behind them — their weapon drops and their swings falter (-2 attack).");
+                break;
+            case "Left Leg":
+            case "Right Leg":
+                t.CanMove = false; t.OffBalance = true;
+                Console.WriteLine($"  You hook {t.Name}'s {part.ToLower()} — they cannot take a step.");
+                break;
+            case "Neck/Head":
+                t.DodgePenalty += 2; t.OffBalance = true;
+                Console.WriteLine($"  You lock an arm around {t.Name}'s throat — they choke and stagger (-2 dodge).");
+                break;
+            default:   // Chest
+                t.AttackPenalty += 2; t.CanMove = false;
+                Console.WriteLine($"  You crush {t.Name} chest-to-chest — pinned and short of breath (-2 attack).");
+                break;
+        }
+    }
+
+    // Let go: the grip and everything it imposed
+    void ReleaseGrapple(Enemy t)
+    {
+        if (t.GrappledPart.Length == 0) { t.Grappled = false; return; }
+        t.AttackPenalty = Math.Max(0, t.AttackPenalty - 2);
+        t.DodgePenalty = Math.Max(0, t.DodgePenalty - 2);
+        t.CanMove = true;
+        t.GrappledPart = "";
+        t.Grappled = false;
+    }
+
     void DoGrapple(Enemy target, bool reaction = false, bool isBonus = false)
     {
         int gst2 = GrappleStyleTier();
@@ -1147,8 +1189,28 @@ partial class CombatSession
         Console.WriteLine($"  Grapple! Roll {gRoll} vs {target.Name}'s dodge {dRoll}.");
         if (gRoll < dRoll) { Console.WriteLine("  Grapple FAILED!"); return; }
 
+        // Re-grappling a foe you already hold is a GRIP SWITCH: it cost you
+        // this action and demanded a fresh roll, same as taking hold anew.
+        bool switching = target.Grappled && target.GrappledPart.Length > 0;
         target.Grappled = true;
-        Console.WriteLine($"  Grapple SUCCESS! {target.Name} is grappled.");
+        Console.WriteLine(switching
+            ? $"  Grip SWITCHED on {target.Name} — you had their {target.GrappledPart}."
+            : $"  Grapple SUCCESS! {target.Name} is grappled.");
+
+        // Where exactly have you got them?
+        Console.Write("  Seize which part? [1] Left Arm  [2] Right Arm  [3] Left Leg  [4] Right Leg  [5] Chest  [6] Neck/Head: ");
+        string partIn = (GameIO.ReadLine() ?? "5").Trim().ToLower();
+        string part = partIn switch
+        {
+            "1" or "left arm" or "la" => "Left Arm",
+            "2" or "right arm" or "ra" => "Right Arm",
+            "3" or "left leg" or "ll" => "Left Leg",
+            "4" or "right leg" or "rl" => "Right Leg",
+            "6" or "neck" or "head" or "neck/head" => "Neck/Head",
+            _ => "Chest",
+        };
+        target.GrappledPart = part;
+        ApplyGrappleHold(target, part);
 
         string gOpts = P.HasFeat("Judo") ? "[H]old  [T]hrow  [D]isarm" : "[H]old  [T]hrow";
         Console.Write($"  Option: {gOpts}: ");
@@ -1156,7 +1218,7 @@ partial class CombatSession
 
         if (go.StartsWith("t"))
         {
-            target.Grappled = false; target.KnockedDown = true;
+            ReleaseGrapple(target); target.KnockedDown = true;
             Console.WriteLine($"  {target.Name} thrown to the ground!");
             // Judo Orange Belt: a reaction throw hurls them a square clear
             if (reaction && P.HasFeat("Judo Orange Belt"))
@@ -1169,7 +1231,7 @@ partial class CombatSession
         }
         else if (go.StartsWith("d") && P.HasFeat("Judo"))
         {
-            target.Grappled = false; target.Disarmed = true;
+            ReleaseGrapple(target); target.Disarmed = true;
             var judoDrop = RandomAdjacent(target.Position);
             target.WeaponPos = judoDrop;
             string judoWpType = EnemyWeaponType(target);
@@ -1180,7 +1242,8 @@ partial class CombatSession
         {
             int minGD = P.MinGrappleDmg + P.GetFeatStacks("Closeliner");
             int gDmg = Rng.Next(minGD, P.MaxGrappleDmg + 1) + SlayerDmg()
-                     + (P.HasFeat("Kehon Orange Belt") ? 2 : 0);   // +2 grapple damage
+                     + (P.HasFeat("Kehon Orange Belt") ? 2 : 0)    // +2 grapple damage
+                     + (target.GrappledPart == "Neck/Head" ? 2 : 0);   // a choke bites deeper
             // Martial Artist: +1d4 grapple damage every 4 levels from L2
             if (P.CharacterType == "Martial Artist" && P.Level >= 2)
             {
@@ -1218,7 +1281,7 @@ partial class CombatSession
                 if ((GameIO.ReadLine() ?? "").Trim().ToLower() == "y")
                 {
                     KnockOut(target);
-                    target.Grappled = false;
+                    ReleaseGrapple(target);
                 }
             }
         }

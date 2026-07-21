@@ -56,6 +56,7 @@ abstract class Enemy
     public bool OffBalance = false;
     public bool Disarmed = false;
     public bool Grappled = false;
+    public string GrappledPart = "";   // which limb the player has hold of
     public bool CanMove = true;
     public bool Charmed = false;
     public bool HasFledBefore = false;
@@ -216,7 +217,7 @@ abstract class Enemy
         if (OffBalance) parts.Add("Off-balance");
         if (Disarmed) parts.Add(WeaponPos.HasValue ? $"Disarmed(weapon at {WeaponPos.Value.X},{WeaponPos.Value.Y})" : "Disarmed");
         if (ShieldLost) parts.Add("No Shield");
-        if (Grappled) parts.Add("Grappled");
+        if (Grappled) parts.Add(GrappledPart.Length > 0 ? $"Grappled({GrappledPart})" : "Grappled");
         if (BleedDmg > 0) parts.Add($"Bleed({BleedDmg})");
         if (BurningDmg > 0) parts.Add($"Burning({BurningDmg}×{BurningTurns}t)");
         if (FrostPenalty > 0) parts.Add($"Frozen(-{FrostPenalty}/{FrostTurns}t)");
