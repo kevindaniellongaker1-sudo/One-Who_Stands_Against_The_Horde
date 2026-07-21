@@ -152,6 +152,29 @@ partial class CombatSession
             Console.WriteLine($"  [Potion] +{P.PotionAtkBoost} attack!");
         }
 
+        // ── Orange-belt martial arts (unarmed only) ──
+        bool unarmedNow = string.IsNullOrEmpty(P.HeldWeapon) || P.HeldWeapon == "unarmed";
+        int orangeAtk = 0;
+        if (unarmedNow && P.HasFeat("Chidia Orange Belt"))
+        {
+            orangeAtk += 2;                                   // +2 unarmed attack rolls
+            int cd = Rng.Next(1, 3);                          // +1d2 unarmed damage
+            dmgBonus += cd;
+            Console.WriteLine($"  [Chidia Orange Belt] +2 attack, +{cd} damage — and a kick and punch besides!");
+        }
+        // Power Fist: one chi for +2d4 on a normal unarmed attack roll
+        if (unarmedNow && P.HasFeat("Kehon Orange Belt") && P.ChiUses > 0)
+        {
+            Console.Write($"  [Kehon Orange Belt] POWER FIST for 1 chi (+2d4 damage)? ({P.ChiUses} chi) (y/n): ");
+            if ((GameIO.ReadLine() ?? "n").Trim().ToLower().StartsWith("y"))
+            {
+                P.ChiUses--;
+                int pf = Rng.Next(1, 5) + Rng.Next(1, 5);
+                dmgBonus += pf;
+                Console.WriteLine($"  POWER FIST! +{pf} damage. ({P.ChiUses} chi left)");
+            }
+        }
+
         // Elixirs: flat damage, and Rogue's Rose sometimes doubles the blow
         dmgBonus += P.ElixirDmg + P.WeaponEnchant();
         if (P.ElixirDoubleDmgPct > 0 && Rng.Next(100) < P.ElixirDoubleDmgPct)
@@ -170,6 +193,11 @@ partial class CombatSession
             Console.Write("  [Flurry of Blows] Unleash five attacks? (y/n): ");
             if ((GameIO.ReadLine() ?? "n").Trim().ToLower().StartsWith("y")) flurryCount = 5;
         }
+        // Chidia Orange Belt: a kick AND a punch on top of every attack.
+        // Taekwondo Orange Belt: one extra attack every attack action.
+        if (unarmedNow && P.HasFeat("Chidia Orange Belt")) flurryCount += 2;
+        if (P.HasFeat("Taekwondo Orange Belt")) flurryCount += 1;
+
         // A monk with a monk weapon lands an extra attack per attack — this
         // stacks on top of Fury/Flurry/Double Tap rather than replacing them.
         int monkExtra = P.MonkWeaponExtraAttacks(P.HeldWeapon ?? "");
@@ -182,7 +210,7 @@ partial class CombatSession
         {
             if (fi > 0) Console.WriteLine($"  [Flurry hit {fi + 1}]");
             int rawRoll = ChiReroll(ref ChiRerollAttack, Rng.Next(minAtk, maxAtk + 1), minAtk, maxAtk, "attack");
-            PerformAttack(target, rawRoll + atkPen + warriorAtkBonus - brokenArmPenalty + trueSightAtkBonus + songAtkBonus + sizeAtk + specAtk + frenzyAtk + traitAtk + HighGround(), minDmg, maxDmg, fi == 0 ? dmgBonus : 0, useSunder, useDisarm, fi == 0 && useSap, rawRoll == maxAtk, rawRoll == minAtk);
+            PerformAttack(target, rawRoll + atkPen + warriorAtkBonus - brokenArmPenalty + trueSightAtkBonus + songAtkBonus + sizeAtk + specAtk + frenzyAtk + traitAtk + orangeAtk + HighGround(), minDmg, maxDmg, fi == 0 ? dmgBonus : 0, useSunder, useDisarm, fi == 0 && useSap, rawRoll == maxAtk, rawRoll == minAtk);
         }
 
         // Off-hand (Double Tap)
@@ -1106,11 +1134,12 @@ partial class CombatSession
     int GrappleStyleTier() =>
         new[] { "Kehon", "Judo", "Taekwondo", "Chidia" }.Count(f => P.HasFeat(f));
 
-    void DoGrapple(Enemy target)
+    void DoGrapple(Enemy target, bool reaction = false, bool isBonus = false)
     {
         int gst2 = GrappleStyleTier();
-        int minG = P.MinGrapple + P.GetFeatStacks("Closeliner") + (gst2 >= 2 ? 1 : 0);
-        int maxG = P.MaxGrapple + (gst2 >= 3 ? 2 : 0);
+        int orangeKehon = P.HasFeat("Kehon Orange Belt") ? 1 : 0;   // +1 to grapple rolls
+        int minG = P.MinGrapple + P.GetFeatStacks("Closeliner") + (gst2 >= 2 ? 1 : 0) + orangeKehon;
+        int maxG = P.MaxGrapple + (gst2 >= 3 ? 2 : 0) + orangeKehon;
         int gRoll = Rng.Next(minG, maxG + 1) - P.SprintPenalty + SlayerAtk() + HighGround();
         P.SprintPenalty = 0;
         if (P.EnlargeActive) gRoll *= 2;
@@ -1129,6 +1158,14 @@ partial class CombatSession
         {
             target.Grappled = false; target.KnockedDown = true;
             Console.WriteLine($"  {target.Name} thrown to the ground!");
+            // Judo Orange Belt: a reaction throw hurls them a square clear
+            if (reaction && P.HasFeat("Judo Orange Belt"))
+            {
+                target.Position = new GridPos(
+                    Math.Clamp(target.Position.X + Math.Sign(target.Position.X - PlayerPos.X), 0, 49),
+                    Math.Clamp(target.Position.Y + Math.Sign(target.Position.Y - PlayerPos.Y), 0, 49));
+                Console.WriteLine($"  [Judo Orange Belt] The throw carries {target.Name} a square further — ({target.Position.X},{target.Position.Y})!");
+            }
         }
         else if (go.StartsWith("d") && P.HasFeat("Judo"))
         {
@@ -1142,7 +1179,8 @@ partial class CombatSession
         else
         {
             int minGD = P.MinGrappleDmg + P.GetFeatStacks("Closeliner");
-            int gDmg = Rng.Next(minGD, P.MaxGrappleDmg + 1) + SlayerDmg();
+            int gDmg = Rng.Next(minGD, P.MaxGrappleDmg + 1) + SlayerDmg()
+                     + (P.HasFeat("Kehon Orange Belt") ? 2 : 0);   // +2 grapple damage
             // Martial Artist: +1d4 grapple damage every 4 levels from L2
             if (P.CharacterType == "Martial Artist" && P.Level >= 2)
             {
@@ -1184,13 +1222,28 @@ partial class CombatSession
                 }
             }
         }
+
+        // Taekwondo Orange Belt: one extra grapple every grapple action
+        if (P.HasFeat("Taekwondo Orange Belt") && !isBonus && !reaction)
+        {
+            var second = Active.Where(e => e.Alive && InMeleeReach(e)).ToList();
+            if (second.Any())
+            {
+                Console.Write("  [Taekwondo Orange Belt] A second grapple this action? (y/n): ");
+                if ((GameIO.ReadLine() ?? "n").Trim().ToLower().StartsWith("y"))
+                {
+                    var t2 = PickTarget(second);
+                    if (t2 != null) DoGrapple(t2, isBonus: true);
+                }
+            }
+        }
     }
 
     void JudoPrompt(Enemy target)
     {
         if (!target.Alive) return;
         Console.Write($"  Judo! Free grapple on {target.Name}? (y/n): ");
-        if ((GameIO.ReadLine() ?? "").Trim().ToLower() == "y") DoGrapple(target);
+        if ((GameIO.ReadLine() ?? "").Trim().ToLower() == "y") DoGrapple(target, reaction: true);
     }
 
     void DoHeal()

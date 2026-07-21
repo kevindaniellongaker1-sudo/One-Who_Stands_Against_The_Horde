@@ -1191,6 +1191,7 @@ List<BuyOpt> BuyCatalogue()
     Add(1, "Melee",    "Max Grapple",        Any, p => p.MaxGrapple++);
     Add(1, "Melee",    "Max Grapple Damage", Any, p => p.MaxGrappleDmg++);
     Add(1, "Melee",    "Max Limb Break",     Any, p => p.MaxLimbBreak++);
+    Add(1, "Melee",    "Max Trip",           p => p.HasFeat("Judo Orange Belt"), p => p.MaxTrip++);
     Add(1, "Melee",    "Max Melee Damage",   Any, p => p.MaxDamage++);
     Add(1, "Melee",    "Max Power Attack",   Any, p => p.MaxPowerAtk++);
     Add(1, "Melee",    "Max Disarm Chance",  Any, p => p.DisarmMaxBonus++);
@@ -1233,6 +1234,7 @@ List<BuyOpt> BuyCatalogue()
     Add(2, "Melee",    "Base Grapple",       Any, p => p.MinGrapple++);
     Add(2, "Melee",    "Base Grapple Damage", Any, p => p.MinGrappleDmg++);
     Add(2, "Melee",    "Base Limb Break",    Any, p => p.MinLimbBreak++);
+    Add(2, "Melee",    "Base Trip",          p => p.HasFeat("Judo Orange Belt"), p => p.MinTrip++);
     Add(2, "Melee",    "Base Melee Damage",  Any, p => p.MinDamage++);
     Add(2, "Melee",    "Base Power Attack",  Any, p => p.MinPowerAtk++);
     Add(2, "Melee",    "Base Disarm Chance", Any, p => p.DisarmBonus++);
@@ -3095,6 +3097,7 @@ void SaveGame(Player p, int groups)
         $"MinBardSong={p.MinBardSong}", $"MaxBardSong={p.MaxBardSong}",
         $"MinPowerAtk={p.MinPowerAtk}", $"MaxPowerAtk={p.MaxPowerAtk}",
         $"MinLimbBreak={p.MinLimbBreak}", $"MaxLimbBreak={p.MaxLimbBreak}",
+        $"MinTrip={p.MinTrip}", $"MaxTrip={p.MaxTrip}",
         $"MinPotionHeal={p.MinPotionHeal - 2 * warAdj}", $"MaxPotionHeal={p.MaxPotionHeal - 2 * warAdj}",
         $"SavedStatPoints={p.SavedStatPoints}",
         $"GearPointsAvailable={p.GearPointsAvailable}",
@@ -3214,6 +3217,7 @@ bool TryLoadGame(Player p, string filePath)
         p.MinBardSong = I("MinBardSong"); p.MaxBardSong = I("MaxBardSong");
         p.MinPowerAtk = I("MinPowerAtk"); p.MaxPowerAtk = I("MaxPowerAtk");
         p.MinLimbBreak = I("MinLimbBreak"); p.MaxLimbBreak = I("MaxLimbBreak");
+        if (dict.ContainsKey("MinTrip")) { p.MinTrip = I("MinTrip"); p.MaxTrip = I("MaxTrip"); }
         p.MinPotionHeal = I("MinPotionHeal"); p.MaxPotionHeal = I("MaxPotionHeal");
         p.SavedStatPoints = I("SavedStatPoints");
         p.GearPointsAvailable = I("GearPointsAvailable");

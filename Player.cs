@@ -55,6 +55,7 @@ class Player
     public int MinBardSong = 1, MaxBardSong = 6;
     public int MinPowerAtk = 4, MaxPowerAtk = 4;
     public int MinLimbBreak = 1, MaxLimbBreak = 6;
+    public int MinTrip = 1, MaxTrip = 6;      // Judo Orange Belt: sweep a foe off their feet
     public int MinPotionHeal = 1, MaxPotionHeal = 6;
     public int SavedStatPoints = 0;
     public int GearPointsAvailable = 0;

@@ -358,6 +358,28 @@ partial class CombatSession
                     justBlocked = false;
                     break;
 
+                case "trip":
+                {
+                    // Judo Orange Belt: sweep the legs — down and a square back
+                    var tripTargets = alive.Where(InMeleeReach).ToList();
+                    var tt = PickTarget(tripTargets);
+                    if (tt == null) continue;
+                    int tripRoll = Rng.Next(P.MinTrip, P.MaxTrip + 1) + P.DodgeTrait();
+                    int tripDodge = Rng.Next(tt.MinDodge, tt.MaxDodge + 1);
+                    Console.WriteLine($"  TRIP! Sweep {tt.Name}'s legs: {tripRoll} vs dodge {tripDodge}.");
+                    if (tripRoll >= tripDodge)
+                    {
+                        tt.KnockedDown = true; tt.OffBalance = true;
+                        tt.Position = new GridPos(
+                            Math.Clamp(tt.Position.X + Math.Sign(tt.Position.X - PlayerPos.X), 0, 49),
+                            Math.Clamp(tt.Position.Y + Math.Sign(tt.Position.Y - PlayerPos.Y), 0, 49));
+                        Console.WriteLine($"  {tt.Name} hits the ground a square back — ({tt.Position.X},{tt.Position.Y})!");
+                    }
+                    else Console.WriteLine($"  {tt.Name} keeps their feet.");
+                    justBlocked = false;
+                    break;
+                }
+
                 case "chi":
                     DoChi(alive);
                     continue;   // free action — spends no action
@@ -1538,6 +1560,7 @@ partial class CombatSession
         o.AddRange(new[] { "move", "defend", "healing potion", "run away", "exit" });
         if (P.IsGrappled) o.Add("break grapple");
         if (P.IsMonk && P.ChiUses > 0) o.Add("chi");   // free action — costs no action
+        if (P.HasFeat("Judo Orange Belt") && alive.Any(InMeleeReach)) o.Add("trip");
         if (P.SpecialPotions.Any(kv => kv.Value > 0)) o.Add("elixir");
         if (P.HasFeat("Block")) o.Add("block");
         if (P.HasFeat("Parry") && justBlocked && !(blockTarget is Ogre)) o.Add("parry");
